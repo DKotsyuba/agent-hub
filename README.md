@@ -1,0 +1,72 @@
+# Agent Hub
+
+A terminal-first OpenTUI interface is in `terminal/`. It starts with Run and Bridge observations, and provides read-only Sessions, Agent Pool and Run information views. The earlier desktop prototype remains available below.
+
+## Terminal interface
+
+Use Bun 1.4.4 or newer and the pinned Rust toolchain. Node 26.4 or newer remains available for the existing Node compatibility checks. Install the terminal project's locked dependencies with scripts disabled, then build its local read-only observer:
+
+```sh
+cd terminal
+npm ci --ignore-scripts
+npm run build:observer
+npm start -- --demo
+npm start -- --live
+npm run build:binary
+```
+
+`npm run build:binary` produces `terminal/dist/agent-hub`, a single Linux x64 executable containing Bun, OpenTUI and the native observer. The current build requires glibc 2.39 or newer and an accessible `/proc` filesystem. Live views need the existing Agent Run, Agent Pool and Bridge services and their connection settings; the binary does not install or start them. At startup it extracts its native files into an owned private, executable runtime directory and removes them on normal exit. Set `TMPDIR` to an owned, writable directory outside `/tmp` on an executable filesystem if no suitable runtime directory is available.
+
+The executable alone is not a complete distribution bundle; see [third-party material](docs/third-party-linux.md) for notices and the remaining rebuild verification.
+
+`--demo` uses synthetic data only. `--live` is the default and never falls back to demo when a source fails. Live mode reads the same `connections.json` / `AGENT_HUB_CONFIG` contract as the desktop shell; Run, Pool and Bridge remain independent sources. The development launcher honors `CARGO_TARGET_DIR` when locating the built observer. Pool and Bridge need their separately configured observer-only access and an absolute temporary-directory environment. No source service, agent or model is started or managed by the interface.
+
+On Linux the default connections file is `~/.config/dev.agent-mcp.hub/connections.json`. To use an authorized shared Run socket, set its absolute path and the broker's trusted Unix UID explicitly:
+
+```json
+{"schema_version":1,"run":{"socket":"/absolute/path/to/api.sock","broker_uid":1000},"pool":{"config":"/absolute/path/to/pool.toml"},"bridge":{"config":"/absolute/path/to/interfaces.toml"}}
+```
+
+Omitting `broker_uid` retains the private same-user socket policy. The configured UID must own the socket and its parent and must match the connected peer; the parent cannot be group/world writable and the socket cannot be world accessible. Pool's configuration requires its separate owner observer credential and a running resident; the UI does not provision either. Bridge's interfaces configuration must have an `[observer]` credential backed by a dedicated diagnostics-only grant in the running Bridge service. Neither observer uses participant credentials instead.
+
+Press `?` for keys and `,` for appearance. Click the polling control or press `u` to cycle the visible view's read-only polling through 1, 3, 5 and 10 seconds; it starts at 3 seconds each time the application opens. Press `r` to refresh immediately. Session rows show the reasoning effort reported by Run; `—` means no value was reported. History pairs tool calls and results by their reported reference and name; expand a row to see input and output. A tool row shows source start and result times in local time with seconds, plus their elapsed time when both are known. Unmatched results remain separate. Long messages use `[` and `]` to change the displayed part; the complete source content remains available. Overview scans at most 20 Bridge pages per refresh and labels a bounded scan partial. An answer is shown only when its execution sequence and digest can be verified, including source support for `answer_chunk`. Copying a Run session scans retained lineage through a fixed cursor; concurrent source retention can still remove earlier records, so that export explicitly does not claim complete coverage. Clipboard submission depends on terminal support.
+
+Sessions open at the beginning of retained history. The first retained user message is not proof of the original task, so the view marks it unverified until a source can establish it. The viewport fills from available pages, and scrolling loads later pages; press `G` to follow the latest messages.
+
+Pass a project directory as a positional argument to start with its path-derived worktree group, or `--pool ID` to open a standalone pool directly. `--home DIR` selects `DIR/api.sock` for this invocation and takes precedence over `AGENT_RUN_HOME`; `--socket PATH` takes precedence over both and can be paired with `--broker-uid UID` for an explicitly trusted shared broker. These options do not modify `connections.json`. Use `--version` to display the Hub version. On older Run brokers that explicitly reject grouped transcript options, Hub reads raw forward pages instead; unrelated read failures are not treated as a compatibility fallback.
+
+The Pool view reads only the standalone Agent Pool observer. Its members, journal, proposals, votes and deliveries are independent source sections; a Run session opens only when the current ID and sequence match the reported binding. Sequence reuse after retention means that match alone does not prove historical execution identity. If Run reports the direct status method unavailable, Hub searches at most 32 revision-fenced inventory pages and rechecks that compatibility scan every 30 seconds, or on `r`. When the observer advertises `history_window_v1`, discussion starts at the latest events, `g` loads earlier events, `f`/`G` resumes following, and `y` copies a journal snapshot through its source watermark. Older observers retain forward-only page navigation and do not support snapshot copy. The optional `structured_acceptance_v1` capability exposes criteria and explicitly attributed vote checks. Historical timestamps are not supplied by Pool v1.
+
+The Pool list groups matching loaded records as Open and Closed; these counts are not source-wide totals, and closure does not establish execution completion. When the observer advertises `inventory_snapshot_v1`, a separate line shows exact source-wide retained and closed totals with their snapshot revision; Open and Completed stay unavailable until the source has a completion ledger, and are never derived from closure. On an accepted replacement in Deliveries, Enter or click opens the former member's available Run lineage after rechecking its exact Pool binding. Transcript and answer attribution remain unverified. When Run advertises its exact transcript read, `y` copies a single historical execution only with a freshly verified store, execution reference and active history pin. Incomplete or unverifiable content is refused; the snapshot does not prove current completion or authorship.
+
+When Run advertises `initial_task`, the session's exact initial task is fetched in verified pages and shown under Details only after its total length and SHA-256 match; the History footer then reads `Initial task verified (strict|current)`. Strict requires a store-fenced, pinned, complete Pool binding of sequence 1; current proves only the retained root and makes no pin, coverage or older-binding claim. Any unavailable, mismatched or failed read, or a Run without the capability, keeps `Initial task unverified · showing retained history` (with the reason when a read was attempted); the first retained user message is never presented as the task.
+
+Long Pool messages are reassembled only from matching source parts; incomplete groups remain marked and cannot be copied as complete. With `content_pages_v1`, `e` opens the full purpose and `s` opens the selected proposal snapshot; all byte pages must pass the same revision fence before the text is shown.
+
+For local checks, build the observer first, set `TMPDIR`, `TMP` and `TEMP` to an explicit writable task directory, then run `npm run typecheck` and `npm test` from `terminal/`. Tests use isolated fixtures rather than a live service.
+
+A readable local desktop observer for the Agent MCP family. The accepted React + TypeScript + shadcn/ui interface connects to local tools through the closed Tauri 2 read surface. English and Russian interface localization preserves original task/message/result text.
+
+The owner approved the prototype and the read-only Tauri integration milestone on 2026-10-20. Scope is read-only observation; no agent launches, task generation, runtime control or worktree mutations.
+
+## Local development
+
+Use Node 24+ and npm. Root provisions dependencies with install scripts disabled. Run npm run dev for the fixed loopback preview on port 4173; browser demonstration requires the explicit ?demo=1 selection; npm run typecheck and npm run build verify the frontend.
+
+## Source provenance
+
+Official shadcn/ui components in src/components/ui are unmodified registry sources; see docs/shadcn-provenance.json and docs/SHADCN-LICENSE.md. UI-specific styling lives outside those files.
+
+## Navigation and acceptance
+
+Object details replace the list at every window width. Back and browser Back/Forward retain context; related objects have their own detail screens. Agent rows use one consistent full-width hover/focus/click target.
+
+Run npm run preview after building to serve the reviewed production bundle on http://127.0.0.1:4173. Browser regression is npm run test:browser using the prepared driver; see docs/verification.md for evidence and limits.
+
+## Native read-only application
+
+The native shell exposes only read/watch/unwatch/connection diagnostics. It uses the Run Unix API, structured Worktree/Tasks MCP clients, explicit Pool/Bridge observer helpers and read-only IDE diagnostics. Each source keeps its own freshness, pagination and failure semantics; a failed live source never becomes demonstration data. See docs/native-read-contract.md for exact routes, connection configuration and lifecycle bounds.
+
+Use the pinned Rust1.98.1 and project-specific target/build/TMP directories documented in the family storage register. `node node_modules/@tauri-apps/cli/tauri.js build --debug --bundles app --no-sign --ci -- --offline --locked` produces a local uninstalled app with the default feature set and no test driver. An unsigned debug build is a development artifact, not a published/notarized release.
+
+Native acceptance requires the separate native-e2e debug feature and tauri.native-e2e.conf.json. Run scripts/native-ipc-check.mjs for reviewed current-source reads, or scripts/native-ui-check.mjs for isolated six-source fixtures. Both require an explicit prepared app executable; UI acceptance also requires the root clearance marker. Tests never install/restart resident services. Building Hub does not activate the uncommitted producer API candidates or provision observer grants.

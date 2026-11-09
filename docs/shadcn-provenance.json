@@ -1,0 +1,67 @@
+{
+  "observedOn": "2026-10-20",
+  "style": "new-york",
+  "note": "Unmodified source retrieved directly from the official shadcn/ui registry. Styling overrides belong to application classes and CSS.",
+  "files": [
+    {
+      "name": "button",
+      "url": "https://ui.shadcn.com/r/styles/new-york/button.json",
+      "path": "src/components/ui/button.tsx",
+      "sha256": "c2b999a96781e6c932632bd089095368e973bf5602e1b1a62156b7d2b43f1e84"
+    },
+    {
+      "name": "badge",
+      "url": "https://ui.shadcn.com/r/styles/new-york/badge.json",
+      "path": "src/components/ui/badge.tsx",
+      "sha256": "dab689d836ad3292b41e7f4986b4e68e5d45c6903e4aeaae8972a82d4aebec29"
+    },
+    {
+      "name": "tabs",
+      "url": "https://ui.shadcn.com/r/styles/new-york/tabs.json",
+      "path": "src/components/ui/tabs.tsx",
+      "sha256": "d41aded0394298102614635e15d709369c6bdae8fe79b918b8341ef39407ee03"
+    },
+    {
+      "name": "input",
+      "url": "https://ui.shadcn.com/r/styles/new-york/input.json",
+      "path": "src/components/ui/input.tsx",
+      "sha256": "6299a6a387dc55e528aec4342deaea0b83f1ea3a365c135a31a18ee55334f441"
+    },
+    {
+      "name": "select",
+      "url": "https://ui.shadcn.com/r/styles/new-york/select.json",
+      "path": "src/components/ui/select.tsx",
+      "sha256": "3d93ae07a8f3fe121ba60f4439e26bd7859f247eb8bfcafcf4b4a8a069888eec"
+    },
+    {
+      "name": "dialog",
+      "url": "https://ui.shadcn.com/r/styles/new-york/dialog.json",
+      "path": "src/components/ui/dialog.tsx",
+      "sha256": "fe70a91bb924ef3a40b7504e6847ef9a57aed3b503d2a7dbb7610e821ea40b6f"
+    },
+    {
+      "name": "tooltip",
+      "url": "https://ui.shadcn.com/r/styles/new-york/tooltip.json",
+      "path": "src/components/ui/tooltip.tsx",
+      "sha256": "ce6afa34fb9dae51053a863b4c3f7c6e55f3da23b00149f31a8e4402bc963be0"
+    },
+    {
+      "name": "separator",
+      "url": "https://ui.shadcn.com/r/styles/new-york/separator.json",
+      "path": "src/components/ui/separator.tsx",
+      "sha256": "995c54f1c5c688f712a675fe35d55bcada2b31dba561dcc71553a1ad601e59ec"
+    },
+    {
+      "name": "table",
+      "url": "https://ui.shadcn.com/r/styles/new-york/table.json",
+      "path": "src/components/ui/table.tsx",
+      "sha256": "a4a6972c2d47d465d7f02c1dc4a6cbfeda7a97e46479c1b0cebdaf26bf9b497a"
+    },
+    {
+      "name": "progress",
+      "url": "https://ui.shadcn.com/r/styles/new-york/progress.json",
+      "path": "src/components/ui/progress.tsx",
+      "sha256": "6b3b4b69a1cb361076174892e9a96e1a09020307616965ef89f2f7e2495b57a9"
+    }
+  ]
+}

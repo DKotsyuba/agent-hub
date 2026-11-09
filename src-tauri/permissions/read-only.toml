@@ -1,0 +1,5 @@
+# No command other than these four fixed read routes is granted to the renderer.
+[[permission]]
+identifier = "allow-hub-observation"
+description = "Allows bounded read-only Agent Hub observations and subscription cleanup."
+commands.allow = ["hub_read", "hub_watch", "hub_unwatch", "hub_connections"]

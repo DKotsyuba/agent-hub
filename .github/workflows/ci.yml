@@ -1,0 +1,112 @@
+name: Linux CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  terminal:
+    name: Linux x86_64 terminal
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    env:
+      CARGO_INCREMENTAL: "0"
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_PROFILE_TEST_DEBUG: "0"
+    steps:
+      - name: Prepare private temporary directories
+        run: |
+          umask 077
+          test -n "${RUNNER_TEMP:-}"
+          runner_temporary="$(realpath "$RUNNER_TEMP")"
+          case "$runner_temporary" in
+            /tmp|/tmp/*|/var/tmp|/var/tmp/*|/private/tmp|/private/tmp/*|/private/var/tmp|/private/var/tmp/*) exit 1 ;;
+          esac
+          task_root="$runner_temporary/agent-hub-ci"
+          export TMPDIR="$task_root/tmp" TMP="$task_root/tmp" TEMP="$task_root/tmp"
+          export npm_config_cache="$task_root/npm-cache" BUN_INSTALL_CACHE_DIR="$task_root/bun-cache"
+          export XDG_CACHE_HOME="$task_root/cache" CARGO_HOME="$task_root/cargo"
+          mkdir -m 0700 -p "$task_root"
+          mkdir -m 0700 -p "$TMPDIR" "$npm_config_cache" "$BUN_INSTALL_CACHE_DIR" "$XDG_CACHE_HOME" "$CARGO_HOME"
+          for directory in "$task_root" "$TMPDIR" "$npm_config_cache" "$BUN_INSTALL_CACHE_DIR" "$XDG_CACHE_HOME" "$CARGO_HOME"; do
+            test "$(realpath "$directory")" = "$directory"
+            test "$(stat -c %u "$directory")" = "$(id -u)"
+            test "$(stat -c %a "$directory")" = 700
+          done
+          test "$(uname -m)" = x86_64
+          printf 'TMPDIR=%s\nTMP=%s\nTEMP=%s\nnpm_config_cache=%s\nBUN_INSTALL_CACHE_DIR=%s\nXDG_CACHE_HOME=%s\nCARGO_HOME=%s\n' \
+            "$TMPDIR" "$TMP" "$TEMP" "$npm_config_cache" "$BUN_INSTALL_CACHE_DIR" "$XDG_CACHE_HOME" "$CARGO_HOME" >> "$GITHUB_ENV"
+
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1; shared Agent Run pin
+        with:
+          persist-credentials: false
+
+      - name: Set up pinned Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: "26.13.0"
+          architecture: x64
+          check-latest: false
+          package-manager-cache: false
+
+      - name: Set up pinned Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: "1.4.4"
+          no-cache: true
+
+      - name: Verify pinned runtimes and Rust toolchain
+        run: |
+          test "$(node --version)" = v26.13.0
+          test "$(bun --version)" = 1.4.4
+          rustup toolchain install 1.98.1 --profile minimal --component rustfmt --component clippy --no-self-update
+          rustup show active-toolchain
+          test "$(rustc --version | awk '{print $2}')" = 1.98.1
+
+      - name: Install locked terminal dependencies without lifecycle scripts
+        working-directory: terminal
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Fetch locked native observer dependencies
+        run: cargo fetch --locked --manifest-path terminal/observer/Cargo.toml
+
+      - name: Check types and native observer contracts
+        working-directory: terminal
+        env:
+          CARGO_NET_OFFLINE: "true"
+        run: |
+          npm run typecheck
+          cargo fmt --manifest-path observer/Cargo.toml -- --check
+          cargo clippy --offline --locked --manifest-path observer/Cargo.toml --all-targets -- -D warnings
+          cargo test --offline --locked --manifest-path observer/Cargo.toml
+          npm run build:observer
+
+      - name: Build standalone executable
+        working-directory: terminal
+        env:
+          CARGO_NET_OFFLINE: "true"
+        run: |
+          npm run build:binary
+          test -x dist/agent-hub
+          test "$(dist/agent-hub --version)" = "agent-hub $(node -p "require('./package.json').version")"
+
+      - name: Run Bun and Node compatibility suites
+        working-directory: terminal
+        env:
+          CARGO_NET_OFFLINE: "true"
+        run: |
+          npm test
+          npm run test:node

@@ -1,0 +1,55 @@
+[package]
+name = "agent-hub"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.98.1"
+publish = false
+build = "build.rs"
+
+[workspace]
+resolver = "3"
+
+[lib]
+name = "agent_hub"
+path = "src/lib.rs"
+
+[[bin]]
+name = "agent-hub"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "=2.7.3", features = [] }
+
+[features]
+default = []
+# Explicit debug-only native acceptance; the normal bundle excludes the driver.
+native-e2e = ["dep:tauri-plugin-wdio-webdriver"]
+
+[dependencies]
+tauri = { version = "=2.12.4", features = [] }
+tauri-plugin-wdio-webdriver = { version = "=1.5.0", optional = true }
+tokio = { version = "=1.54.0", features = ["macros", "rt-multi-thread", "fs", "io-util", "net", "process", "sync", "time"] }
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.154"
+rmcp = { version = "=3.4.0", default-features = false, features = ["client", "transport-child-process"] }
+rustix = { version = "=1.1.5", features = ["process"] }
+sha2 = "0.10"
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+
+[lints.clippy]
+undocumented_unsafe_blocks = "deny"
+dbg_macro = "deny"
+
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true

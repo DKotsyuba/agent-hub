@@ -1,0 +1,6 @@
+[graph]
+targets = ["aarch64-apple-darwin"]
+
+[advisories]
+version = 2
+db-urls = ["https://github.com/RustSec/advisory-db"]

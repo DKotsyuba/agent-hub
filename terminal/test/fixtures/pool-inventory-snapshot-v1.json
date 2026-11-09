@@ -1,0 +1,108 @@
+{
+  "_provenance": "Synthetic fixture shaped from the uncommitted agent-pool docs/architecture.md section 'Source-wide inventory snapshot v1' (read 2026-11-09). Not captured from a running Pool.",
+  "_contract": "inventory_snapshot_v1; open/completed are null until the source has a completion ledger",
+  "pages": [
+    {
+      "schema_version": 1,
+      "kind": "inventory_snapshot",
+      "data": {
+        "source": {
+          "store_id": "store-uuid",
+          "read_epoch": "epoch-uuid",
+          "revision": "42"
+        },
+        "totals": {
+          "total": "2",
+          "open": null,
+          "completed": null,
+          "unknown": "2",
+          "closed": "1"
+        },
+        "coverage": "Retained Pool rows only; completion classification unsupported, all retained pools unknown. Closed is independent of completion. Pages and totals share one Pool SQLite snapshot; no cross-service or clone/restore anti-rollback guarantee.",
+        "pools": [
+          {
+            "pool": {
+              "pool_id": "pool-a",
+              "name": "Example pool-a",
+              "purpose": "Goal",
+              "revision": 1,
+              "closed": false,
+              "proposal": null
+            },
+            "leader_id": "leader-pool-a",
+            "roster": [
+              {
+                "member_id": "member-pool-a",
+                "name": "Worker",
+                "role": "Implement",
+                "task": "Check",
+                "state": "active",
+                "runtime": "unknown"
+              }
+            ]
+          }
+        ],
+        "returned": 1,
+        "has_more": true,
+        "next_cursor": {
+          "version": 1,
+          "source": {
+            "store_id": "store-uuid",
+            "read_epoch": "epoch-uuid",
+            "revision": "42"
+          },
+          "filter": "all",
+          "limit": 1,
+          "after": "pool-a"
+        },
+        "observed_at_unix_ms": 1730000000000
+      }
+    },
+    {
+      "schema_version": 1,
+      "kind": "inventory_snapshot",
+      "data": {
+        "source": {
+          "store_id": "store-uuid",
+          "read_epoch": "epoch-uuid",
+          "revision": "42"
+        },
+        "totals": {
+          "total": "2",
+          "open": null,
+          "completed": null,
+          "unknown": "2",
+          "closed": "1"
+        },
+        "coverage": "Retained Pool rows only; completion classification unsupported, all retained pools unknown. Closed is independent of completion. Pages and totals share one Pool SQLite snapshot; no cross-service or clone/restore anti-rollback guarantee.",
+        "pools": [
+          {
+            "pool": {
+              "pool_id": "pool-b",
+              "name": "Example pool-b",
+              "purpose": "Goal",
+              "revision": 1,
+              "closed": true,
+              "proposal": null
+            },
+            "leader_id": "leader-pool-b",
+            "roster": [
+              {
+                "member_id": "member-pool-b",
+                "name": "Worker",
+                "role": "Implement",
+                "task": "Check",
+                "state": "active",
+                "runtime": "unknown"
+              }
+            ]
+          }
+        ],
+        "returned": 1,
+        "has_more": false,
+        "next_cursor": null,
+        "observed_at_unix_ms": 1730000000000
+      }
+    }
+  ]
+}

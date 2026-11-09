@@ -1,0 +1,39 @@
+{
+  "identifier": "dev.agent-mcp.hub.acceptance",
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Agent Hub · acceptance",
+        "width": 1440,
+        "height": 900,
+        "minWidth": 900,
+        "minHeight": 640,
+        "incognito": true,
+        "alwaysOnTop": true,
+        "visibleOnAllWorkspaces": true
+      }
+    ],
+    "security": {
+      "capabilities": [
+        "main-observer",
+        {
+          "identifier": "native-acceptance-focus",
+          "description": "Only the explicit acceptance config may unhide its own app and show/focus its main window for genuine native visibility and keyboard tests.",
+          "local": true,
+          "windows": [
+            "main"
+          ],
+          "permissions": [
+            "core:window:allow-show",
+            "core:window:allow-set-focus",
+            "core:app:allow-app-show"
+          ]
+        }
+      ]
+    }
+  },
+  "build": {
+    "beforeBuildCommand": ""
+  }
+}
