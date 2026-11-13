@@ -11,7 +11,7 @@ test('worktree list, detail and session link', async () => {
   const unmount = mountHub(setup.renderer, client, 'demo', () => {}, { theme: 'dark', async save() {} });
   try {
     await setup.waitForFrame(value => value.includes('Needs attention'));
-    setup.mockInput.pressKey('5');
+    setup.mockInput.pressKey('4');
     let frame = await setup.waitForFrame(value => value.includes('Repository: /demo/agent-hub') && value.includes('demo/workspace') && /sessions 2 \(1 active\)/.test(value));
     assert.match(frame, /\[Worktree\]/);
     assert.match(frame, /1 configured repositories/);
@@ -23,7 +23,7 @@ test('worktree list, detail and session link', async () => {
     assert.match(frame, /Index repository/);
     setup.mockInput.pressEnter();
     frame = await setup.waitForFrame(value => value.includes('[Sessions]'));
-    setup.mockInput.pressKey('5');
+    setup.mockInput.pressKey('4');
     frame = await setup.waitForFrame(value => value.includes('Agent Worktree · demo/workspace'));
     setup.mockInput.pressEscape();
     await setup.waitForFrame(value => value.includes('Repository: /demo/agent-hub'));

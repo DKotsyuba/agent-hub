@@ -40,7 +40,7 @@ test('Quota tab is a block per account, window rows with bar and pace, technical
   const unmount = mountHub(setup.renderer, client, 'demo', () => {}, { theme: 'dark', async save() {} });
   try {
     await setup.waitForFrame(value => value.includes('Agent Quota') && value.includes('[UNKNOWN]'));
-    setup.mockInput.pressKey('4');
+    setup.mockInput.pressKey('3');
     let frame = await setup.waitForFrame(value => value.includes('[Quota]') && value.includes('Weekly (7d)') && value.includes('demo-unknown'));
     const rows = frame.split('\n').map(row => row.trimEnd());
     const at = (needle: RegExp) => rows.findIndex(row => needle.test(row));
@@ -93,7 +93,7 @@ test('bars use the status colors: green when healthy, red when running out, dim 
   const unmount = mountHub(setup.renderer, client, 'demo', () => {}, { theme: 'dark', async save() {} });
   try {
     await setup.waitForFrame(value => value.includes('[UNKNOWN]'));
-    setup.mockInput.pressKey('4');
+    setup.mockInput.pressKey('3');
     const text = await setup.waitForFrame(value => value.includes('[Quota]') && value.includes('Weekly (7d)') && value.includes('demo-unknown'));
     const rows = text.split('\n'), frame = setup.captureSpans();
     const bar = (title: RegExp) => { const row = rows.findIndex(line => title.test(line)) + 1; return { row, column: rows[row].indexOf('█') < 0 ? rows[row].indexOf('░') : rows[row].indexOf('█') }; };
@@ -112,7 +112,7 @@ test('Quota tab stays readable at narrow widths', async () => {
     const unmount = mountHub(setup.renderer, client, 'demo', () => {}, { theme: 'dark', async save() {} });
     try {
       await setup.waitForFrame(value => value.includes('Quota'));
-      setup.mockInput.pressKey('4');
+      setup.mockInput.pressKey('3');
       const frame = await setup.waitForFrame(value => value.includes('Technical details') && value.includes('demo-unknown'));
       assert.match(frame, /26% left/);
       assert.match(frame, /Unknown/);
@@ -131,7 +131,7 @@ test('help documents the Quota key', async () => {
   const unmount = mountHub(setup.renderer, client, 'demo', () => {}, { theme: 'dark', async save() {} });
   try {
     await setup.waitForFrame(value => value.includes('Agent Quota'));
-    setup.mockInput.pressKey('4');
+    setup.mockInput.pressKey('3');
     await setup.waitForFrame(value => value.includes('[Quota]'));
     setup.mockInput.pressKey('?');
     const frame = await setup.waitForFrame(value => value.includes('technical details'));

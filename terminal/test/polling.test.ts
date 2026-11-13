@@ -71,15 +71,6 @@ test('polling cycles through the requested intervals without overlapping slow re
     await tick(3000);
     assert.equal(calls('run.agents'), before + 2);
 
-    setup.mockInput.pressKey('3');
-    await setup.waitForFrame(value => value.includes('Agent Run · information') && value.includes('Poll: 3s [u]'));
-    await new Promise<void>(resolve => setImmediate(resolve));
-    const identity = calls('run.identity'), limits = calls('run.limits'), models = calls('run.models');
-    await tick(3000);
-    assert.equal(calls('run.identity'), identity + 1);
-    assert.equal(calls('run.limits'), limits + 1);
-    assert.equal(calls('run.models'), models + 1);
-
     setup.mockInput.pressKey('1');
     await setup.waitForFrame(value => value.includes('[Sessions]') && value.includes('Search earlier messages'));
     await new Promise<void>(resolve => setImmediate(resolve));
