@@ -1,7 +1,7 @@
 /** Worktree page/detail parsing and workdir-based session linking. */
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { detailLines, linkedSessions, repositoriesData, worktreeDetail, worktreeFor, worktreePage } from '../src/worktree.ts';
+import { detailLines, linkedSessions, repositoriesData, worktreeDetail, worktreeFacts, worktreeFor, worktreePage } from '../src/worktree.ts';
 
 const row = (key: string, path: string | null, kind = 'foreign') => ({ key, class: kind, path, branch: 'refs/heads/x', detached: false, head: 'h', repo_id: 'r', repo_common_dir: '/r/.git', creator: null, removal_started: false, activity: null, integration: null, size: null });
 
@@ -35,4 +35,31 @@ test('detail lines keep degraded probes degraded', () => {
   assert.match(text, /Integration: unmerged \(incomplete: budget\)/);
   assert.match(text, /Submodules: Unknown/);
   assert.match(text, /Warnings: unmerged/);
+});
+
+test('facts read status counts and size from the inspect probes and keep degraded axes degraded', () => {
+  const detail = (probes: Record<string, unknown>) => worktreeDetail({ schema_version: 1, kind: 'worktree_detail', data: { key: 'k', class: 'managed', path: '/r', probes } });
+  const known = worktreeFacts(detail({ status: { state: 'known', value: { staged: 1, unstaged: 2, untracked: 3, conflicts: 0, ignored: 5 } }, size: { state: 'known', value: { bytes: 1288490189, quality: 'complete' } } }));
+  assert.deepEqual(known.status, { state: 'known', value: { staged: 1, unstaged: 2, untracked: 3, conflicts: 0 }, lowerBound: false });
+  assert.deepEqual(known.size, { state: 'known', value: 1288490189, lowerBound: false });
+  const bounded = worktreeFacts(detail({ status: { state: 'incomplete', value: { staged: 0, unstaged: 0, untracked: 0, conflicts: 0 }, reason: 'budget' }, size: { state: 'known', value: { bytes: 10, quality: 'lower_bound' } } }));
+  assert.equal((bounded.status as { lowerBound: boolean }).lowerBound, true);
+  assert.equal((bounded.size as { lowerBound: boolean }).lowerBound, true, 'quality lower_bound is kept');
+  const lowered = worktreeFacts(detail({ size: { state: 'incomplete', value: { bytes: 7, quality: 'complete' }, reason: 'deadline' } }));
+  assert.equal((lowered.size as { lowerBound: boolean }).lowerBound, true, 'an incomplete probe is a lower bound whatever its quality says');
+  const degraded = worktreeFacts(detail({ status: { state: 'unavailable', code: 'probe_timeout', value: null }, size: { state: 'not_checked', value: null } }));
+  assert.deepEqual(degraded.status, { state: 'unavailable', code: 'probe_timeout' });
+  assert.deepEqual(degraded.size, { state: 'not_checked', code: null });
+  const malformed = worktreeFacts(detail({ status: { state: 'known', value: { staged: 1, unstaged: -2, untracked: 'x', conflicts: 0 } }, size: { state: 'known', value: { bytes: 1.5 } } }));
+  assert.equal(malformed.status.state, 'unavailable', 'a count that is not a non-negative integer is not a value');
+  assert.equal(malformed.size.state, 'unavailable');
+  const missing = worktreeFacts(detail({}));
+  assert.equal(missing.status.state, 'unavailable');
+  assert.equal(missing.size.state, 'unavailable');
+});
+
+test('detail lines show the size measured for the list instead of "not checked"', () => {
+  const detail = worktreeDetail({ schema_version: 1, kind: 'worktree_detail', data: { key: 'k', class: 'managed', path: '/r', probes: { size: { state: 'not_checked' } } } });
+  assert.match(detailLines(detail, 1000).join('\n'), /Size: not checked/);
+  assert.match(detailLines(detail, 1000, '1.2 GB').join('\n'), /Size: 1\.2 GB \(measured for the list\)/);
 });

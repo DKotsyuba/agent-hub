@@ -232,8 +232,11 @@ async fn observe(
     }
 }
 
-/// Closes Worktree read arguments to the documented read-only shapes; size
-/// measurement and discovery scans stay off unless explicitly bounded here.
+/// Closes Worktree read arguments to the documented read-only shapes. Inspect may
+/// measure one worktree's size (`checks.size`): agent-worktree bounds that walk by
+/// deadline and entry count, never follows symlinks and only reports a lower bound
+/// when the budget runs out. The page-wide list `size` flag stays denied because
+/// its shared page budget would degrade every row's merge and activity probes.
 fn worktree_params(request: &ReadRequest) -> Result<(), ReadError> {
     let Some(params) = request.params.as_object() else {
         return Ok(());
@@ -280,7 +283,7 @@ fn worktree_params(request: &ReadRequest) -> Result<(), ReadError> {
                         checks.iter().all(|(key, value)| {
                             matches!(
                                 key.as_str(),
-                                "status" | "integration" | "processes" | "submodules"
+                                "status" | "integration" | "processes" | "submodules" | "size"
                             ) && value.is_boolean()
                         })
                     })
@@ -645,10 +648,19 @@ mod tests {
             json!({"repo":"/r","name":"w","path":"/r/w"}),
             json!({"path":"/r/w"}),
             json!({"repo":"/r","path":"w"}),
-            json!({"repo":"/r","name":"w","checks":{"size":true}}),
+            json!({"repo":"/r","name":"w","checks":{"size":"yes"}}),
+            json!({"repo":"/r","name":"w","checks":{"size":true,"remove":true}}),
         ] {
             assert!(check(Resource::WorktreeInspect, invalid).is_err());
         }
+        // One bounded size measurement is allowed on a single inspected worktree.
+        assert!(
+            check(
+                Resource::WorktreeInspect,
+                json!({"repo":"/r","path":"/r/w","checks":{"status":true,"size":true}})
+            )
+            .is_ok()
+        );
     }
 
     /// Archived Tasks and IDE sources are never reachable from the terminal observer.

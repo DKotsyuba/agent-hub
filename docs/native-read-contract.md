@@ -94,7 +94,7 @@ The existing no-argument doctor command is not suitable for Hub: it may retire a
 
 ## Producer page arguments
 
-Worktree list arguments are repo?, discovery?, cursor?, limit? (maximum20), size? (false for background reads). Inspect accepts repo and exactly path or name, plus explicit checks; key is a response identity, never an inspect argument. Hub connections returns {schema_version:1,state:configured,run:{socket,version:null},programs,repositories}; invalid configuration instead carries state:invalid and error.
+Worktree list arguments are repo?, discovery?, cursor?, limit? (maximum20); the page-wide size flag is denied because its shared page budget would degrade every row's merge and activity probes. Inspect accepts repo and exactly path or name, plus explicit boolean checks (status, integration, processes, submodules, size); size is one bounded, read-only walk of a single worktree that the terminal requests lazily and caches; key is a response identity, never an inspect argument. Hub connections returns {schema_version:1,state:configured,run:{socket,version:null},programs,repositories}; invalid configuration instead carries state:invalid and error.
 
 Standalone Pool list accepts after?:string. Get accepts pool_id, section? (overview/members/history/proposal/votes/deliveries/binding/decisions), after?:u64, proposal_id?, member_id?, include_bindings?:bool. Success kinds identity/pool_page/pool_detail. Pages contain pools:[{pool,leader_id}], cursor,has_more,returned,observed_at_unix_ms,source_timestamp:null,coverage. Detail carries section,view,leader_id,optional explicit bindings,decisions and page metadata. No historical source time is fabricated when Storev1 lacks it.
 

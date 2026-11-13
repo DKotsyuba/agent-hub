@@ -49,6 +49,38 @@ export function worktreeDetail(value: unknown): Record<string, unknown> {
   return data;
 }
 
+/** Counts reported by the `status` probe: one entry per path and per staged/unstaged side. */
+export interface StatusCounts { staged: number; unstaged: number; untracked: number; conflicts: number }
+/** A probe axis that is either a value, still pending, or degraded with its code; never a guessed default. */
+export type Measured<T> = { state: 'known'; value: T; lowerBound: boolean } | { state: 'unavailable' | 'not_checked'; code: string | null };
+/** On-demand facts of one worktree read by `worktree.inspect` (status counts and size). */
+export interface WorktreeFacts { status: Measured<StatusCounts>; size: Measured<number> }
+
+/** Reads one non-negative integer, or null. */
+function count(value: unknown): number | null { return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : null; }
+/** Reads the probe `state`/`code` envelope of one axis. */
+function axis(probes: Record<string, unknown>, name: string): { state: string; code: string | null; reason: string | null; value: unknown } {
+  const item = probes[name];
+  if (!item || typeof item !== 'object' || Array.isArray(item)) return { state: 'unknown', code: null, reason: null, value: null };
+  const record = item as Record<string, unknown>;
+  return { state: str(record.state) ?? 'unknown', code: str(record.code), reason: str(record.reason), value: record.value };
+}
+/** Extracts status counts and size from a validated `worktree_detail`; a degraded axis stays degraded. */
+export function worktreeFacts(detail: Record<string, unknown>): WorktreeFacts {
+  const probes = object(detail.probes), status = axis(probes, 'status'), size = axis(probes, 'size');
+  const counts = status.value && typeof status.value === 'object' && !Array.isArray(status.value) ? status.value as Record<string, unknown> : null;
+  const parts = counts ? [count(counts.staged), count(counts.unstaged), count(counts.untracked), count(counts.conflicts)] : [];
+  const measuredStatus: Measured<StatusCounts> = (status.state === 'known' || status.state === 'incomplete') && parts.length === 4 && parts.every(part => part !== null)
+    ? { state: 'known', value: { staged: parts[0]!, unstaged: parts[1]!, untracked: parts[2]!, conflicts: parts[3]! }, lowerBound: status.state === 'incomplete' }
+    : { state: status.state === 'not_checked' ? 'not_checked' : 'unavailable', code: status.code ?? status.reason };
+  const sized = size.value && typeof size.value === 'object' && !Array.isArray(size.value) ? size.value as Record<string, unknown> : null;
+  const bytes = sized ? count(sized.bytes) : null;
+  const measuredSize: Measured<number> = (size.state === 'known' || size.state === 'incomplete') && bytes !== null
+    ? { state: 'known', value: bytes, lowerBound: size.state === 'incomplete' || sized?.quality === 'lower_bound' }
+    : { state: size.state === 'not_checked' ? 'not_checked' : 'unavailable', code: size.code ?? size.reason };
+  return { status: measuredStatus, size: measuredSize };
+}
+
 /** Strips the refs/heads/ prefix for display only. */
 export function branchLabel(row: { branch: string | null; detached: boolean | null; head: string | null }): string {
   if (row.detached) return `detached ${row.head?.slice(0, 12) ?? 'Unknown'}`;
@@ -72,12 +104,6 @@ export function linkedSessions<A extends { workdir: string | null }>(row: Worktr
   return agents.filter(agent => worktreeFor(agent.workdir, rows)?.key === row.key);
 }
 
-/** Formats one list row compactly. */
-export function rowLabel(row: WorktreeRow, sessions: number, active: number): string {
-  const activity = row.activity === null ? '-' : `${row.activity}${row.mtimeBased && !row.activity.endsWith('~') && row.activity !== 'unknown' ? '~' : ''}`;
-  return `${row.class.padEnd(9)} ${branchLabel(row).padEnd(28)} ${activity.padEnd(16)} ${(row.integration ?? '-').padEnd(15)} sessions ${sessions}${active ? ` (${active} active)` : ''}${row.removalStarted ? ' · removal started' : ''}`;
-}
-
 /** Formats one probe axis without collapsing degraded states into values. */
 function probe(value: unknown): string {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return 'Unknown';
@@ -89,7 +115,7 @@ function probe(value: unknown): string {
 }
 
 /** Builds the inspect detail lines. */
-export function detailLines(detail: Record<string, unknown>, now: number): string[] {
+export function detailLines(detail: Record<string, unknown>, now: number, measuredSize?: string): string[] {
   const probes = object(detail.probes), signals = detail.activity_signals && typeof detail.activity_signals === 'object' ? detail.activity_signals as Record<string, unknown> : null;
   const ago = (value: unknown) => typeof value === 'number' ? `${Math.max(0, Math.round((now - value) / 60))}m ago` : 'Unknown';
   const lines = [
@@ -99,7 +125,7 @@ export function detailLines(detail: Record<string, unknown>, now: number): strin
     `Repository: ${str(detail.repo_common_dir) ?? 'Unknown'}`,
     `Activity: ${str(detail.activity) ?? 'Unknown'}${signals ? ` · HEAD ${ago(signals.head_mtime)} · index ${ago(signals.index_mtime)} · reflog ${ago(signals.last_reflog_entry)}` : ''}`,
   ];
-  for (const axis of ['status', 'integration', 'processes', 'submodules', 'size']) lines.push(`${axis[0]!.toUpperCase()}${axis.slice(1)}: ${probe(probes[axis])}`);
+  for (const axis of ['status', 'integration', 'processes', 'submodules', 'size']) lines.push(`${axis[0]!.toUpperCase()}${axis.slice(1)}: ${axis === 'size' && measuredSize ? `${measuredSize} (measured for the list)` : probe(probes[axis])}`);
   const warnings = Array.isArray(detail.warnings) ? detail.warnings.map(item => str(object(item).code) ?? 'unknown') : [];
   lines.push(`Warnings: ${warnings.length ? warnings.join(', ') : 'none'}`);
   const hygiene = detail.hygiene && typeof detail.hygiene === 'object' ? Object.entries(detail.hygiene as Record<string, unknown>).map(([key, value]) => `${key}=${String(value)}`).join(' ') : 'Unknown';

@@ -151,16 +151,28 @@ export function createDemoClient(): ObservationClient {
         break;
       }
       case 'hub.repositories':
-        data = { repositories: ['/demo/agent-hub'] };
+        data = { repositories: ['/demo/agent-hub', '/demo/agent-quota', '/demo/skills'] };
         break;
       case 'worktree.list': {
-        const row = (key: string, path: string, kind: string, branch: string, activity: string, integration: string) => ({ key, class: kind, path, branch: `refs/heads/${branch}`, detached: false, head: 'a'.repeat(40), repo_id: 'demo', repo_common_dir: '/demo/agent-hub/.git', creator: null, removal_started: false, activity: { state: activity, mtime_based: true }, integration, size: null });
-        data = product('worktree_page', { returned: 2, has_more: false, cursor: null, rows: [row('demo/agent-hub', '/demo/agent-hub', 'main', 'main', 'recent', 'ancestor_merged'), row('demo/workspace', '/demo/workspace', 'managed', 'feature/demo', 'idle_candidate', 'unmerged')], hygiene: { idle: 1, stale: 0, unmerged: 1, missing: 0 }, coverage: { repos: 1, failed: [], root_unconfigured: false } });
+        const row = (key: string, path: string, kind: string, branch: string, activity: string, integration: string, repo: string) => ({ key, class: kind, path, branch: `refs/heads/${branch}`, detached: false, head: 'a'.repeat(40), repo_id: repo, repo_common_dir: `${repo}/.git`, creator: null, removal_started: false, activity: { state: activity, mtime_based: true }, integration, size: null });
+        const rows = params.repo === '/demo/agent-hub'
+          ? [row('demo/agent-hub', '/demo/agent-hub', 'main', 'main', 'recent', 'ancestor_merged', '/demo/agent-hub'), row('demo/workspace', '/demo/workspace', 'managed', 'feature/demo', 'idle_candidate', 'unmerged', '/demo/agent-hub'), row('demo/agent-hub-spike', '/demo/agent-hub-spike', 'foreign', 'spike/old', 'stale_candidate', 'ancestor_merged', '/demo/agent-hub')]
+          : params.repo === '/demo/skills' ? [row('demo/skills', '/demo/skills', 'main', 'main', 'recent', 'ancestor_merged', '/demo/skills')] : null;
+        // A repository Git refuses to read keeps the producer's structured error.
+        if (!rows) return fail('source_error');
+        data = product('worktree_page', { returned: rows.length, has_more: false, cursor: null, rows, hygiene: { idle: 1, stale: 1, unmerged: 1, missing: 0 }, coverage: { repos: 1, failed: [], root_unconfigured: false } });
         break;
       }
-      case 'worktree.inspect':
-        data = product('worktree_detail', { key: params.path === '/demo/workspace' ? 'demo/workspace' : 'demo/agent-hub', class: params.path === '/demo/workspace' ? 'managed' : 'main', path: params.path, branch: 'refs/heads/feature/demo', detached: false, head: 'a'.repeat(40), repo_common_dir: '/demo/agent-hub/.git', activity: 'recent', activity_signals: { head_mtime: observed - 600, index_mtime: observed - 300, last_reflog_entry: observed - 300 }, probes: { status: { state: 'known', value: { staged: 0, unstaged: 2, untracked: 1, conflicts: 0 }, code: null, reason: null }, integration: { state: 'known', value: 'unmerged', code: null, reason: null }, processes: { state: 'unavailable', value: null, code: 'probe_timeout', reason: null }, submodules: { state: 'not_checked', value: null, code: null, reason: null }, size: { state: 'not_checked', value: null, code: null, reason: null } }, warnings: [{ code: 'unmerged' }], hygiene: { stale_activity: false, large: false, missing: false }, record: null, observed_at: observed });
+      case 'worktree.inspect': {
+        const GiB = 1024 ** 3, path = String(params.path), checks = params.checks && typeof params.checks === 'object' ? params.checks as Record<string, unknown> : null;
+        const facts: Record<string, { counts: [number, number, number]; bytes: number; quality: string }> = {
+          '/demo/agent-hub': { counts: [0, 2, 1], bytes: 430 * 1024 ** 2, quality: 'complete' }, '/demo/workspace': { counts: [1, 3, 1], bytes: Math.round(1.2 * GiB), quality: 'complete' },
+          '/demo/agent-hub-spike': { counts: [0, 0, 0], bytes: Math.round(3.4 * GiB), quality: 'lower_bound' }, '/demo/skills': { counts: [0, 0, 0], bytes: 52 * 1024 ** 2, quality: 'complete' },
+        };
+        const known = facts[path] ?? facts['/demo/agent-hub']!, workspace = path === '/demo/workspace';
+        data = product('worktree_detail', { key: workspace ? 'demo/workspace' : 'demo/agent-hub', class: workspace ? 'managed' : 'main', path, branch: 'refs/heads/feature/demo', detached: false, head: 'a'.repeat(40), repo_common_dir: '/demo/agent-hub/.git', activity: 'recent', activity_signals: { head_mtime: observed - 600, index_mtime: observed - 300, last_reflog_entry: observed - 300 }, probes: { status: { state: 'known', value: { staged: known.counts[0], unstaged: known.counts[1], untracked: known.counts[2], conflicts: 0 }, code: null, reason: null }, integration: { state: 'known', value: 'unmerged', code: null, reason: null }, processes: { state: 'unavailable', value: null, code: 'probe_timeout', reason: null }, submodules: { state: 'not_checked', value: null, code: null, reason: null }, size: checks?.size === true ? { state: known.quality === 'complete' ? 'known' : 'incomplete', value: { bytes: known.bytes, quality: known.quality }, code: null, reason: known.quality === 'complete' ? null : 'budget' } : { state: 'not_checked', value: null, code: null, reason: null } }, warnings: [{ code: 'unmerged' }], hygiene: { stale_activity: false, large: false, missing: false }, record: null, observed_at: observed });
         break;
+      }
       default:
         return fail('demo_resource_unsupported');
     }

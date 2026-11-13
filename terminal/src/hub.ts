@@ -30,7 +30,9 @@ import type { AppMode, ObservationClient, ReadResponse, Resource } from './api.t
 import { quotaLines, quotaSnapshot, quotaStatus } from './quota.ts';
 import { barSpans, overviewRows, quotaRows } from './quota-view.ts';
 import type { QuotaSnapshot, QuotaStatus, Tone } from './quota.ts';
-import { detailLines, linkedSessions, repositoriesData, rowLabel, worktreeDetail as parseWorktreeDetail, worktreePage } from './worktree.ts';
+import { detailLines, linkedSessions, repositoriesData, worktreeDetail as parseWorktreeDetail, worktreeFacts as parseWorktreeFacts, worktreePage } from './worktree.ts';
+import { orderedWorktrees, projectViews, sizeSummary, tabSummary, tabSummaryText, technicalLines, worktreeBody } from './worktree-view.ts';
+import type { FactsEntry, ProjectView } from './worktree-view.ts';
 import type { WorktreeGroup, WorktreeRow } from './worktree.ts';
 import { COMPLETION_CAPABILITY, COMPLETION_SECTIONS, completionIdFromEvents, completionPage, completionText } from './completion.ts';
 import type { CompletionPage, CompletionSection } from './completion.ts';
@@ -101,6 +103,8 @@ const RESULT_CHUNK = 8192;
 const WORKTREE_REFRESH_MS = 15000;
 /** Bounds one repository scope to 200 rows (10 pages of 20). */
 const WORKTREE_PAGES = 10;
+/** Status counts and sizes come from one bounded inspect per worktree; they are cached this long before the next lazy pass. */
+const WORKTREE_FACTS_TTL_MS = 10 * 60 * 1000;
 /** Minimum number of source blocks rendered per history window. */
 const HISTORY_WINDOW = 8;
 /** Bounds automatic prefetch when large fragments collapse into few visible rows. */
@@ -403,6 +407,8 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
   const repositories = slot<string[]>(), worktreeInspect = slot<Record<string, unknown>>();
   let worktreeGroups: WorktreeGroup[] = [], worktreesBusy = false, worktreesLoadedAt = 0, worktreeGeneration = 0, worktreeIndex = 0, worktreeScroll = 0;
   let worktreeOpen: { row: WorktreeRow; repo: string } | null = null, worktreeSessionIndex = 0, worktreeInspectKey = '', worktreeInspectAt = 0;
+  let worktreeKey: string | null = null, worktreeDetails = false, worktreeFactsBusy = false;
+  const worktreeFacts = new Map<string, FactsEntry>(), worktreeFactsAt = new Map<string, number>();
   const histories = new Map<string, History>(), beginnings = new Map<string, Beginning>(), answers = new Map<string, Answer>(), initialTasks = new Map<string, InitialTaskState>();
   const historyPositions = new WeakMap<History, HistoryPosition>();
   const relatedKeys = new WeakMap<RunAgent, string>();
@@ -1323,7 +1329,7 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
     if (route === 'overview' || route === 'quota') void observe(quota, 'quota.snapshot', {}, quotaSnapshot);
     if (route === 'worktree') {
       void inventory(agents, 'run.agents', agentPages, runPage, agent => agent.id); void inventoryActiveAgents();
-      if (Date.now() - worktreesLoadedAt >= WORKTREE_REFRESH_MS) void loadWorktrees();
+      if (Date.now() - worktreesLoadedAt >= WORKTREE_REFRESH_MS) void loadWorktrees(); else void loadWorktreeFacts();
       if (worktreeOpen) {
         const params = { repo: worktreeOpen.repo, path: worktreeOpen.row.path }, key = JSON.stringify(params);
         if (worktreeInspectKey !== key) { reset(worktreeInspect); worktreeInspectKey = key; worktreeInspectAt = 0; }
@@ -1477,7 +1483,7 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
         if (line.spans) {
           text = null;
           let column = 0;
-          for (const part of line.spans) { textAt(viewport, left + column, row, width - column, part.text, { color: part.color, bg: base, bold: part.bold }); column += stringWidth(part.text); }
+          for (const part of line.spans) { textAt(viewport, left + column, row, width - column, part.text, { color: part.color, bg: base, bold: part.bold, ...line.action ? { click: line.action, hover: false } : {} }); column += stringWidth(part.text); }
         } else text = textAt(viewport, left, row, width, line.text, { color: line.color, bg: base, bold: line.bold, click: line.action });
       }
       if (line.spinner && text) spinnerRows.push({ text, value: clip(line.text, width) });
@@ -1565,13 +1571,56 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
       groups.push(group);
     }
     worktreeGroups = groups; worktreesBusy = false; worktreeIndex = Math.min(worktreeIndex, Math.max(0, worktreeRows().length - 1)); render();
+    void loadWorktreeFacts();
+  }
+  /** Reads each present worktree's status counts and size one at a time while the tab is open, nearest the selection first.
+   * One inspect per worktree is bounded by agent-worktree (deadline and entry budget, read-only); results are cached for
+   * {@link WORKTREE_FACTS_TTL_MS}, so the periodic refresh never rescans disks. Failures are cached too and shown as unknown. */
+  async function loadWorktreeFacts(): Promise<void> {
+    if (!alive || worktreeFactsBusy) return;
+    worktreeFactsBusy = true;
+    try {
+      for (;;) {
+        if (!alive || route !== 'worktree') break;
+        const entries = orderedWorktrees(worktreeProjects()), selectedRepo = entries.find(view => view.key === worktreeKey)?.repo;
+        const now = Date.now(), due = entries.filter(view => view.present && view.path && now - (worktreeFactsAt.get(view.key) ?? 0) >= WORKTREE_FACTS_TTL_MS);
+        const next = due.find(view => view.repo === selectedRepo) ?? due[0];
+        if (!next) break;
+        worktreeFactsAt.set(next.key, Date.now());
+        if (worktreeFacts.get(next.key)?.state !== 'ready') worktreeFacts.set(next.key, { state: 'pending' });
+        render();
+        const envelope = await read('worktree.inspect', { repo: next.repo ?? next.path, path: next.path, checks: { status: true, size: true } });
+        if (!alive) break;
+        let entry: FactsEntry;
+        if (!usable(envelope)) entry = { state: 'failed', code: safe(envelope.error?.code ?? envelope.outcome) };
+        else { try { entry = { state: 'ready', facts: parseWorktreeFacts(parseWorktreeDetail(envelope.data)) }; } catch { entry = { state: 'failed', code: 'producer_schema' }; } }
+        const previous = worktreeFacts.get(next.key);
+        worktreeFacts.set(next.key, entry.state === 'failed' && previous?.state === 'ready' ? previous : entry);
+        render();
+      }
+    } finally { worktreeFactsBusy = false; if (alive) render(); }
+  }
+  /** Builds the project cards from the listed rows, cached facts and loaded Run sessions. */
+  function worktreeProjects(): ProjectView[] {
+    const listed = worktreeGroups.flatMap(group => group.rows), loaded = loadedAgents();
+    return projectViews(worktreeGroups, worktreeFacts, row => { const linked = linkedSessions(row, listed, loaded); return { total: linked.length, active: linked.filter(agent => activeStatus(agent.status)).length }; });
+  }
+  /** Index of the selected worktree in display order; the selection follows its key when the order changes as facts arrive. */
+  function worktreeSelected(count: number): number {
+    const found = worktreeKey === null ? -1 : orderedWorktrees(worktreeProjects()).findIndex(view => view.key === worktreeKey);
+    return Math.max(0, Math.min(count - 1, found >= 0 ? found : worktreeIndex));
+  }
+  /** Moves the selection by `delta` worktrees in display order. */
+  function moveWorktree(delta: number): void {
+    const entries = orderedWorktrees(worktreeProjects()); if (!entries.length) return;
+    worktreeIndex = Math.max(0, Math.min(entries.length - 1, worktreeSelected(entries.length) + delta)); worktreeKey = entries[worktreeIndex]!.key;
   }
   /** Flattens listed rows with their repository scope, in display order. */
-  function worktreeRows(): { row: WorktreeRow; repo: string | null }[] { return worktreeGroups.flatMap(group => group.rows.map(row => ({ row, repo: group.repo }))); }
+  function worktreeRows(): { row: WorktreeRow; repo: string | null }[] { return orderedWorktrees(worktreeProjects()).map(view => ({ row: view.row, repo: view.repo })); }
   /** Opens the inspect detail for one listed row; orphan and missing rows have no Git registration to inspect. */
   function openWorktree(index: number): void {
     const entry = worktreeRows()[index]; if (!entry?.row.path) return;
-    worktreeIndex = index; worktreeOpen = { row: entry.row, repo: entry.repo ?? entry.row.path }; worktreeSessionIndex = 0; worktreeScroll = 0; refresh(); render();
+    worktreeIndex = index; worktreeKey = entry.row.key; worktreeOpen = { row: entry.row, repo: entry.repo ?? entry.row.path }; worktreeSessionIndex = 0; worktreeScroll = 0; refresh(); render();
   }
   /** Opens one Run session from a worktree link, clearing list filters so it is visible. */
   function openSession(id: string): void {
@@ -1585,34 +1634,36 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
   }
   /** Draws the per-repository worktree list or one worktree's detail with its linked sessions. */
   function drawWorktree(parent: BoxRenderable): void {
-    const width = renderer.width - 4, height = renderer.height - 6, lines: Line[] = [], allRows = worktreeRows().map(entry => entry.row), agentsLoaded = loadedAgents();
+    const width = renderer.width - 4, height = renderer.height - 6, lines: Line[] = [], allRows = worktreeGroups.flatMap(group => group.rows), agentsLoaded = loadedAgents();
     if (worktreeOpen) {
       const open = worktreeOpen, linked = linkedSessions(open.row, allRows, agentsLoaded);
       worktreeSessionIndex = Math.max(0, Math.min(worktreeSessionIndex, linked.length - 1));
       textAt(parent, 2, 2, width, `Agent Worktree · ${open.row.key}`, { bold: true });
       lines.push({ text: notice(worktreeInspect), color: C.muted });
-      if (worktreeInspect.value) for (const line of detailLines(worktreeInspect.value, Date.now() / 1000)) addWrapped(lines, safe(line), width);
+      const measured = worktreeFacts.get(open.row.key), sizeText = measured?.state === 'ready' ? sizeSummary(measured).text.replace(/^size /, '') : undefined;
+      if (worktreeInspect.value) for (const line of detailLines(worktreeInspect.value, Date.now() / 1000, sizeText)) addWrapped(lines, safe(line), width);
       lines.push({ text: '' }, { text: `Run sessions in this worktree (${linked.length}) · ${notice(agents)}`, bold: true, color: C.accent });
       if (!linked.length) lines.push({ text: 'No loaded Run session has its workdir in this worktree.', color: C.muted });
       linked.forEach((agent, index) => lines.push({ text: `${index === worktreeSessionIndex ? '›' : ' '} ${safe(agent.status).padEnd(10)} ${safe(agent.name ?? agent.id)} · ${safe(agent.workdir)}`, color: activeStatus(agent.status) ? C.good : C.text, bg: index === worktreeSessionIndex ? C.selected : undefined, action: () => openSession(agent.id) }));
     } else {
-      textAt(parent, 2, 2, width, `Agent Worktree · ${repositories.value?.length ? `${repositories.value.length} configured repositories` : 'all repositories known to Worktree'}`, { bold: true });
-      if (!worktreeGroups.length) lines.push({ text: worktreesBusy ? 'Loading worktrees…' : `Not observed · ${notice(repositories)}`, color: C.muted });
-      let flat = 0, selectedLine = 0;
-      for (const group of worktreeGroups) {
-        const coverage = group.coverage ? `repos ${String(group.coverage.repos ?? 'Unknown')}${Array.isArray(group.coverage.failed) && group.coverage.failed.length ? ` · failed ${group.coverage.failed.length}` : ''}${group.coverage.root_unconfigured ? ' · orphan scan skipped' : ''}` : 'coverage unknown';
-        lines.push({ text: `Repository: ${safe(group.repo ?? 'all known')} · ${group.rows.length} worktrees${group.partial ? ' · partial' : ''} · ${coverage}`, bold: true, color: C.accent });
-        if (group.error) lines.push({ text: `  ${group.error}`, color: C.error });
-        for (const row of group.rows) {
-          const index = flat++, linked = linkedSessions(row, allRows, agentsLoaded), active = linked.filter(agent => activeStatus(agent.status)).length;
-          if (index === worktreeIndex) selectedLine = lines.length;
-          lines.push({ text: `${index === worktreeIndex ? '›' : ' '} ${safe(row.key).padEnd(24)} ${safe(rowLabel(row, linked.length, active))}`, bg: index === worktreeIndex ? C.selected : undefined, color: row.class === 'missing' || row.class === 'orphan_candidate' ? C.error : C.text, action: () => openWorktree(index) });
-          lines.push({ text: `    ${safe(row.path ?? 'path Unknown')}`, color: C.muted, bg: index === worktreeIndex ? C.selected : undefined, action: () => openWorktree(index) });
-        }
-        lines.push({ text: '' });
+      const projects = worktreeProjects(), entries = orderedWorktrees(projects), selectedIndex = worktreeSelected(entries.length), selectedKey = entries[selectedIndex]?.key ?? null;
+      const toggle = `[d] Technical details ${worktreeDetails ? '▾' : '▸'}`;
+      textAt(parent, 2, 2, Math.max(1, width - toggle.length - 2), `Agent Worktree · ${repositories.value?.length ? `${repositories.value.length} configured repositories` : 'all repositories known to Worktree'}`, { bold: true });
+      textAt(parent, 2 + Math.max(0, width - toggle.length), 2, toggle.length, toggle, { color: C.accent, click: () => { worktreeDetails = !worktreeDetails; render(); } });
+      lines.push({ text: projects.length ? `${tabSummaryText(tabSummary(projects))}${worktreeFactsBusy ? ' · measuring size and changes…' : ''}` : worktreesBusy ? 'Loading worktrees…' : `Not observed · ${notice(repositories)}`, color: C.muted });
+      const indexOf = new Map(entries.map((view, index) => [view.key, index] as const));
+      let first = -1, last = -1;
+      for (const row of worktreeBody(projects, width, selectedKey)) {
+        const index = row.key === undefined ? undefined : indexOf.get(row.key), chosen = row.key !== undefined && row.key === selectedKey;
+        if (chosen) { if (first < 0) first = lines.length; last = lines.length; }
+        lines.push({ text: row.spans.map(item => item.text).join(''), bg: chosen ? C.selected : row.card ? C.panel : undefined, spans: row.spans.map(item => ({ text: item.text, color: toneColor(item.tone), bold: item.bold })), ...index === undefined ? {} : { action: () => openWorktree(index) } });
       }
-      if (selectedLine < worktreeScroll) worktreeScroll = selectedLine; else if (selectedLine + 2 > worktreeScroll + height) worktreeScroll = selectedLine + 2 - height;
-      lines.push({ text: 'Activity marked ~ is mtime-based, not process-verified. Read-only: no worktree is created, removed or pruned.', color: C.muted });
+      if (worktreeDetails) {
+        lines.push({ text: '' }, { text: 'Technical details (raw producer codes)', bold: true });
+        for (const line of technicalLines(worktreeGroups, projects, worktreeFacts)) addWrapped(lines, safe(line.text), width, { color: toneColor(line.tone), bold: line.bold });
+      }
+      if (first >= 0) { if (first < worktreeScroll) worktreeScroll = first; else if (last + 1 > worktreeScroll + height) worktreeScroll = Math.min(first, last + 1 - height); }
+      lines.push({ text: '' }, { text: 'Read-only: no worktree is created, removed or pruned.', color: C.muted });
     }
     worktreeScroll = Math.max(0, Math.min(worktreeScroll, Math.max(0, lines.length - height)));
     lineViewport(parent, 2, 4, width, height, lines, worktreeScroll, delta => { worktreeScroll = Math.max(0, Math.min(Math.max(0, lines.length - height), worktreeScroll + delta)); render(); });
@@ -2406,7 +2457,7 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
       { name: 'Quota · 3', action: () => navigate('quota') }, { name: 'Worktree · 4', action: () => navigate('worktree') },
       { name: 'Refresh observations · r', action: () => refresh() }, { name: 'Cycle polling interval · u', action: cyclePolling }, { name: 'Back · Esc', action: back },
       { name: 'History fullscreen · z', action: toggleFull }, { name: 'Result · a', action: () => selectTab('result') },
-      { name: 'Details · d', action: () => selectTab('details') }, { name: 'Quota technical details · d (Quota tab)', action: () => { navigate('quota'); quotaDetails = !quotaDetails; render(); } }, { name: 'History beginning · i', action: jumpBeginning }, { name: 'Follow latest · G', action: followLatest },
+      { name: 'Details · d', action: () => selectTab('details') }, { name: 'Quota technical details · d (Quota tab)', action: () => { navigate('quota'); quotaDetails = !quotaDetails; render(); } }, { name: 'Worktree technical details · d (Worktree tab)', action: () => { navigate('worktree'); worktreeDetails = !worktreeDetails; render(); } }, { name: 'History beginning · i', action: jumpBeginning }, { name: 'Follow latest · G', action: followLatest },
       { name: 'Appearance · ,', action: () => { overlay = { kind: 'theme', query: '', index: themes.indexOf(theme), original: theme }; render(); } },
       { name: 'Quit · q', action: onQuit },
     ];
@@ -2436,6 +2487,7 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
       'z: fullscreen · g: older · G: follow · f: pause · [ / ]: long message parts',
       'a: result · d: details · c: copy verified result · y: copy session lineage',
       'Quota: d / Enter: show or hide technical details · Up / Down / Page Up / Down: scroll',
+      'Worktree: Enter open · d raw codes · s measure size again',
       'Pool: m members · d decisions · c criteria · v votes · b deliveries · e purpose · s snapshot · l completion record (ledger)',
       'r: refresh · u: polling interval · ,: appearance · Esc: back · F: forward · Ctrl+P: commands · q: quit',
     ];
@@ -2444,7 +2496,7 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
   }
   /** Draws a keyboard-operable overlay, leaving the underlying view state untouched. */
   function drawOverlay(parent: BoxRenderable): void {
-    if (!overlay) return; const width = Math.min(renderer.width - 4, 70), height = Math.min(renderer.height - 4, overlay.kind === 'help' ? 16 : 15), x = Math.floor((renderer.width - width) / 2), y = Math.floor((renderer.height - height) / 2);
+    if (!overlay) return; const width = Math.min(renderer.width - 4, 70), height = Math.min(renderer.height - 4, overlay.kind === 'help' ? 17 : 15), x = Math.floor((renderer.width - width) / 2), y = Math.floor((renderer.height - height) / 2);
     const box = panel(parent, x, y, width, height, overlay.kind === 'search' ? 'Search loaded records' : overlay.kind === 'folder' ? 'Working folder filter' : overlay.kind === 'period' ? 'Reporting period' : overlay.kind === 'status' ? 'Lifecycle filter' : overlay.kind === 'theme' ? 'Appearance' : overlay.kind === 'help' ? 'Read-only commands' : 'Command palette');
     if (['search', 'folder', 'commands'].includes(overlay.kind)) textAt(box, 2, 1, width - 4, `> ${overlay.query}`, { color: C.accent, bg: C.panel });
     if (overlay.kind === 'search') { textAt(box, 2, 3, width - 4, 'Enter applies · Esc restores the previous search', { color: C.muted, bg: C.panel }); return; }
@@ -2594,7 +2646,7 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
     if (route === 'quota') { quotaScroll = Math.max(0, quotaScroll + amount); render(); }
     if (route === 'worktree') {
       if (worktreeOpen) worktreeSessionIndex = Math.max(0, worktreeSessionIndex + (page ? amount : delta));
-      else worktreeIndex = Math.max(0, Math.min(worktreeRows().length - 1, worktreeIndex + (page ? amount : delta)));
+      else moveWorktree(page ? amount : delta);
       render();
     }
     if (route === 'incidents') { incidentScroll = Math.max(0, incidentScroll + amount); render(); }
@@ -2650,7 +2702,7 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
     if (name === '2') { navigate('pools'); return; }
     if (name === '3') { navigate('quota'); return; }
     if (name === '4') { navigate('worktree'); return; }
-    if (name === 'r') { if (route === 'sessions') { const agent = selectedAgent(); if (agent) { const key = JSON.stringify([executionKey(agent), agent.answerSha]); answers.get(key)?.controller?.abort(); answers.delete(key); initialTasks.get(executionKey(agent))?.controller?.abort(); initialTasks.delete(executionKey(agent)); } if (detailFromRelated) { directStatus = null; relatedNextScan = 0; } } if (route === 'pools') poolStatusRetryAt = 0; if (route === 'worktree') { worktreesLoadedAt = 0; worktreeInspectAt = 0; } refresh(); return; }
+    if (name === 'r') { if (route === 'sessions') { const agent = selectedAgent(); if (agent) { const key = JSON.stringify([executionKey(agent), agent.answerSha]); answers.get(key)?.controller?.abort(); answers.delete(key); initialTasks.get(executionKey(agent))?.controller?.abort(); initialTasks.delete(executionKey(agent)); } if (detailFromRelated) { directStatus = null; relatedNextScan = 0; } } if (route === 'pools') poolStatusRetryAt = 0; if (route === 'worktree') { worktreesLoadedAt = 0; worktreeInspectAt = 0; worktreeFactsAt.clear(); } refresh(); return; }
     if (name === 'tab' && route === 'sessions') { const choices: Focus[] = full || renderer.width < 110 && focus !== 'list' ? ['tabs', 'history'] : ['list', 'tabs', 'history']; const current = choices.indexOf(focus); focus = choices[(current + (key.shift ? choices.length - 1 : 1)) % choices.length]; render(); return; }
     if (name === 'up' || name === 'k') { move(-1); return; }
     if (name === 'down' || name === 'j') { move(1); return; }
@@ -2674,7 +2726,7 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
       if (route === 'overview') openAttention(attentionIndex);
       else if (route === 'quota') { quotaDetails = !quotaDetails; render(); }
       else if (route === 'worktree') {
-        if (!worktreeOpen) openWorktree(worktreeIndex);
+        if (!worktreeOpen) openWorktree(worktreeSelected(worktreeRows().length));
         else { const linked = linkedSessions(worktreeOpen.row, worktreeRows().map(entry => entry.row), loadedAgents()); if (linked[worktreeSessionIndex]) openSession(linked[worktreeSessionIndex].id); }
       }
       else if (route === 'sessions') { if (focus === 'list') { focus = 'history'; void loadHistory(); render(); } else if (focus === 'history' && tab === 'history') toggleMessage(); }
@@ -2702,6 +2754,8 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
     if (name === 'a') { selectTab('result'); return; }
     if (name === 'd' && route === 'sessions') { selectTab('details'); return; }
     if (name === 'd' && route === 'quota') { quotaDetails = !quotaDetails; render(); return; }
+    if (name === 'd' && route === 'worktree' && !worktreeOpen) { worktreeDetails = !worktreeDetails; render(); return; }
+    if (name === 's' && route === 'worktree' && !worktreeOpen) { worktreeFactsAt.clear(); void loadWorktreeFacts(); render(); return; }
     if (name === 'c' && route === 'sessions' && tab === 'result') { copyAnswer(); return; }
     if (name === 'y') { void copyHistory(); return; }
     if (name === 'i' && route === 'sessions' && tab === 'history') { jumpBeginning(); return; }
@@ -2751,7 +2805,7 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
     else if (route === 'quota') drawQuota(frame);
     else if (route === 'worktree') drawWorktree(frame);
     else drawIncidents(frame);
-    const hint = route === 'overview' ? '↑↓ select   enter open   1 sessions   p period   r refresh   ? help' : route === 'sessions' ? (w < 105 ? '↑↓ select  enter open  i start  o finished  z full  esc back  ? help' : '↑↓ select   enter history   i start   o finished   z fullscreen   ctrl+p commands   ? help   q quit') : route === 'pools' ? '↑↓ move  enter open  ←→ tabs  i details  n/g/G pages  esc back  ?' : route === 'quota' ? '↑↓ scroll   d details   n next   r refresh   esc back   ? help' : '↑↓ scroll   n next   r refresh   esc back   ? help';
+    const hint = route === 'overview' ? '↑↓ select   enter open   1 sessions   p period   r refresh   ? help' : route === 'sessions' ? (w < 105 ? '↑↓ select  enter open  i start  o finished  z full  esc back  ? help' : '↑↓ select   enter history   i start   o finished   z fullscreen   ctrl+p commands   ? help   q quit') : route === 'pools' ? '↑↓ move  enter open  ←→ tabs  i details  n/g/G pages  esc back  ?' : route === 'quota' ? '↑↓ scroll   d details   n next   r refresh   esc back   ? help' : route === 'worktree' ? '↑↓ select   enter open   d details   s measure   r refresh   esc back   ? help' : '↑↓ scroll   n next   r refresh   esc back   ? help';
     textAt(frame, 2, h - 1, Math.max(1, w - 4), alert || hint, { color: alert ? C.accent : C.muted });
     if (overlay) { historyTrack.visible = false; poolTrack.visible = false; drawOverlay(frame); }
     requestVisibleToolTime();
