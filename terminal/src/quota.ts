@@ -167,7 +167,7 @@ export function quotaSummary(snapshot: QuotaSnapshot): QuotaSummary {
 }
 
 /** Display tone mapped by the renderer to its palette. */
-export type Tone = 'text' | 'muted' | 'good' | 'error' | 'accent';
+export type Tone = 'text' | 'muted' | 'good' | 'warn' | 'error' | 'accent';
 /** One rendered line of the Quota view. */
 export interface QuotaLine { text: string; tone: Tone; bold?: boolean }
 

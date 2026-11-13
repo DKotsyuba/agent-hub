@@ -27,7 +27,8 @@ import {
 } from '../../src/live/protocol.ts';
 import type { Cursor, Page, RunAgent, TranscriptBlock } from '../../src/live/protocol.ts';
 import type { AppMode, ObservationClient, ReadResponse, Resource } from './api.ts';
-import { quotaLines, quotaSnapshot, quotaStatus, quotaSummary, percent } from './quota.ts';
+import { quotaLines, quotaSnapshot, quotaStatus } from './quota.ts';
+import { barSpans, overviewRows, quotaRows } from './quota-view.ts';
 import type { QuotaSnapshot, QuotaStatus, Tone } from './quota.ts';
 import { detailLines, linkedSessions, repositoriesData, rowLabel, worktreeDetail as parseWorktreeDetail, worktreePage } from './worktree.ts';
 import type { WorktreeGroup, WorktreeRow } from './worktree.ts';
@@ -60,7 +61,7 @@ interface PoolContent { field: 'purpose' | 'snapshot' | 'completion'; text: stri
 /** A complete answer exists only after source sequence and hash checks pass. */
 interface Answer { executionKey: string; controller: AbortController | null; busy: boolean; loaded: boolean; content: string | null; issue: string | null; width: number; chunk: number; lines: Line[] | null }
 /** A rendered line remembers the source block and character offset for stable scroll anchors. */
-interface Line { text: string; color?: string; bg?: string; bold?: boolean; key?: string; offset?: number; action?: () => void; spinner?: boolean; hover?: string }
+interface Line { text: string; color?: string; bg?: string; bold?: boolean; key?: string; offset?: number; action?: () => void; spinner?: boolean; hover?: string; spans?: { text: string; color: string; bold?: boolean }[] }
 /** The immutable Pool member and exact Run status selector used for one navigation. */
 /** One execution's exact initial-task read; text exists only after full length and SHA-256 verification. */
 interface InitialTaskState { busy: boolean; controller: AbortController | null; result: InitialTaskResult | null; unsupported: boolean; lines: { width: number; rows: Line[] } | null }
@@ -84,8 +85,8 @@ type Period = 'Today' | 'Yesterday' | 'Last 7 days' | 'Last 30 days';
 /** Local picker or text edit that temporarily owns keyboard input. */
 interface Overlay { kind: 'help' | 'commands' | 'period' | 'folder' | 'status' | 'search' | 'theme'; query: string; index: number; original: string }
 
-const darkColors = { bg: '#0a0a0a', header: '#141414', sidebar: '#141414', panel: '#141414', cell: '#202020', text: '#eeeeee', muted: '#a4a4a4', accent: '#5c9cf5', good: '#7fd88f', error: '#e06c75', selected: '#242424', hover: '#202020', hoverSelected: '#343434', danger: '#211719', dangerSelected: '#302026' };
-const lightColors = { bg: '#ffffff', header: '#f2f2f2', sidebar: '#f4f4f4', panel: '#fafafa', cell: '#ededed', text: '#1a1a1a', muted: '#595959', accent: '#2459a6', good: '#226d37', error: '#a12932', selected: '#e1e1e1', hover: '#e8e8e8', hoverSelected: '#cecece', danger: '#fff0f0', dangerSelected: '#ffdede' };
+const darkColors = { bg: '#0a0a0a', header: '#141414', sidebar: '#141414', panel: '#141414', cell: '#202020', text: '#eeeeee', muted: '#a4a4a4', accent: '#5c9cf5', good: '#7fd88f', warn: '#e5c07b', error: '#e06c75', selected: '#242424', hover: '#202020', hoverSelected: '#343434', danger: '#211719', dangerSelected: '#302026' };
+const lightColors = { bg: '#ffffff', header: '#f2f2f2', sidebar: '#f4f4f4', panel: '#fafafa', cell: '#ededed', text: '#1a1a1a', muted: '#595959', accent: '#2459a6', good: '#226d37', warn: '#8a5a00', error: '#a12932', selected: '#e1e1e1', hover: '#e8e8e8', hoverSelected: '#cecece', danger: '#fff0f0', dangerSelected: '#ffdede' };
 const themes: Theme[] = ['system', 'dark', 'light'];
 const periods: Period[] = ['Today', 'Yesterday', 'Last 7 days', 'Last 30 days'];
 const sessionTabs: SessionTab[] = ['history', 'result', 'details'];
@@ -364,7 +365,7 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
   let selected: string | null = null, boundSequence: number | null = null, tab: SessionTab = 'history', full = false, previousFocus: Focus = 'list';
   let boundTarget: BoundTarget | null = null;
   let pool: string | null = start?.pool ?? null, poolTab: PoolTab = 'members', poolMetadata = false, period: Period = 'Today', overlay: Overlay | null = null;
-  let listTop = 0, poolIndex = 0, poolMemberIndex = 0, poolDeliveryIndex = 0, poolDecisionIndex = 0, poolVoteIndex = 0, poolVoteMember: string | null = null, poolScroll = 0, infoScroll = 0, quotaScroll = 0, incidentScroll = 0, attentionIndex = 0;
+  let listTop = 0, poolIndex = 0, poolMemberIndex = 0, poolDeliveryIndex = 0, poolDecisionIndex = 0, poolVoteIndex = 0, poolVoteMember: string | null = null, poolScroll = 0, infoScroll = 0, quotaScroll = 0, quotaDetails = false, incidentScroll = 0, attentionIndex = 0;
   let revealPoolSelection = false, poolSelectionShown = false;
   let finishedOpen = false, filterFolder = '', filterProject = start?.project ?? '', filterStatus = '', filterPeriodFailures = false, query = '', alert = '';
   let detailFromRelated = false, spinnerFrame = 0;
@@ -1479,7 +1480,11 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
         if (pointer && pointer.x >= x && pointer.x < x + width && pointer.y === y + row) underPointer = group;
       } else {
         if (line.bg && line.bg !== background) surface(viewport, left, row, width, 1, line.bg);
-        text = textAt(viewport, left, row, width, line.text, { color: line.color, bg: base, bold: line.bold, click: line.action });
+        if (line.spans) {
+          text = null;
+          let column = 0;
+          for (const part of line.spans) { textAt(viewport, left + column, row, width - column, part.text, { color: part.color, bg: base, bold: part.bold }); column += stringWidth(part.text); }
+        } else text = textAt(viewport, left, row, width, line.text, { color: line.color, bg: base, bold: line.bold, click: line.action });
       }
       if (line.spinner && text) spinnerRows.push({ text, value: clip(line.text, width) });
     }
@@ -1506,7 +1511,7 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
       textAt(attention, 0, 2, width - 2, `${attentionIndex === 1 ? '›' : ' '} Bridge incidents: ${compact(bridgeCount(incidentMetric, 'incidents', 'created_ms'))} [Open]`, { color: C.error, bg: C.panel, click: () => openAttention(1) });
       return;
     }
-    const quotaCard = h >= 32, sourceH = Math.min(10, Math.max(5, Math.floor((body - (quotaCard ? 12 : 7)) / 2))), attentionY = 4 + sourceH * 2 + 2 + (quotaCard ? 5 : 0), attentionH = Math.min(8, Math.max(4, h - attentionY - 1));
+    const quotaCard = h >= 32, cardH = quotaCardHeight(), sourceH = Math.min(10, Math.max(5, Math.floor((body - (quotaCard ? 7 + cardH + 1 : 7)) / 2))), attentionY = 4 + sourceH * 2 + 2 + (quotaCard ? cardH + 1 : 0), attentionH = Math.min(8, Math.max(4, h - attentionY - 1));
     /** Renders three equal metric cells inside one independently bounded source panel. */
     const drawSource = (title: string, y: number, names: string[], values: string[], coverage: string, action: { label: string; open: () => void }) => {
       const compact = sourceH <= 7, box = panel(parent, left, y, width, sourceH, compact ? title : ''), inner = width - 4, cellWidth = Math.floor((inner - 2) / 3), cellHeight = compact ? 2 : Math.max(3, sourceH - 5);
@@ -1618,23 +1623,44 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
     worktreeScroll = Math.max(0, Math.min(worktreeScroll, Math.max(0, lines.length - height)));
     lineViewport(parent, 2, 4, width, height, lines, worktreeScroll, delta => { worktreeScroll = Math.max(0, Math.min(Math.max(0, lines.length - height), worktreeScroll + delta)); render(); });
   }
-  /** Draws the Quota summary card; unknown and stale models are counted, never shown as capacity. */
+  /** Maps a display tone to the active palette. */
+  function toneColor(value: Tone): string { return value === 'muted' ? C.muted : value === 'good' ? C.good : value === 'warn' ? C.warn : value === 'error' ? C.error : value === 'accent' ? C.accent : C.text; }
+  /** Number of account lines the Overview Quota card shows (at least one). */
+  function quotaCardAccounts(): number { return Math.max(1, Math.min(4, quota.value?.accounts.length ?? 1)); }
+  /** Height of the Overview Quota card: title, account lines and a coverage footer. */
+  function quotaCardHeight(): number { return quotaCardAccounts() + 3; }
+  /** Draws the Quota card: one line per account with a mini bar of its most constraining window.
+   * Unknown accounts keep an empty dim bar and are never shown as capacity. */
   function drawQuotaCard(parent: BoxRenderable, left: number, y: number, width: number): void {
-    const box = panel(parent, left, y, width, 4, '');
+    const box = panel(parent, left, y, width, quotaCardHeight(), ''), inner = width - 4;
     textAt(box, 2, 0, Math.max(1, width - 30), 'Agent Quota', { color: C.text, bg: C.panel, bold: true });
     textAt(box, Math.max(0, width - 25), 0, 21, 'Open quota →', { color: C.accent, bg: C.panel, click: () => navigate('quota') });
-    const summary = quota.value ? quotaSummary(quota.value) : null;
-    const line = summary ? `Known ${summary.known} · Unknown ${summary.unknown} · Exhausted ${summary.exhausted} · Not fresh ${summary.stale} · Lowest known: ${summary.lowest ? `${summary.lowest.account}/${summary.lowest.model} ${percent(summary.lowest.remaining)}` : 'Unknown'}` : 'Known Unknown · Unknown Unknown · Exhausted Unknown';
-    textAt(box, 2, 1, width - 4, line, { color: summary && (summary.exhausted || summary.unknown) ? C.error : summary ? C.text : C.muted, bg: C.panel, bold: !!summary });
-    textAt(box, 2, 2, width - 4, `${summary ? `${summary.accounts} accounts · coverage ${summary.coverage}` : 'coverage unknown'} · ${notice(quota)}`, { color: C.muted, bg: C.panel });
+    const barWidth = Math.max(6, Math.min(20, Math.floor(inner / 6))), rows = overviewRows(quota.value, Date.now() / 1000, barWidth);
+    const nameWidth = Math.min(Math.max(8, ...rows.map(row => stringWidth(row.account))), Math.max(8, Math.floor(inner / 4)));
+    rows.slice(0, quotaCardAccounts()).forEach((row, index) => {
+      const line = 1 + index, badge = `[${row.badge}]`, badgeX = width - 2 - badge.length, barX = 2 + nameWidth + 2, textX = barX + barWidth + 2;
+      textAt(box, 2, line, nameWidth, row.account, { color: C.text, bg: C.panel, bold: true });
+      let column = barX;
+      for (const part of barSpans(row.bar, row.tone)) { textAt(box, column, line, barWidth - (column - barX), part.text, { color: toneColor(part.tone), bg: C.panel, bold: part.bold }); column += stringWidth(part.text); }
+      textAt(box, textX, line, badgeX - textX - 1, row.text + (row.window ? ` · ${row.window}` : ''), { color: toneColor(row.tone), bg: C.panel });
+      textAt(box, badgeX, line, badge.length, badge, { color: toneColor(row.badgeTone), bg: C.panel, bold: true });
+    });
+    if (!rows.length) textAt(box, 2, 1, inner, quota.value ? 'No accounts reported by Quota.' : 'Unknown · no quota snapshot yet', { color: C.muted, bg: C.panel });
+    const more = rows.length - quotaCardAccounts();
+    textAt(box, 2, quotaCardAccounts() + 1, inner, `${more > 0 ? `+${more} more accounts · ` : ''}${quota.value ? `${quota.value.accounts.length} accounts · coverage ${quota.value.coverage.state}` : 'coverage unknown'} · ${notice(quota)}`, { color: C.muted, bg: C.panel });
   }
-  /** Draws every Quota account/model, window, latch and advice row as a scrollable read-only view. */
+  /** Draws the Quota tab: one block per account with a bar per window; technical details are collapsed by default. */
   function drawQuota(parent: BoxRenderable): void {
     const width = renderer.width - 4, height = renderer.height - 6, lines: Line[] = [];
-    textAt(parent, 2, 2, width, 'Agent Quota · accounts and models', { bold: true });
-    const tone = (value: Tone) => value === 'muted' ? C.muted : value === 'good' ? C.good : value === 'error' ? C.error : value === 'accent' ? C.accent : C.text;
-    lines.push({ text: `Snapshot: ${notice(quota)}`, color: C.muted }, { text: `Service: ${notice(quotaService)}`, color: C.muted }, { text: '' });
-    for (const line of quotaLines(quota.value, quotaService.value, Date.now() / 1000)) addWrapped(lines, line.text, width, { color: tone(line.tone), bold: line.bold });
+    const toggle = `[d] Technical details ${quotaDetails ? '▾' : '▸'}`;
+    textAt(parent, 2, 2, Math.max(1, width - toggle.length - 2), 'Agent Quota · accounts and windows', { bold: true });
+    textAt(parent, 2 + Math.max(0, width - toggle.length), 2, toggle.length, toggle, { color: C.accent, click: () => { quotaDetails = !quotaDetails; render(); } });
+    lines.push({ text: `Snapshot: ${notice(quota)}`, color: C.muted }, { text: '' });
+    for (const row of quotaRows(quota.value, Date.now() / 1000, width)) lines.push({ text: row.spans.map(item => item.text).join(''), bg: row.card ? C.panel : undefined, spans: row.spans.map(item => ({ text: item.text, color: toneColor(item.tone), bold: item.bold })) });
+    if (quotaDetails) {
+      lines.push({ text: '' }, { text: 'Technical details', bold: true }, { text: `Service: ${notice(quotaService)}`, color: C.muted }, { text: '' });
+      for (const line of quotaLines(quota.value, quotaService.value, Date.now() / 1000)) addWrapped(lines, line.text, width, { color: toneColor(line.tone), bold: line.bold });
+    }
     quotaScroll = Math.max(0, Math.min(quotaScroll, Math.max(0, lines.length - height)));
     lineViewport(parent, 2, 4, width, height, lines, quotaScroll, delta => { quotaScroll = Math.max(0, Math.min(Math.max(0, lines.length - height), quotaScroll + delta)); render(); });
   }
@@ -2399,7 +2425,7 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
       { name: 'Quota · 4', action: () => navigate('quota') }, { name: 'Worktree · 5', action: () => navigate('worktree') },
       { name: 'Refresh observations · r', action: () => refresh() }, { name: 'Cycle polling interval · u', action: cyclePolling }, { name: 'Back · Esc', action: back },
       { name: 'History fullscreen · z', action: toggleFull }, { name: 'Result · a', action: () => selectTab('result') },
-      { name: 'Details · d', action: () => selectTab('details') }, { name: 'History beginning · i', action: jumpBeginning }, { name: 'Follow latest · G', action: followLatest },
+      { name: 'Details · d', action: () => selectTab('details') }, { name: 'Quota technical details · d (Quota tab)', action: () => { navigate('quota'); quotaDetails = !quotaDetails; render(); } }, { name: 'History beginning · i', action: jumpBeginning }, { name: 'Follow latest · G', action: followLatest },
       { name: 'Appearance · ,', action: () => { overlay = { kind: 'theme', query: '', index: themes.indexOf(theme), original: theme }; render(); } },
       { name: 'Quit · q', action: onQuit },
     ];
@@ -2428,6 +2454,7 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
       'o: expand/collapse Finished · n: load offered continuation',
       'z: fullscreen · g: older · G: follow · f: pause · [ / ]: long message parts',
       'a: result · d: details · c: copy verified result · y: copy session lineage',
+      'Quota: d / Enter: show or hide technical details · Up / Down / Page Up / Down: scroll',
       'Pool: m members · d decisions · c criteria · v votes · b deliveries · e purpose · s snapshot · l completion record (ledger)',
       'r: refresh · u: polling interval · ,: appearance · Esc: back · F: forward · Ctrl+P: commands · q: quit',
     ];
@@ -2436,7 +2463,7 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
   }
   /** Draws a keyboard-operable overlay, leaving the underlying view state untouched. */
   function drawOverlay(parent: BoxRenderable): void {
-    if (!overlay) return; const width = Math.min(renderer.width - 4, 70), height = Math.min(renderer.height - 4, 15), x = Math.floor((renderer.width - width) / 2), y = Math.floor((renderer.height - height) / 2);
+    if (!overlay) return; const width = Math.min(renderer.width - 4, 70), height = Math.min(renderer.height - 4, overlay.kind === 'help' ? 16 : 15), x = Math.floor((renderer.width - width) / 2), y = Math.floor((renderer.height - height) / 2);
     const box = panel(parent, x, y, width, height, overlay.kind === 'search' ? 'Search loaded records' : overlay.kind === 'folder' ? 'Working folder filter' : overlay.kind === 'period' ? 'Reporting period' : overlay.kind === 'status' ? 'Lifecycle filter' : overlay.kind === 'theme' ? 'Appearance' : overlay.kind === 'help' ? 'Read-only commands' : 'Command palette');
     if (['search', 'folder', 'commands'].includes(overlay.kind)) textAt(box, 2, 1, width - 4, `> ${overlay.query}`, { color: C.accent, bg: C.panel });
     if (overlay.kind === 'search') { textAt(box, 2, 3, width - 4, 'Enter applies · Esc restores the previous search', { color: C.muted, bg: C.panel }); return; }
@@ -2666,6 +2693,7 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
     if (name === 'return' || name === 'enter' || name === 'space') {
       if (route === 'pools' && poolContent) return;
       if (route === 'overview') openAttention(attentionIndex);
+      else if (route === 'quota') { quotaDetails = !quotaDetails; render(); }
       else if (route === 'worktree') {
         if (!worktreeOpen) openWorktree(worktreeIndex);
         else { const linked = linkedSessions(worktreeOpen.row, worktreeRows().map(entry => entry.row), loadedAgents()); if (linked[worktreeSessionIndex]) openSession(linked[worktreeSessionIndex].id); }
@@ -2694,6 +2722,7 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
     if (name === 'z') { toggleFull(); return; }
     if (name === 'a') { selectTab('result'); return; }
     if (name === 'd' && route === 'sessions') { selectTab('details'); return; }
+    if (name === 'd' && route === 'quota') { quotaDetails = !quotaDetails; render(); return; }
     if (name === 'c' && route === 'sessions' && tab === 'result') { copyAnswer(); return; }
     if (name === 'y') { void copyHistory(); return; }
     if (name === 'i' && route === 'sessions' && tab === 'history') { jumpBeginning(); return; }
@@ -2744,7 +2773,7 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
     else if (route === 'quota') drawQuota(frame);
     else if (route === 'worktree') drawWorktree(frame);
     else drawIncidents(frame);
-    const hint = route === 'overview' ? '↑↓ select   enter open   1 sessions   p period   r refresh   ? help' : route === 'sessions' ? (w < 105 ? '↑↓ select  enter open  i start  o finished  z full  esc back  ? help' : '↑↓ select   enter history   i start   o finished   z fullscreen   ctrl+p commands   ? help   q quit') : route === 'pools' ? '↑↓ move  enter open  ←→ tabs  i details  n/g/G pages  esc back  ?' : '↑↓ scroll   n next   r refresh   esc back   ? help';
+    const hint = route === 'overview' ? '↑↓ select   enter open   1 sessions   p period   r refresh   ? help' : route === 'sessions' ? (w < 105 ? '↑↓ select  enter open  i start  o finished  z full  esc back  ? help' : '↑↓ select   enter history   i start   o finished   z fullscreen   ctrl+p commands   ? help   q quit') : route === 'pools' ? '↑↓ move  enter open  ←→ tabs  i details  n/g/G pages  esc back  ?' : route === 'quota' ? '↑↓ scroll   d details   n next   r refresh   esc back   ? help' : '↑↓ scroll   n next   r refresh   esc back   ? help';
     textAt(frame, 2, h - 1, Math.max(1, w - 4), alert || hint, { color: alert ? C.accent : C.muted });
     if (overlay) { historyTrack.visible = false; poolTrack.visible = false; drawOverlay(frame); }
     requestVisibleToolTime();
