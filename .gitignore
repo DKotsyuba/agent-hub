@@ -5,3 +5,9 @@ dist/
 src-tauri/target/
 src-tauri/gen/
 terminal/observer/target/
+terminal/dist/
+terminal/node_modules/
+*.tsbuildinfo
+# Internal handoff notes and design preview renders are never committed.
+HANDOFF-*.md
+docs/opentui-preview/
