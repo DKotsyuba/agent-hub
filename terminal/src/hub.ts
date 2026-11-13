@@ -29,6 +29,8 @@ import type { Cursor, Page, RunAgent, TranscriptBlock } from '../../src/live/pro
 import type { AppMode, ObservationClient, ReadResponse, Resource } from './api.ts';
 import { quotaLines, quotaSnapshot, quotaStatus, quotaSummary, percent } from './quota.ts';
 import type { QuotaSnapshot, QuotaStatus, Tone } from './quota.ts';
+import { detailLines, linkedSessions, repositoriesData, rowLabel, worktreeDetail as parseWorktreeDetail, worktreePage } from './worktree.ts';
+import type { WorktreeGroup, WorktreeRow } from './worktree.ts';
 
 /** One exact request's latest outcome and last usable, validated observation. */
 interface Slot<T> { value: T | null; good: ReadResponse | null; response: ReadResponse | null; busy: boolean; generation: number }
@@ -68,7 +70,7 @@ interface PoolStatusObservation { targetKey: string; evidence: RunStatusEvidence
 /** Page navigation stores source selection and focus without discarding underlying state. */
 interface Location { route: Route; selected: string | null; boundSequence: number | null; boundTarget: BoundTarget | null; detailFromRelated: boolean; focus: Focus; tab: SessionTab; full: boolean; pool: string | null; poolTab: PoolTab; poolMetadata: boolean; poolCursor: number; poolRevision: number | null; poolPrevious: number[]; poolProposalId: string | null; poolScroll: number; poolMemberIndex: number; poolDeliveryIndex: number; poolDecisionIndex: number; poolVoteIndex: number; poolVoteMember: string | null; bridgeAfter: number; bridgeThrough: number | null; incidentScroll: number; query: string; filterFolder: string; filterProject: string; filterStatus: string; filterPeriodFailures: boolean; listTop: number; finishedOpen: boolean }
 /** Current read-only destination. */
-type Route = 'overview' | 'sessions' | 'pools' | 'info' | 'quota' | 'incidents';
+type Route = 'overview' | 'sessions' | 'pools' | 'info' | 'quota' | 'worktree' | 'incidents';
 /** Keyboard region within a session view. */
 type Focus = 'list' | 'tabs' | 'history';
 /** Selected session evidence kind. */
@@ -92,6 +94,10 @@ const poolTabs: PoolTab[] = ['members', 'discussion', 'decisions', 'criteria', '
 const terminalStates = new Set(['succeeded', 'failed', 'timed_out', 'cancelled', 'lost']);
 /** Bounds rendered line objects while retaining the complete hash-checked answer. */
 const RESULT_CHUNK = 8192;
+/** Worktree list/inspect reads spawn a helper per page; refresh them at most this often. */
+const WORKTREE_REFRESH_MS = 15000;
+/** Bounds one repository scope to 200 rows (10 pages of 20). */
+const WORKTREE_PAGES = 10;
 /** Minimum number of source blocks rendered per history window. */
 const HISTORY_WINDOW = 8;
 /** Bounds automatic prefetch when large fragments collapse into few visible rows. */
@@ -392,6 +398,9 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
   const bridge = slot<Record<string, unknown>>(), deliveries = slot<Record<string, unknown>>(), incidentMetric = slot<Record<string, unknown>>(), incidents = slot<Record<string, unknown>>();
   const identity = slot<Record<string, unknown>>(), limits = slot<Record<string, unknown>>(), models = slot<Record<string, unknown>>();
   const quota = slot<QuotaSnapshot>(), quotaService = slot<QuotaStatus>();
+  const repositories = slot<string[]>(), worktreeInspect = slot<Record<string, unknown>>();
+  let worktreeGroups: WorktreeGroup[] = [], worktreesBusy = false, worktreesLoadedAt = 0, worktreeGeneration = 0, worktreeIndex = 0, worktreeScroll = 0;
+  let worktreeOpen: { row: WorktreeRow; repo: string } | null = null, worktreeSessionIndex = 0, worktreeInspectKey = '', worktreeInspectAt = 0;
   const histories = new Map<string, History>(), beginnings = new Map<string, Beginning>(), answers = new Map<string, Answer>(), initialTasks = new Map<string, InitialTaskState>();
   const historyPositions = new WeakMap<History, HistoryPosition>();
   const relatedKeys = new WeakMap<RunAgent, string>();
@@ -1264,6 +1273,15 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
       void observe(models, 'run.models', {}, modelsData);
     }
     if (route === 'overview' || route === 'quota') void observe(quota, 'quota.snapshot', {}, quotaSnapshot);
+    if (route === 'worktree') {
+      void inventory(agents, 'run.agents', agentPages, runPage, agent => agent.id); void inventoryActiveAgents();
+      if (Date.now() - worktreesLoadedAt >= WORKTREE_REFRESH_MS) void loadWorktrees();
+      if (worktreeOpen) {
+        const params = { repo: worktreeOpen.repo, path: worktreeOpen.row.path }, key = JSON.stringify(params);
+        if (worktreeInspectKey !== key) { reset(worktreeInspect); worktreeInspectKey = key; worktreeInspectAt = 0; }
+        if (Date.now() - worktreeInspectAt >= WORKTREE_REFRESH_MS) { worktreeInspectAt = Date.now(); void observe(worktreeInspect, 'worktree.inspect', params, parseWorktreeDetail); }
+      }
+    }
     if (route === 'quota') void observe(quotaService, 'quota.status', {}, quotaStatus);
     if (route === 'incidents') { const key = JSON.stringify([bridgeAfter, bridgeThrough]); if (incidentRequestKey !== key) { reset(incidents); incidentRequestKey = key; } void observe(incidents, 'bridge.incidents', { limit: 100, after_seq: bridgeAfter, include_closed: true, ...(bridgeThrough === null ? {} : { through_seq: bridgeThrough }) }, value => bridgeData(value, 'incident_page')); }
   }
@@ -1470,6 +1488,82 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
       textAt(attention, 1, row, width - 4, `${attentionIndex === index ? '›' : ' '} ${label}: ${value} · ${period}`, { color: C.error, bg: background, click: () => openAttention(index) });
       if (width >= 65) textAt(attention, width - 12, row, 8, 'Open →', { color: C.accent, bg: background, click: () => openAttention(index) });
     }
+  }
+  /** Lists every configured repository (or every repository Worktree knows) page by page. */
+  async function loadWorktrees(): Promise<void> {
+    if (!alive || worktreesBusy) return;
+    worktreesBusy = true; worktreesLoadedAt = Date.now(); const generation = ++worktreeGeneration; render();
+    await observe(repositories, 'hub.repositories', {}, repositoriesData);
+    const repos: (string | null)[] = repositories.value?.length ? repositories.value : [null], groups: WorktreeGroup[] = [];
+    for (const repo of repos) {
+      const group: WorktreeGroup = { repo, rows: [], coverage: null, partial: false, error: null };
+      let cursor: string | null = null;
+      for (let page = 0; page < WORKTREE_PAGES; page++) {
+        const envelope = await read('worktree.list', { ...(repo ? { repo } : {}), limit: 20, ...(cursor ? { cursor } : {}) });
+        if (!alive || generation !== worktreeGeneration) { worktreesBusy = false; return; }
+        if (!usable(envelope)) { group.error = `${envelope.outcome}${envelope.error?.code ? ` [${safe(envelope.error.code)}]` : ''}: ${safe(envelope.error?.message ?? 'Read failed')}`; cursor = null; break; }
+        try {
+          const data = worktreePage(envelope.data);
+          group.rows.push(...data.rows); group.coverage = data.coverage; if (envelope.outcome === 'partial') group.partial = true;
+          cursor = data.hasMore && data.cursor ? data.cursor : null;
+        } catch { group.error = 'invalid [producer_schema]: Worktree page did not match the read contract.'; cursor = null; }
+        if (!cursor) break;
+      }
+      if (cursor) group.partial = true;
+      groups.push(group);
+    }
+    worktreeGroups = groups; worktreesBusy = false; worktreeIndex = Math.min(worktreeIndex, Math.max(0, worktreeRows().length - 1)); render();
+  }
+  /** Flattens listed rows with their repository scope, in display order. */
+  function worktreeRows(): { row: WorktreeRow; repo: string | null }[] { return worktreeGroups.flatMap(group => group.rows.map(row => ({ row, repo: group.repo }))); }
+  /** Opens the inspect detail for one listed row; orphan and missing rows have no Git registration to inspect. */
+  function openWorktree(index: number): void {
+    const entry = worktreeRows()[index]; if (!entry?.row.path) return;
+    worktreeIndex = index; worktreeOpen = { row: entry.row, repo: entry.repo ?? entry.row.path }; worktreeSessionIndex = 0; worktreeScroll = 0; refresh(); render();
+  }
+  /** Opens one Run session from a worktree link, clearing list filters so it is visible. */
+  function openSession(id: string): void {
+    navigate('sessions', () => {
+      filterStatus = ''; filterPeriodFailures = false; filterFolder = ''; filterProject = ''; query = ''; finishedOpen = true;
+      if (id !== selected) cancelSessionReads();
+      selected = id;
+      if (currentBeginning()) jumpBeginning(false); else ensureDefaultHistory();
+      void loadHistory();
+    });
+  }
+  /** Draws the per-repository worktree list or one worktree's detail with its linked sessions. */
+  function drawWorktree(parent: BoxRenderable): void {
+    const width = renderer.width - 4, height = renderer.height - 6, lines: Line[] = [], allRows = worktreeRows().map(entry => entry.row), agentsLoaded = loadedAgents();
+    if (worktreeOpen) {
+      const open = worktreeOpen, linked = linkedSessions(open.row, allRows, agentsLoaded);
+      worktreeSessionIndex = Math.max(0, Math.min(worktreeSessionIndex, linked.length - 1));
+      textAt(parent, 2, 2, width, `Agent Worktree · ${open.row.key}`, { bold: true });
+      lines.push({ text: notice(worktreeInspect), color: C.muted });
+      if (worktreeInspect.value) for (const line of detailLines(worktreeInspect.value, Date.now() / 1000)) addWrapped(lines, safe(line), width);
+      lines.push({ text: '' }, { text: `Run sessions in this worktree (${linked.length}) · ${notice(agents)}`, bold: true, color: C.accent });
+      if (!linked.length) lines.push({ text: 'No loaded Run session has its workdir in this worktree.', color: C.muted });
+      linked.forEach((agent, index) => lines.push({ text: `${index === worktreeSessionIndex ? '›' : ' '} ${safe(agent.status).padEnd(10)} ${safe(agent.name ?? agent.id)} · ${safe(agent.workdir)}`, color: activeStatus(agent.status) ? C.good : C.text, bg: index === worktreeSessionIndex ? C.selected : undefined, action: () => openSession(agent.id) }));
+    } else {
+      textAt(parent, 2, 2, width, `Agent Worktree · ${repositories.value?.length ? `${repositories.value.length} configured repositories` : 'all repositories known to Worktree'}`, { bold: true });
+      if (!worktreeGroups.length) lines.push({ text: worktreesBusy ? 'Loading worktrees…' : `Not observed · ${notice(repositories)}`, color: C.muted });
+      let flat = 0, selectedLine = 0;
+      for (const group of worktreeGroups) {
+        const coverage = group.coverage ? `repos ${String(group.coverage.repos ?? 'Unknown')}${Array.isArray(group.coverage.failed) && group.coverage.failed.length ? ` · failed ${group.coverage.failed.length}` : ''}${group.coverage.root_unconfigured ? ' · orphan scan skipped' : ''}` : 'coverage unknown';
+        lines.push({ text: `Repository: ${safe(group.repo ?? 'all known')} · ${group.rows.length} worktrees${group.partial ? ' · partial' : ''} · ${coverage}`, bold: true, color: C.accent });
+        if (group.error) lines.push({ text: `  ${group.error}`, color: C.error });
+        for (const row of group.rows) {
+          const index = flat++, linked = linkedSessions(row, allRows, agentsLoaded), active = linked.filter(agent => activeStatus(agent.status)).length;
+          if (index === worktreeIndex) selectedLine = lines.length;
+          lines.push({ text: `${index === worktreeIndex ? '›' : ' '} ${safe(row.key).padEnd(24)} ${safe(rowLabel(row, linked.length, active))}`, bg: index === worktreeIndex ? C.selected : undefined, color: row.class === 'missing' || row.class === 'orphan_candidate' ? C.error : C.text, action: () => openWorktree(index) });
+          lines.push({ text: `    ${safe(row.path ?? 'path Unknown')}`, color: C.muted, bg: index === worktreeIndex ? C.selected : undefined, action: () => openWorktree(index) });
+        }
+        lines.push({ text: '' });
+      }
+      if (selectedLine < worktreeScroll) worktreeScroll = selectedLine; else if (selectedLine + 2 > worktreeScroll + height) worktreeScroll = selectedLine + 2 - height;
+      lines.push({ text: 'Activity marked ~ is mtime-based, not process-verified. Read-only: no worktree is created, removed or pruned.', color: C.muted });
+    }
+    worktreeScroll = Math.max(0, Math.min(worktreeScroll, Math.max(0, lines.length - height)));
+    lineViewport(parent, 2, 4, width, height, lines, worktreeScroll, delta => { worktreeScroll = Math.max(0, Math.min(Math.max(0, lines.length - height), worktreeScroll + delta)); render(); });
   }
   /** Draws the Quota summary card; unknown and stale models are counted, never shown as capacity. */
   function drawQuotaCard(parent: BoxRenderable, left: number, y: number, width: number): void {
@@ -2249,7 +2343,7 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
     return [
       { name: 'Overview · 0', action: () => navigate('overview') }, { name: 'Sessions · 1', action: () => navigate('sessions') },
       { name: 'Agent Pool · 2', action: () => navigate('pools') }, { name: 'Run info · 3', action: () => navigate('info') },
-      { name: 'Quota · 4', action: () => navigate('quota') },
+      { name: 'Quota · 4', action: () => navigate('quota') }, { name: 'Worktree · 5', action: () => navigate('worktree') },
       { name: 'Refresh observations · r', action: () => refresh() }, { name: 'Cycle polling interval · u', action: cyclePolling }, { name: 'Back · Esc', action: back },
       { name: 'History fullscreen · z', action: toggleFull }, { name: 'Result · a', action: () => selectTab('result') },
       { name: 'Details · d', action: () => selectTab('details') }, { name: 'History beginning · i', action: jumpBeginning }, { name: 'Follow latest · G', action: followLatest },
@@ -2271,7 +2365,7 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
     if (active.kind === 'folder') return ['All working folders', ...folders().filter(path => path.toLocaleLowerCase().includes(active.query.toLocaleLowerCase()))];
     if (active.kind === 'status') return ['All statuses', ...new Set(loadedAgents().map(agent => agent.status))];
     if (active.kind === 'help') return [
-      '0 Overview · 1 Sessions · 2 Agent Pool · 3 Run info · 4 Quota',
+      '0 Overview · 1 Sessions · 2 Agent Pool · 3 Run info · 4 Quota · 5 Worktree',
       'Tab / Shift+Tab: move focus; Left / Right: switch focused tabs',
       'Up / Down or j / k: move selection or scroll',
       'Page Up / Down: scroll · Home / i: beginning · End: latest',
@@ -2331,6 +2425,7 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
     if (route === 'sessions' && full) { full = false; focus = previousFocus; render(); return; }
     if (route === 'sessions' && renderer.width < 110 && focus !== 'list' && !detailFromRelated) { focus = 'list'; render(); return; }
     if (route === 'pools' && poolContent) { closePoolContent(); render(); return; }
+    if (route === 'worktree' && worktreeOpen) { worktreeOpen = null; worktreeInspectKey = ''; reset(worktreeInspect); render(); return; }
     if (route === 'pools' && pool) { cancelPoolMemberRead(); cancelPoolStatus(); savePoolPosition(); pool = null; poolScroll = 0; revealPoolSelection = true; render(); return; }
     const previous = backStack.pop(); if (previous) { forwardStack.push(location()); restore(previous); }
   }
@@ -2437,6 +2532,11 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
     if (route === 'pools') { if (poolContent) { poolScroll = Math.max(0, poolScroll + amount); render(); return; } const journal = pool && poolTab === 'discussion' && poolHistorySupported() === true ? poolHistory(pool) : null; if (pool && !poolDetail.value && !journal) return; if (!pool) { poolIndex = Math.max(0, Math.min(visiblePools().length - 1, poolIndex + delta * (page ? Math.max(1, Math.floor((renderer.height - 7) / 3)) : 1))); revealPoolSelection = true; } else if (poolTab === 'deliveries' && !page && poolDetail.value?.view) { const rows = object(poolDetail.value.view).deliveries; if (Array.isArray(rows)) selectPoolDelivery(Math.max(0, Math.min(rows.length - 1, poolDeliveryIndex + delta))); revealPoolSelection = true; } else if (poolTab === 'members' && !page && poolDetail.value?.view) { const members = object(poolDetail.value.view).members; if (Array.isArray(members)) { poolMemberIndex = Math.max(0, Math.min(members.length - 1, poolMemberIndex + delta)); void refreshPoolStatus(); } revealPoolSelection = true; } else if (poolTab === 'decisions' && !page && Array.isArray(poolDetail.value?.decisions) && poolDetail.value.decisions.length) { poolDecisionIndex = Math.max(0, Math.min(poolDetail.value.decisions.length - 1, poolDecisionIndex + delta)); revealPoolSelection = true; } else if (poolTab === 'votes' && !page && poolVoteRows().length) { poolVoteIndex = Math.max(0, Math.min(poolVoteRows().length - 1, poolVoteIndex + delta)); revealPoolSelection = true; } else { if (journal) journal.follow = false; poolScroll = Math.max(0, poolScroll + amount); if (journal && poolScroll <= 2 && journal.previous) void olderPoolHistory(); } render(); return; }
     if (route === 'info') { infoScroll = Math.max(0, infoScroll + amount); render(); }
     if (route === 'quota') { quotaScroll = Math.max(0, quotaScroll + amount); render(); }
+    if (route === 'worktree') {
+      if (worktreeOpen) worktreeSessionIndex = Math.max(0, worktreeSessionIndex + (page ? amount : delta));
+      else worktreeIndex = Math.max(0, Math.min(worktreeRows().length - 1, worktreeIndex + (page ? amount : delta)));
+      render();
+    }
     if (route === 'incidents') { incidentScroll = Math.max(0, incidentScroll + amount); render(); }
   }
   /** Copies only a complete, bounded source snapshot for the originally selected target. */
@@ -2490,7 +2590,8 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
     if (name === '2') { navigate('pools'); return; }
     if (name === '3') { navigate('info'); return; }
     if (name === '4') { navigate('quota'); return; }
-    if (name === 'r') { if (route === 'sessions') { const agent = selectedAgent(); if (agent) { const key = JSON.stringify([executionKey(agent), agent.answerSha]); answers.get(key)?.controller?.abort(); answers.delete(key); initialTasks.get(executionKey(agent))?.controller?.abort(); initialTasks.delete(executionKey(agent)); } if (detailFromRelated) { directStatus = null; relatedNextScan = 0; } } if (route === 'pools') poolStatusRetryAt = 0; refresh(); return; }
+    if (name === '5') { navigate('worktree'); return; }
+    if (name === 'r') { if (route === 'sessions') { const agent = selectedAgent(); if (agent) { const key = JSON.stringify([executionKey(agent), agent.answerSha]); answers.get(key)?.controller?.abort(); answers.delete(key); initialTasks.get(executionKey(agent))?.controller?.abort(); initialTasks.delete(executionKey(agent)); } if (detailFromRelated) { directStatus = null; relatedNextScan = 0; } } if (route === 'pools') poolStatusRetryAt = 0; if (route === 'worktree') { worktreesLoadedAt = 0; worktreeInspectAt = 0; } refresh(); return; }
     if (name === 'tab' && route === 'sessions') { const choices: Focus[] = full || renderer.width < 110 && focus !== 'list' ? ['tabs', 'history'] : ['list', 'tabs', 'history']; const current = choices.indexOf(focus); focus = choices[(current + (key.shift ? choices.length - 1 : 1)) % choices.length]; render(); return; }
     if (name === 'up' || name === 'k') { move(-1); return; }
     if (name === 'down' || name === 'j') { move(1); return; }
@@ -2512,6 +2613,10 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
     if (name === 'return' || name === 'enter' || name === 'space') {
       if (route === 'pools' && poolContent) return;
       if (route === 'overview') openAttention(attentionIndex);
+      else if (route === 'worktree') {
+        if (!worktreeOpen) openWorktree(worktreeIndex);
+        else { const linked = linkedSessions(worktreeOpen.row, worktreeRows().map(entry => entry.row), loadedAgents()); if (linked[worktreeSessionIndex]) openSession(linked[worktreeSessionIndex].id); }
+      }
       else if (route === 'sessions') { if (focus === 'list') { focus = 'history'; void loadHistory(); render(); } else if (focus === 'history' && tab === 'history') toggleMessage(); }
       else if (route === 'pools' && !pool) { const items = visiblePools(); if (items[poolIndex]) choosePool(String(object(items[poolIndex].pool).pool_id)); }
       else if (route === 'pools' && poolTab === 'members' && poolDetail.value?.view) { const members = object(poolDetail.value.view).members, bindings = poolDetail.value.bindings; if (Array.isArray(members) && members[poolMemberIndex] && Array.isArray(bindings)) { const id = object(members[poolMemberIndex]).member_id, binding = bindings.map(object).find(value => object(value.member).member_id === id); if (binding) openMember(binding); } }
@@ -2569,7 +2674,7 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
     textAt(frame, 2, 0, 12, 'agent-hub', { bold: true, color: C.text, bg: C.header });
     const modeLabel = mode === 'demo' ? 'DEMO DATA' : 'LIVE READ-ONLY', modeX = Math.max(15, w - stringWidth(modeLabel) - 2);
     let navX = 16;
-    for (const item of [{ route: 'overview' as const, label: 'Overview' }, { route: 'sessions' as const, label: 'Sessions' }, { route: 'pools' as const, label: 'Pools' }, { route: 'info' as const, label: 'Run info' }, { route: 'quota' as const, label: 'Quota' }]) {
+    for (const item of [{ route: 'overview' as const, label: 'Overview' }, { route: 'sessions' as const, label: 'Sessions' }, { route: 'pools' as const, label: 'Pools' }, { route: 'info' as const, label: 'Run info' }, { route: 'quota' as const, label: 'Quota' }, { route: 'worktree' as const, label: 'Worktree' }]) {
       const label = item.route === route ? `[${item.label}]` : item.label, width = Math.min(stringWidth(label), modeX - navX - 1);
       textAt(frame, navX, 0, width, label, { color: item.route === route ? C.text : C.muted, bg: C.header, click: () => navigate(item.route) });
       navX += stringWidth(label) + 3;
@@ -2583,6 +2688,7 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
     else if (route === 'pools') drawPools(frame);
     else if (route === 'info') drawInfo(frame);
     else if (route === 'quota') drawQuota(frame);
+    else if (route === 'worktree') drawWorktree(frame);
     else drawIncidents(frame);
     const hint = route === 'overview' ? '↑↓ select   enter open   1 sessions   p period   r refresh   ? help' : route === 'sessions' ? (w < 105 ? '↑↓ select  enter open  i start  o finished  z full  esc back  ? help' : '↑↓ select   enter history   i start   o finished   z fullscreen   ctrl+p commands   ? help   q quit') : route === 'pools' ? '↑↓ move  enter open  ←→ tabs  i details  n/g/G pages  esc back  ?' : '↑↓ scroll   n next   r refresh   esc back   ? help';
     textAt(frame, 2, h - 1, Math.max(1, w - 4), alert || hint, { color: alert ? C.accent : C.muted });

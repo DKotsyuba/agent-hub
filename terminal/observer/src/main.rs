@@ -5,12 +5,18 @@
 
 // The shared desktop modules contain additional resources/helpers intentionally
 // unused by this narrower executable; no extra route is exposed by linking them.
+// Desktop dispatch helpers; the terminal only routes Worktree reads through mcp.rs.
+#[allow(dead_code)]
+#[path = "../../../src-tauri/src/adapters.rs"]
+mod adapters;
 #[allow(dead_code)]
 #[path = "../../../src-tauri/src/config.rs"]
 mod config;
 #[allow(dead_code)]
 #[path = "../../../src-tauri/src/contract.rs"]
 mod contract;
+#[path = "../../../src-tauri/src/mcp.rs"]
+mod mcp;
 #[allow(dead_code)]
 #[path = "../../../src-tauri/src/process.rs"]
 mod process;
@@ -179,6 +185,10 @@ async fn observe(
             | Resource::BridgeOverview
             | Resource::BridgeDeliveries
             | Resource::BridgeIncidents
+            | Resource::HubRepositories
+            | Resource::WorktreeIdentity
+            | Resource::WorktreeList
+            | Resource::WorktreeInspect
     ) {
         return Err(ReadError::invalid("resource_denied"));
     }
@@ -186,6 +196,7 @@ async fn observe(
     if extra_authority(&request.params) {
         return Err(ReadError::invalid("authority_denied"));
     }
+    worktree_params(request)?;
     if *cancel.borrow() {
         return Err(ReadError::unavailable("cancelled"));
     }
@@ -199,8 +210,84 @@ async fn observe(
     match request.resource.source() {
         "run" => read_run(&config, request, cancel).await,
         "quota" => read_quota(&config, request, cancel).await,
+        "hub"
+            if request
+                .params
+                .as_object()
+                .is_some_and(|params| params.is_empty()) =>
+        {
+            Ok(json!({ "repositories": config.repositories }))
+        }
+        "hub" => Err(ReadError::invalid("hub_params")),
         "pool" | "bridge" => read_observer(&config, request, cancel).await,
+        // A presentation-only isError flag keeps the validated structured payload.
+        "worktree" => mcp::read(&config, request, cancel)
+            .await
+            .map(|(value, _)| value),
         _ => Err(ReadError::invalid("resource_denied")),
+    }
+}
+
+/// Closes Worktree read arguments to the documented read-only shapes; size
+/// measurement and discovery scans stay off unless explicitly bounded here.
+fn worktree_params(request: &ReadRequest) -> Result<(), ReadError> {
+    let Some(params) = request.params.as_object() else {
+        return Ok(());
+    };
+    let text = |key: &str| {
+        params
+            .get(key)
+            .is_none_or(|value| value.as_str().is_some_and(|text| !text.is_empty()))
+    };
+    let valid = match request.resource {
+        Resource::WorktreeIdentity => params.is_empty(),
+        Resource::WorktreeList => {
+            params
+                .keys()
+                .all(|key| matches!(key.as_str(), "repo" | "cursor" | "limit" | "discovery"))
+                && text("repo")
+                && text("cursor")
+                && params.get("limit").is_none_or(|limit| {
+                    limit
+                        .as_u64()
+                        .is_some_and(|limit| (1..=20).contains(&limit))
+                })
+                && params.get("discovery").is_none_or(Value::is_boolean)
+                && params
+                    .get("repo")
+                    .and_then(Value::as_str)
+                    .is_none_or(|repo| repo.starts_with('/'))
+        }
+        Resource::WorktreeInspect => {
+            params
+                .keys()
+                .all(|key| matches!(key.as_str(), "repo" | "name" | "path" | "checks"))
+                && params
+                    .get("repo")
+                    .and_then(Value::as_str)
+                    .is_some_and(|repo| repo.starts_with('/'))
+                && params.contains_key("name") != params.contains_key("path")
+                && text("name")
+                && params
+                    .get("path")
+                    .is_none_or(|path| path.as_str().is_some_and(|path| path.starts_with('/')))
+                && params.get("checks").is_none_or(|checks| {
+                    checks.as_object().is_some_and(|checks| {
+                        checks.iter().all(|(key, value)| {
+                            matches!(
+                                key.as_str(),
+                                "status" | "integration" | "processes" | "submodules"
+                            ) && value.is_boolean()
+                        })
+                    })
+                })
+        }
+        _ => true,
+    };
+    if valid {
+        Ok(())
+    } else {
+        Err(ReadError::invalid("worktree_params"))
     }
 }
 
@@ -482,6 +569,54 @@ fn validate_observer(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Worktree reads accept only documented read-only argument shapes.
+    #[test]
+    fn worktree_params_are_closed() {
+        let check = |resource, params: Value| worktree_params(&ReadRequest { resource, params });
+        assert!(check(Resource::WorktreeIdentity, json!({})).is_ok());
+        assert!(check(Resource::WorktreeIdentity, json!({"repo":"/r"})).is_err());
+        assert!(check(Resource::WorktreeList, json!({})).is_ok());
+        assert!(
+            check(
+                Resource::WorktreeList,
+                json!({"repo":"/r","limit":20,"cursor":"c","discovery":false})
+            )
+            .is_ok()
+        );
+        for invalid in [
+            json!({"size":true}),
+            json!({"repo":"relative"}),
+            json!({"limit":21}),
+            json!({"limit":0}),
+            json!({"cursor":""}),
+        ] {
+            assert!(check(Resource::WorktreeList, invalid).is_err());
+        }
+        assert!(
+            check(
+                Resource::WorktreeInspect,
+                json!({"repo":"/r","path":"/r/w"})
+            )
+            .is_ok()
+        );
+        assert!(
+            check(
+                Resource::WorktreeInspect,
+                json!({"repo":"/r","name":"w","checks":{"status":true}})
+            )
+            .is_ok()
+        );
+        for invalid in [
+            json!({"repo":"/r"}),
+            json!({"repo":"/r","name":"w","path":"/r/w"}),
+            json!({"path":"/r/w"}),
+            json!({"repo":"/r","path":"w"}),
+            json!({"repo":"/r","name":"w","checks":{"size":true}}),
+        ] {
+            assert!(check(Resource::WorktreeInspect, invalid).is_err());
+        }
+    }
 
     /// Archived Tasks and IDE sources are never reachable from the terminal observer.
     #[test]

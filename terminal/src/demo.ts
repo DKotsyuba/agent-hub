@@ -150,6 +150,17 @@ export function createDemoClient(): ObservationClient {
         ] };
         break;
       }
+      case 'hub.repositories':
+        data = { repositories: ['/demo/agent-hub'] };
+        break;
+      case 'worktree.list': {
+        const row = (key: string, path: string, kind: string, branch: string, activity: string, integration: string) => ({ key, class: kind, path, branch: `refs/heads/${branch}`, detached: false, head: 'a'.repeat(40), repo_id: 'demo', repo_common_dir: '/demo/agent-hub/.git', creator: null, removal_started: false, activity: { state: activity, mtime_based: true }, integration, size: null });
+        data = product('worktree_page', { returned: 2, has_more: false, cursor: null, rows: [row('demo/agent-hub', '/demo/agent-hub', 'main', 'main', 'recent', 'ancestor_merged'), row('demo/workspace', '/demo/workspace', 'managed', 'feature/demo', 'idle_candidate', 'unmerged')], hygiene: { idle: 1, stale: 0, unmerged: 1, missing: 0 }, coverage: { repos: 1, failed: [], root_unconfigured: false } });
+        break;
+      }
+      case 'worktree.inspect':
+        data = product('worktree_detail', { key: params.path === '/demo/workspace' ? 'demo/workspace' : 'demo/agent-hub', class: params.path === '/demo/workspace' ? 'managed' : 'main', path: params.path, branch: 'refs/heads/feature/demo', detached: false, head: 'a'.repeat(40), repo_common_dir: '/demo/agent-hub/.git', activity: 'recent', activity_signals: { head_mtime: observed - 600, index_mtime: observed - 300, last_reflog_entry: observed - 300 }, probes: { status: { state: 'known', value: { staged: 0, unstaged: 2, untracked: 1, conflicts: 0 }, code: null, reason: null }, integration: { state: 'known', value: 'unmerged', code: null, reason: null }, processes: { state: 'unavailable', value: null, code: 'probe_timeout', reason: null }, submodules: { state: 'not_checked', value: null, code: null, reason: null }, size: { state: 'not_checked', value: null, code: null, reason: null } }, warnings: [{ code: 'unmerged' }], hygiene: { stale_activity: false, large: false, missing: false }, record: null, observed_at: observed });
+        break;
       default:
         return fail('demo_resource_unsupported');
     }

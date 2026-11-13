@@ -56,6 +56,9 @@ pub enum Resource {
     /// Quota snapshot for all configured accounts, or a closed account/model scope.
     #[serde(rename = "quota.snapshot")]
     QuotaSnapshot,
+    /// App-configured known repository paths; read from Hub config, never a source.
+    #[serde(rename = "hub.repositories")]
+    HubRepositories,
     /// Structured Worktree product identity.
     #[serde(rename = "worktree.identity")]
     WorktreeIdentity,
@@ -123,6 +126,7 @@ impl Resource {
             | Self::RunPools
             | Self::RunPool => "run",
             Self::QuotaStatus | Self::QuotaSnapshot => "quota",
+            Self::HubRepositories => "hub",
             Self::WorktreeIdentity | Self::WorktreeList | Self::WorktreeInspect => "worktree",
             Self::TasksIdentity | Self::TasksPeek => "tasks",
             Self::PoolIdentity
@@ -155,6 +159,7 @@ impl Resource {
             Self::RunPool => "pool",
             Self::QuotaStatus => "status",
             Self::QuotaSnapshot => "snapshot",
+            Self::HubRepositories => "repositories",
             Self::WorktreeIdentity | Self::TasksIdentity => "get_status",
             Self::WorktreeList => "list_worktrees",
             Self::WorktreeInspect => "inspect_worktree",

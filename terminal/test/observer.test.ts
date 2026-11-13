@@ -174,7 +174,7 @@ test('closed observer reads, validates and cancels only its own sources', async 
     assert.equal(denied.error?.code, 'authority_denied');
     assert.equal((await client.read('run.agents', { nested: { broker_uid: uid } })).error?.code, 'authority_denied');
     assert.equal(calls.length, callCount);
-    const outside = await client.read('worktree.inspect' as Resource);
+    const outside = await client.read('tasks.peek' as Resource);
     assert.equal(outside.outcome, 'invalid');
     assert.equal(outside.error?.code, 'resource_denied');
 
