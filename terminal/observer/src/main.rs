@@ -483,6 +483,31 @@ fn validate_observer(
 mod tests {
     use super::*;
 
+    /// Archived Tasks and IDE sources are never reachable from the terminal observer.
+    #[test]
+    fn archived_tasks_and_ide_are_denied() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let (_tx, mut cancel) = watch::channel(false);
+        for resource in [
+            Resource::TasksIdentity,
+            Resource::TasksPeek,
+            Resource::IdeIdentity,
+            Resource::IdeObserve,
+        ] {
+            let request = ReadRequest {
+                resource,
+                params: json!({}),
+            };
+            let error = runtime
+                .block_on(observe(&request, &mut cancel))
+                .expect_err("denied");
+            assert_eq!(error.code, "resource_denied");
+        }
+    }
+
     /// Linux defaults to the shared broker; a configured socket never inherits its UID.
     #[cfg(target_os = "linux")]
     #[test]
