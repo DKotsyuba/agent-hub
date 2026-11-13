@@ -328,11 +328,18 @@ function bounds(period: Period, now: number): [number, number] {
 function slot<T>(): Slot<T> { return { value: null, good: null, response: null, busy: false, generation: 0 }; }
 /** Creates an independent execution history with follow initially enabled. */
 function history(): History { return { blocks: [], grouped: groupTranscript([]), previous: null, resume: null, complete: false, headComplete: false, tailComplete: false, partial: false, response: null, busy: false, loaded: false, follow: true, unseen: 0, catchup: 0, controller: null, scroll: 0, windowStart: 0, windowEnd: 0, windowSize: 0, resultScroll: 0, detailsScroll: 0, anchor: null, expanded: new Set(), parts: new Map(), selected: null, toolTimes: new Map(), wraps: new Map() }; }
-/** Describes a source snapshot, including failure and any retained last-good data. */
+/** Run failures caused by socket placement, ownership or session group credentials. */
+const RUN_ACCESS_CODES = new Set(['run_endpoint', 'run_endpoint_identity', 'run_endpoint_parent', 'run_connect', 'run_peer_identity', 'run_broker_socket_required', 'run_session_socket_absolute', 'run_session_broker_uid', 'config_read', 'config_json', 'config_absolute', 'config_version']);
+/** Returns an operator hint for a Run access failure, or an empty string. */
+export function runAccessHint(code: string | undefined): string {
+  return code && RUN_ACCESS_CODES.has(code) ? ' · check Run socket (connections.json run.socket / --socket) and agent-run group (`id`)' : '';
+}
+/** Describes a source snapshot, including failure code and any retained last-good data. */
 function notice<T>(state: Slot<T>): string {
   if (state.busy && !state.good) return 'Loading observations…';
   if (!state.response) return 'Not observed';
-  const status = state.response.outcome === 'ok' || state.response.outcome === 'partial' && !independentlyPartial(state.response) ? 'Available' : state.response.outcome === 'partial' ? 'Partial response' : `${state.response.outcome}: ${safe(state.response.error?.message ?? 'Read failed')}`;
+  const code = state.response.error?.code;
+  const status = state.response.outcome === 'ok' || state.response.outcome === 'partial' && !independentlyPartial(state.response) ? 'Available' : state.response.outcome === 'partial' ? 'Partial response' : `${state.response.outcome}${code ? ` [${safe(code)}]` : ''}: ${safe(state.response.error?.message ?? 'Read failed')}${state.response.source === 'run' ? runAccessHint(code) : ''}`;
   const receipt = state.good ? `received ${stamp(state.good.observed_at_ms / 1000)}${state.response !== state.good ? ' · last good' : ''}` : 'no usable observation';
   return `${status} · ${receipt}`;
 }
@@ -1416,7 +1423,7 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
         values.forEach((value, index) => textAt(box, index * cellWidth, 1, cellWidth, value, { bg: C.panel }));
         textAt(box, 0, 2, width - 2, coverage, { color: C.muted, bg: C.panel });
       };
-      compactSource(3, 'Agent Run', [`Active: ${active}`, `Finished: ${compact(runCount('finished'))}`, `Failed: ${compact(runCount('failed'))}`], `Failed included in finished · ${notice(agents)}`);
+      compactSource(3, 'Agent Run', [`Active: ${active}`, `Finished: ${compact(runCount('finished'))}`, `Failed: ${compact(runCount('failed'))}`], runFailed() ? notice(agents) : `Failed included in finished · ${notice(agents)}`);
       compactSource(7, 'Agent Bridge', [`Intake: ${compact(bridgeCount(deliveries, 'deliveries', 'accepted_at_ms'))}`, 'Pending: Unknown', `Incidents: ${compact(bridgeCount(incidentMetric, 'incidents', 'created_ms'))}`], `Retained by Bridge · ${notice(bridge)}`);
       const attention = panel(parent, left, 11, width, 4, 'Needs attention');
       textAt(attention, 0, 1, width - 2, `${attentionIndex === 0 ? '›' : ' '} Failed executions: ${compact(runCount('failed'))} [Open]`, { color: C.error, bg: C.panel, click: () => openAttention(0) });
@@ -1445,7 +1452,7 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
       textAt(box, 2, sourceH - 2, width - 4, coverage, { color: C.muted, bg: C.panel });
     };
     const active = activeCount();
-    drawSource('Agent Run', 4, ['Active · now', `Finished · ${period}`, `Failed · ${period}`], [active, runCount('finished'), runCount('failed')], `${agents.value ? `${agents.value.items.length} loaded / ${agents.value.total} reported` : 'coverage unknown'} · failed included in finished · ${notice(agents)}`, { label: 'Open sessions →', open: () => navigate('sessions') });
+    drawSource('Agent Run', 4, ['Active · now', `Finished · ${period}`, `Failed · ${period}`], [active, runCount('finished'), runCount('failed')], runFailed() ? `${notice(agents)} · ${agents.value ? `${agents.value.items.length} loaded / ${agents.value.total} reported` : 'coverage unknown'}` : `${agents.value ? `${agents.value.items.length} loaded / ${agents.value.total} reported` : 'coverage unknown'} · failed included in finished · ${notice(agents)}`, { label: 'Open sessions →', open: () => navigate('sessions') });
     drawSource('Agent Bridge', 5 + sourceH, [`Accepted by Bridge · ${period}`, 'Pending · now', `Incidents · ${period}`], [bridgeCount(deliveries, 'deliveries', 'accepted_at_ms'), 'Unknown', bridgeCount(incidentMetric, 'incidents', 'created_ms')], `${notice(bridge)} · Retained by Bridge · deliveries ${sourceState(deliveries)} · incidents ${sourceState(incidentMetric)}`, { label: 'View incidents →', open: () => navigate('incidents') });
     const attention = panel(parent, left, attentionY, width, attentionH, '');
     const failed = runCount('failed'), incident = bridgeCount(incidentMetric, 'incidents', 'created_ms');
@@ -1458,6 +1465,8 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
       if (width >= 65) textAt(attention, width - 12, row, 8, 'Open →', { color: C.accent, bg: background, click: () => openAttention(index) });
     }
   }
+  /** Reports whether the latest Run inventory read failed, so its diagnosis leads the card. */
+  function runFailed(): boolean { return !!agents.response && agents.response.outcome !== 'ok' && agents.response.outcome !== 'partial'; }
   /** Opens an attention item with a source-specific filter or retained evidence. */
   function openAttention(index: number): void {
     if (index !== 0) { navigate('incidents'); return; }

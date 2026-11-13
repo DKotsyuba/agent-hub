@@ -216,11 +216,16 @@ fn response_retains_source_clocks_coverage_and_unicode() {
 #[test]
 fn configuration_defaults_only_for_missing_fields() {
     let defaults = Connections::resolve(Path::new("/Users/example"), None).expect("defaults");
-    assert_eq!(
-        defaults.socket,
-        Path::new("/Users/example/.agent-run/api.sock")
-    );
-    assert_eq!(defaults.broker_uid, None);
+    if cfg!(target_os = "linux") {
+        assert_eq!(defaults.socket, Path::new("/run/agent-mcp/api.sock"));
+        assert_eq!(defaults.broker_uid, Some(1003));
+    } else {
+        assert_eq!(
+            defaults.socket,
+            Path::new("/Users/example/.agent-run/api.sock")
+        );
+        assert_eq!(defaults.broker_uid, None);
+    }
     assert_eq!(
         defaults.programs["tasks"].program.as_deref(),
         Some(Path::new("/Users/example/.local/bin/agent-tasks"))

@@ -12,7 +12,7 @@ use tokio::io::AsyncReadExt;
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct RunConfig {
-    /// Absolute Unix socket path; absence uses ~/.agent-run/api.sock.
+    /// Absolute Unix socket path; absence uses the platform default Run endpoint.
     pub socket: Option<PathBuf>,
     /// Expected Unix UID for an explicitly configured shared broker socket.
     pub broker_uid: Option<u32>,
@@ -72,37 +72,65 @@ pub(crate) struct Connections {
     pub repositories: Vec<PathBuf>,
 }
 
+/// Host-wide fallback read only when no explicit or per-user file exists.
+#[cfg(target_os = "linux")]
+pub(crate) const SYSTEM_CONFIG: Option<&str> = Some("/etc/agent-hub/connections.json");
+/// Non-Linux desktop builds keep the per-user file as the only configuration.
+#[cfg(not(target_os = "linux"))]
+pub(crate) const SYSTEM_CONFIG: Option<&str> = None;
+
+/// Linux default: the shared Run broker socket and its trusted service UID on the
+/// reference host. Any connections.json `run.socket` replaces both values.
+#[cfg(target_os = "linux")]
+const DEFAULT_RUN: Option<(&str, u32)> = Some(("/run/agent-mcp/api.sock", 1003));
+/// Other platforms default to the private per-user Run socket.
+#[cfg(not(target_os = "linux"))]
+const DEFAULT_RUN: Option<(&str, u32)> = None;
+
+/// Reads one bounded config file; only NotFound maps to `None`.
+async fn read_file(path: &Path) -> Result<Option<FileConfig>, ReadError> {
+    if !path.is_absolute() {
+        return Err(ReadError::invalid("config_absolute"));
+    }
+    match tokio::fs::File::open(path).await {
+        Ok(file) => {
+            let mut bytes = Vec::new();
+            file.take((PARAM_LIMIT + 1) as u64)
+                .read_to_end(&mut bytes)
+                .await
+                .map_err(|_| ReadError::invalid("config_read"))?;
+            if bytes.len() > PARAM_LIMIT {
+                return Err(ReadError::invalid("config_budget"));
+            }
+            Ok(Some(
+                serde_json::from_slice::<FileConfig>(&bytes)
+                    .map_err(|_| ReadError::invalid("config_json"))?,
+            ))
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(_) => Err(ReadError::invalid("config_read")),
+    }
+}
+
 impl Connections {
-    /// Reads at most 64 KiB from the explicit config override or app config path.
-    /// Only NotFound defaults; malformed/unreadable files fail closed without I/O fallback.
+    /// Reads at most 64 KiB from the explicit config override, else the per-user app
+    /// config, else the host-wide fallback. Only NotFound moves to the next location;
+    /// an explicit override never falls back, and malformed/unreadable files fail closed.
     pub async fn load(app_config: &Path) -> Result<Self, ReadError> {
         let home = std::env::var_os("HOME")
             .map(PathBuf::from)
             .filter(|p| p.is_absolute())
             .ok_or_else(|| ReadError::invalid("home_unavailable"))?;
-        let path = std::env::var_os("AGENT_HUB_CONFIG")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| app_config.join("connections.json"));
-        if !path.is_absolute() {
-            return Err(ReadError::invalid("config_absolute"));
-        }
-        let config = match tokio::fs::File::open(&path).await {
-            Ok(file) => {
-                let mut bytes = Vec::new();
-                file.take((PARAM_LIMIT + 1) as u64)
-                    .read_to_end(&mut bytes)
-                    .await
-                    .map_err(|_| ReadError::invalid("config_read"))?;
-                if bytes.len() > PARAM_LIMIT {
-                    return Err(ReadError::invalid("config_budget"));
-                }
-                Some(
-                    serde_json::from_slice::<FileConfig>(&bytes)
-                        .map_err(|_| ReadError::invalid("config_json"))?,
-                )
+        let config = if let Some(path) = std::env::var_os("AGENT_HUB_CONFIG") {
+            read_file(&PathBuf::from(path)).await?
+        } else {
+            match read_file(&app_config.join("connections.json")).await? {
+                Some(config) => Some(config),
+                None => match SYSTEM_CONFIG {
+                    Some(system) => read_file(Path::new(system)).await?,
+                    None => None,
+                },
             }
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
-            Err(_) => return Err(ReadError::invalid("config_read")),
         };
         let mut resolved = Self::resolve(&home, config)?;
         let socket = std::env::var_os("AGENT_HUB_SESSION_SOCKET");
@@ -151,9 +179,13 @@ impl Connections {
                 },
             );
         }
+        let (socket, broker_uid) = match DEFAULT_RUN {
+            Some((socket, uid)) => (PathBuf::from(socket), Some(uid)),
+            None => (home.join(".agent-run/api.sock"), None),
+        };
         let mut resolved = Self {
-            socket: home.join(".agent-run/api.sock"),
-            broker_uid: None,
+            socket,
+            broker_uid,
             programs,
             repositories: Vec::new(),
         };
@@ -164,9 +196,11 @@ impl Connections {
             if file.run.broker_uid.is_some() && file.run.socket.is_none() {
                 return Err(ReadError::invalid("run_broker_socket_required"));
             }
-            resolved.broker_uid = file.run.broker_uid;
+            // A configured socket carries its own trust: an omitted broker UID means a
+            // private same-user socket, never the default shared broker UID.
             if let Some(socket) = file.run.socket {
                 resolved.socket = socket;
+                resolved.broker_uid = file.run.broker_uid;
             }
             resolved.repositories = file.repositories;
             for (source, input) in [

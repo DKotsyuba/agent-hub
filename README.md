@@ -21,7 +21,7 @@ The executable alone is not a complete distribution bundle; see [third-party mat
 
 `--demo` uses synthetic data only. `--live` is the default and never falls back to demo when a source fails. Live mode reads the same `connections.json` / `AGENT_HUB_CONFIG` contract as the desktop shell; Run, Pool and Bridge remain independent sources. The development launcher honors `CARGO_TARGET_DIR` when locating the built observer. Pool and Bridge need their separately configured observer-only access and an absolute temporary-directory environment. No source service, agent or model is started or managed by the interface.
 
-On Linux the default connections file is `~/.config/dev.agent-mcp.hub/connections.json`. To use an authorized shared Run socket, set its absolute path and the broker's trusted Unix UID explicitly:
+On Linux the configuration is read from `AGENT_HUB_CONFIG` if set (never falling back), otherwise `~/.config/dev.agent-mcp.hub/connections.json`, otherwise the host-wide `/etc/agent-hub/connections.json` (a template is in `packaging/etc/agent-hub/`). With no file, or a file without `run.socket`, Linux Run defaults to the shared broker `/run/agent-mcp/api.sock` trusted as UID 1003; the terminal process must hold the `agent-run` group (check with `id`). A Run card error shows its code, and socket/group failures add a hint. To use an authorized shared Run socket, set its absolute path and the broker's trusted Unix UID explicitly:
 
 ```json
 {"schema_version":1,"run":{"socket":"/absolute/path/to/api.sock","broker_uid":1000},"pool":{"config":"/absolute/path/to/pool.toml"},"bridge":{"config":"/absolute/path/to/interfaces.toml"}}

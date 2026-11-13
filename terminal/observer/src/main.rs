@@ -447,6 +447,31 @@ fn validate_observer(
 mod tests {
     use super::*;
 
+    /// Linux defaults to the shared broker; a configured socket never inherits its UID.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn run_defaults_to_shared_broker_on_linux() {
+        let home = std::path::Path::new("/home/example");
+        let defaults = Connections::resolve(home, None).expect("defaults");
+        assert_eq!(defaults.socket, PathBuf::from("/run/agent-mcp/api.sock"));
+        assert_eq!(defaults.broker_uid, Some(1003));
+        let parse = |value: Value| serde_json::from_value::<config::FileConfig>(value).unwrap();
+        let empty = Connections::resolve(home, Some(parse(json!({"schema_version":1})))).unwrap();
+        assert_eq!(empty.broker_uid, Some(1003));
+        let private = Connections::resolve(
+            home,
+            Some(parse(
+                json!({"schema_version":1,"run":{"socket":"/home/example/.agent-run/api.sock"}}),
+            )),
+        )
+        .unwrap();
+        assert_eq!(private.broker_uid, None);
+        assert_eq!(
+            config::SYSTEM_CONFIG,
+            Some("/etc/agent-hub/connections.json")
+        );
+    }
+
     /// Builds one Pool inventory request for the closed-shape checks.
     fn inventory(params: Value) -> ReadRequest {
         ReadRequest {
