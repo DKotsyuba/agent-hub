@@ -38,6 +38,12 @@ pub(crate) struct ProgramConfig {
     pub config: Option<PathBuf>,
     /// Absolute Worktree/IDE home override, supplied through the product's own environment.
     pub home: Option<PathBuf>,
+    /// Pool only: absolute group observer socket read directly instead of the program.
+    #[serde(default)]
+    pub socket: Option<PathBuf>,
+    /// Pool only: trusted Pool resident UID; required with `socket`.
+    #[serde(default)]
+    pub server_uid: Option<u32>,
 }
 
 /// Strict connections.json schema; omitted products retain installed defaults.
@@ -101,6 +107,13 @@ const DEFAULT_RUN: Option<(&str, u32)> = Some(("/run/agent-mcp/api.sock", 1003))
 /// Other platforms default to the private per-user Run socket.
 #[cfg(not(target_os = "linux"))]
 const DEFAULT_RUN: Option<(&str, u32)> = None;
+
+/// Linux default: the reference host's read-only Pool group observer socket and resident UID.
+#[cfg(target_os = "linux")]
+const DEFAULT_POOL_SOCKET: Option<(&str, u32)> = Some(("/run/agent-pool/observer.sock", 1003));
+/// Other platforms reach Pool through its configured observer program.
+#[cfg(not(target_os = "linux"))]
+const DEFAULT_POOL_SOCKET: Option<(&str, u32)> = None;
 
 /// Linux default: the reference host's Quota service socket and service UID.
 #[cfg(target_os = "linux")]
@@ -196,10 +209,13 @@ impl Connections {
                 source,
                 ProgramConfig {
                     program: Some(home.join(".local/bin").join(name)),
-                    config: None,
-                    home: None,
+                    ..ProgramConfig::default()
                 },
             );
+        }
+        if let (Some(pool), Some((socket, uid))) = (programs.get_mut("pool"), DEFAULT_POOL_SOCKET) {
+            pool.socket = Some(PathBuf::from(socket));
+            pool.server_uid = Some(uid);
         }
         let (socket, broker_uid) = match DEFAULT_RUN {
             Some((socket, uid)) => (PathBuf::from(socket), Some(uid)),
@@ -239,11 +255,22 @@ impl Connections {
                 ("ide", file.ide),
             ] {
                 if let Some(entry) = resolved.programs.get_mut(source) {
+                    // An omitted Pool section keeps the default socket; any explicit
+                    // program, config or socket replaces the whole Pool transport.
+                    let explicit = input.program.is_some()
+                        || input.config.is_some()
+                        || input.socket.is_some()
+                        || input.server_uid.is_some();
+                    if source == "pool" && !explicit {
+                        continue;
+                    }
                     if input.program.is_some() {
                         entry.program = input.program;
                     }
                     entry.config = input.config;
                     entry.home = input.home;
+                    entry.socket = input.socket;
+                    entry.server_uid = input.server_uid;
                 }
             }
         }
@@ -260,6 +287,15 @@ impl Connections {
             })
         {
             return Err(ReadError::invalid("config_absolute"));
+        }
+        if resolved.programs.iter().any(|(source, p)| {
+            (*source != "pool" && (p.socket.is_some() || p.server_uid.is_some()))
+                || p.socket.is_some() != p.server_uid.is_some()
+                || p.socket
+                    .as_ref()
+                    .is_some_and(|socket| !socket.is_absolute())
+        }) {
+            return Err(ReadError::invalid("pool_socket_config"));
         }
         if ["worktree", "ide"]
             .iter()

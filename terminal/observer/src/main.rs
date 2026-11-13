@@ -17,6 +17,8 @@ mod config;
 mod contract;
 #[path = "../../../src-tauri/src/mcp.rs"]
 mod mcp;
+#[cfg(unix)]
+mod pool_socket;
 #[allow(dead_code)]
 #[path = "../../../src-tauri/src/process.rs"]
 mod process;
@@ -181,6 +183,8 @@ async fn observe(
             | Resource::PoolGet
             | Resource::PoolRunProof
             | Resource::PoolInventorySnapshot
+            | Resource::PoolCompletionGet
+            | Resource::PoolEnrollmentGet
             | Resource::BridgeIdentity
             | Resource::BridgeOverview
             | Resource::BridgeDeliveries
@@ -475,6 +479,10 @@ async fn read_observer(
         .programs
         .get(request.resource.source())
         .ok_or_else(|| ReadError::invalid("source_config"))?;
+    #[cfg(unix)]
+    if let (Some(socket), Some(server_uid)) = (&connection.socket, connection.server_uid) {
+        return read_pool_socket(socket, server_uid, request, cancel).await;
+    }
     let program = connection
         .program
         .as_deref()
@@ -520,6 +528,31 @@ async fn read_observer(
     let value: Value = serde_json::from_slice(&output)
         .map_err(|_| ReadError::incompatible("observer_json_required"))?;
     validate_observer(value, request.resource, exit_code)
+}
+
+/// Reads Pool through its group observer socket. That socket refuses private
+/// mappings (bindings, Run proof), so those reads are denied before any I/O.
+#[cfg(unix)]
+async fn read_pool_socket(
+    socket: &std::path::Path,
+    server_uid: u32,
+    request: &ReadRequest,
+    cancel: &mut watch::Receiver<bool>,
+) -> Result<Value, ReadError> {
+    if request.resource == Resource::PoolRunProof
+        || request.params.get("include_bindings") == Some(&Value::Bool(true))
+    {
+        return Err(ReadError::incompatible("pool_socket_private_section"));
+    }
+    let value = tokio::select! {
+        biased;
+        _ = cancel.changed() => return Err(ReadError::unavailable("cancelled")),
+        result = tokio::time::timeout(
+            READ_TIMEOUT,
+            pool_socket::call(socket, server_uid, request.resource.method(), &request.params),
+        ) => result.unwrap_or_else(|_| Err(ReadError::unavailable("client_timeout")))?,
+    };
+    validate_observer(value, request.resource, Some(0))
 }
 
 /// Preserves valid producer envelopes and clocks; maps failures to safe static errors.

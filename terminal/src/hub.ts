@@ -31,6 +31,8 @@ import { quotaLines, quotaSnapshot, quotaStatus, quotaSummary, percent } from '.
 import type { QuotaSnapshot, QuotaStatus, Tone } from './quota.ts';
 import { detailLines, linkedSessions, repositoriesData, rowLabel, worktreeDetail as parseWorktreeDetail, worktreePage } from './worktree.ts';
 import type { WorktreeGroup, WorktreeRow } from './worktree.ts';
+import { COMPLETION_CAPABILITY, COMPLETION_SECTIONS, completionIdFromEvents, completionPage, completionText } from './completion.ts';
+import type { CompletionPage, CompletionSection } from './completion.ts';
 
 /** One exact request's latest outcome and last usable, validated observation. */
 interface Slot<T> { value: T | null; good: ReadResponse | null; response: ReadResponse | null; busy: boolean; generation: number }
@@ -54,7 +56,7 @@ interface PoolHistory { entries: Record<string, unknown>[]; previous: string | n
 /** Exact, on-demand evidence associated with one immutable vote event. */
 interface PoolChecks { busy: boolean; rows: Record<string, unknown>[] | null; error: string | null }
 /** Explicitly opened long source text, published only after every page is verified. */
-interface PoolContent { field: 'purpose' | 'snapshot'; text: string | null; error: string | null; busy: boolean; previousScroll: number; controller: AbortController }
+interface PoolContent { field: 'purpose' | 'snapshot' | 'completion'; text: string | null; error: string | null; busy: boolean; previousScroll: number; controller: AbortController }
 /** A complete answer exists only after source sequence and hash checks pass. */
 interface Answer { executionKey: string; controller: AbortController | null; busy: boolean; loaded: boolean; content: string | null; issue: string | null; width: number; chunk: number; lines: Line[] | null }
 /** A rendered line remembers the source block and character offset for stable scroll anchors. */
@@ -638,6 +640,57 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
       }
       throw new Error('content_page_limit');
     } catch { state.error = 'Full content is unavailable or changed; retry from the beginning.'; }
+    finally { clearTimeout(deadline); state.busy = false; if (alive && poolContent === state) render(); }
+  }
+  /** Finds the latest pool_completed journal event, newest page first, under one watermark. */
+  async function scanCompletionId(id: string, signal: AbortSignal): Promise<string | null> {
+    let before: string | null = null, through: string | null = null;
+    for (let pages = 0; pages < 100; pages++) {
+      const response = await read('pool.get', { pool_id: id, section: 'history', direction: 'backward', ...(before ? { before, through } : {}) }, signal);
+      if (!usable(response)) throw new Error(`history ${response.outcome}${response.error?.code ? ` [${response.error.code}]` : ''}`);
+      const page = poolWindow(response.data, id, 'backward', before, through);
+      const found = completionIdFromEvents(page.entries);
+      if (found) return found;
+      if (!page.more || !page.entries.length) return null;
+      through = page.watermark; before = page.cursor;
+    }
+    throw new Error('history scan limit');
+  }
+  /** Reads every section of the pool's immutable completion record under one record digest. */
+  async function openCompletion(): Promise<void> {
+    if (!pool) return;
+    if (poolCapability(COMPLETION_CAPABILITY) !== true) { alert = 'This Pool observer does not advertise completion records.'; render(); return; }
+    cancelPoolMemberRead();
+    const id = pool, previousScroll = poolContent?.previousScroll ?? poolScroll; poolContent?.controller.abort();
+    const state: PoolContent = { field: 'completion', text: null, error: null, busy: true, previousScroll, controller: new AbortController() };
+    poolContent = state; poolScroll = 0; render();
+    const current = () => alive && !state.controller.signal.aborted && poolContent === state && route === 'pools' && pool === id;
+    const deadline = setTimeout(() => { state.error = 'Completion record timed out; retry.'; state.controller.abort(); }, 60000);
+    try {
+      const completionId = completionIdFromEvents(poolHistories.get(id)?.entries ?? []) ?? await scanCompletionId(id, state.controller.signal);
+      if (!current()) return;
+      if (!completionId) { state.error = 'No pool_completed event: this pool has no completion record (closed is not completion).'; return; }
+      const pages = new Map<CompletionSection, CompletionPage[]>();
+      let bound: { digest: string; version: number } | null = null;
+      for (const section of COMPLETION_SECTIONS) {
+        const list: CompletionPage[] = [];
+        let after: Record<string, unknown> | null = null;
+        for (let count = 0; count < 200; count++) {
+          const request = { pool_id: id, completion_id: completionId, section };
+          const envelope = await read('pool.completion_get', { ...request, limit: 10, ...(after ? { after } : {}) }, state.controller.signal);
+          if (!current()) return;
+          if (!usable(envelope)) throw new Error(`${envelope.outcome}${envelope.error?.code ? ` [${envelope.error.code}]` : ''}`);
+          const page = completionPage(envelope.data, request, bound);
+          bound ??= { digest: page.recordDigest, version: page.recordVersion };
+          list.push(page);
+          if (!page.next) break;
+          after = page.next;
+          if (count === 199) throw new Error('completion page limit');
+        }
+        pages.set(section, list);
+      }
+      state.text = completionText(id, pages);
+    } catch (error) { if (current()) state.error = `Completion record unavailable: ${error instanceof Error ? safe(error.message) : 'read failed'}`; }
     finally { clearTimeout(deadline); state.busy = false; if (alive && poolContent === state) render(); }
   }
   /** Closes an in-flight content read and restores the previous section position. */
@@ -1246,7 +1299,7 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
         const section: PoolSection = poolTab === 'discussion' ? 'history' : poolTab;
         const fenced = section === 'members' || section === 'votes';
         const revision = poolCursor > 0 && fenced ? poolRevision : null;
-        const params = { pool_id: poolId, section, after: section === 'criteria' ? String(poolCursor) : poolCursor, ...(section === 'members' ? { include_bindings: true } : {}), ...(revision !== null ? { expected_revision: revision } : {}), ...(section === 'votes' && poolProposalId ? { proposal_id: poolProposalId } : {}) };
+        const params = { pool_id: poolId, section, after: section === 'criteria' ? String(poolCursor) : poolCursor, ...(section === 'members' && poolCapability('observer_socket_v1') !== true ? { include_bindings: true } : {}), ...(revision !== null ? { expected_revision: revision } : {}), ...(section === 'votes' && poolProposalId ? { proposal_id: poolProposalId } : {}) };
         const key = JSON.stringify(params);
         if (poolRequestKey !== key) { reset(poolDetail); poolRequestKey = key; }
         if (section === 'history' && poolHistorySupported() === true) void refreshPoolHistory(poolId);
@@ -2059,7 +2112,7 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
       }
       if (renderer.width - tabX > 20) textAt(parent, renderer.width - 20, 6, 18, poolMetadata ? 'Hide details  [i]' : 'Source details [i]', { color: C.accent, click: () => { poolMetadata = !poolMetadata; render(); } });
       if (poolContent) {
-        lines.push({ text: poolContent.field === 'purpose' ? 'Full purpose' : 'Full proposal snapshot', bold: true }, { text: 'Esc returns to the pool', color: C.muted }, { text: '' });
+        lines.push({ text: poolContent.field === 'purpose' ? 'Full purpose' : poolContent.field === 'completion' ? 'Completion record (frozen)' : 'Full proposal snapshot', bold: true }, { text: 'Esc returns to the pool', color: C.muted }, { text: '' });
         if (poolContent.busy) lines.push({ text: 'Loading verified content…', color: C.muted });
         else if (poolContent.error) lines.push({ text: poolContent.error, color: C.muted });
         else if (poolContent.text !== null) addWrapped(lines, poolContent.text, mainWidth);
@@ -2375,7 +2428,7 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
       'o: expand/collapse Finished · n: load offered continuation',
       'z: fullscreen · g: older · G: follow · f: pause · [ / ]: long message parts',
       'a: result · d: details · c: copy verified result · y: copy session lineage',
-      'Pool: m members · d decisions · c criteria · v votes · b deliveries · e purpose · s snapshot',
+      'Pool: m members · d decisions · c criteria · v votes · b deliveries · e purpose · s snapshot · l completion record (ledger)',
       'r: refresh · u: polling interval · ,: appearance · Esc: back · F: forward · Ctrl+P: commands · q: quit',
     ];
     if (active.kind === 'commands') return commands().map(command => command.name).filter(name => name.toLocaleLowerCase().includes(active.query.toLocaleLowerCase()));
@@ -2646,6 +2699,7 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
     if (name === 'i' && route === 'sessions' && tab === 'history') { jumpBeginning(); return; }
     if (name === 'i' && route === 'pools' && pool) { poolMetadata = !poolMetadata; render(); return; }
     if (name === 'e' && route === 'pools' && pool) { void openPoolContent('purpose'); return; }
+    if (name === 'l' && route === 'pools' && pool) { void openCompletion(); return; }
     if (name === 's' && route === 'pools' && pool && poolTab === 'decisions') { const view = poolProposal.value?.view ? object(poolProposal.value.view) : null, source = view ? object(view.pool).proposal : null, proposal = source && typeof source === 'object' && !Array.isArray(source) ? object(source) : null; if (proposal && typeof proposal.proposal_id === 'string' && typeof proposal.snapshot_bytes === 'number') void openPoolContent('snapshot', proposal.proposal_id); else { alert = 'No exact proposal snapshot is selected.'; render(); } return; }
     if (route === 'pools' && poolContent && ['g', 'f', 'h'].includes(name)) return;
     if (name === 'g' && upper) { if (route === 'sessions') followLatest(); else if (route === 'pools' && pool && poolTab === 'discussion' && poolHistorySupported() === true) { const journal = poolHistory(pool); journal.follow = true; journal.unseen = 0; poolScroll = Number.MAX_SAFE_INTEGER; void refreshPoolHistory(pool); render(); } else if (route === 'pools' && pool) pagePool('newer'); return; }

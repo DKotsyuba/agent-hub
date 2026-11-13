@@ -4,7 +4,7 @@ export type Resource =
   | 'run.models' | 'run.limits' | 'run.initial_task'
   | 'quota.status' | 'quota.snapshot'
   | 'hub.repositories' | 'worktree.identity' | 'worktree.list' | 'worktree.inspect'
-  | 'pool.identity' | 'pool.list' | 'pool.get' | 'pool.run_proof' | 'pool.inventory_snapshot'
+  | 'pool.identity' | 'pool.list' | 'pool.get' | 'pool.run_proof' | 'pool.inventory_snapshot' | 'pool.completion_get' | 'pool.enrollment_get'
   | 'bridge.identity' | 'bridge.overview' | 'bridge.deliveries' | 'bridge.incidents';
 
 /** A source-preserving response from the existing native read contract. */

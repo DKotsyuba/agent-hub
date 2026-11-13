@@ -89,6 +89,12 @@ pub enum Resource {
     /// Source-wide retained Pool totals and one fenced snapshot page.
     #[serde(rename = "pool.inventory_snapshot")]
     PoolInventorySnapshot,
+    /// One section page of an immutable Pool completion record.
+    #[serde(rename = "pool.completion_get")]
+    PoolCompletionGet,
+    /// One managed enrollment's bounded per-job facts.
+    #[serde(rename = "pool.enrollment_get")]
+    PoolEnrollmentGet,
     /// Bridge diagnostic observer identity.
     #[serde(rename = "bridge.identity")]
     BridgeIdentity,
@@ -133,7 +139,9 @@ impl Resource {
             | Self::PoolList
             | Self::PoolGet
             | Self::PoolRunProof
-            | Self::PoolInventorySnapshot => "pool",
+            | Self::PoolInventorySnapshot
+            | Self::PoolCompletionGet
+            | Self::PoolEnrollmentGet => "pool",
             Self::BridgeIdentity
             | Self::BridgeOverview
             | Self::BridgeDeliveries
@@ -168,6 +176,8 @@ impl Resource {
             Self::PoolList => "list",
             Self::PoolGet | Self::PoolRunProof => "get",
             Self::PoolInventorySnapshot => "inventory_snapshot",
+            Self::PoolCompletionGet => "completion_get",
+            Self::PoolEnrollmentGet => "enrollment_get",
             Self::BridgeOverview => "overview",
             Self::BridgeDeliveries => "deliveries",
             Self::BridgeIncidents => "incidents",
@@ -189,6 +199,8 @@ impl Resource {
             Self::PoolGet => Some("pool_detail"),
             Self::PoolRunProof => Some("run_proof"),
             Self::PoolInventorySnapshot => Some("inventory_snapshot"),
+            Self::PoolCompletionGet => Some("completion_page"),
+            Self::PoolEnrollmentGet => Some("enrollment"),
             Self::BridgeIdentity => Some("identity"),
             Self::BridgeOverview => Some("bridge_overview"),
             Self::BridgeDeliveries => Some("delivery_page"),
@@ -337,6 +349,51 @@ impl ReadRequest {
                 })
             {
                 return Err(ReadError::invalid("quota_params"));
+            }
+        }
+        if matches!(
+            self.resource,
+            Resource::PoolCompletionGet | Resource::PoolEnrollmentGet
+        ) {
+            let params = self
+                .params
+                .as_object()
+                .ok_or_else(|| ReadError::invalid("params_object"))?;
+            let id = |key: &str| {
+                params
+                    .get(key)
+                    .and_then(Value::as_str)
+                    .is_some_and(|value| !value.is_empty() && value.len() <= 128)
+            };
+            // The producer owns identifier and cursor validation; only the closed shape is checked.
+            let valid = if self.resource == Resource::PoolCompletionGet {
+                params.keys().all(|key| {
+                    matches!(
+                        key.as_str(),
+                        "pool_id" | "completion_id" | "section" | "after" | "limit"
+                    )
+                }) && id("pool_id")
+                    && id("completion_id")
+                    && matches!(
+                        params.get("section").and_then(Value::as_str),
+                        Some("header" | "content" | "roster" | "ballots" | "run_facts" | "notice")
+                    )
+                    && params
+                        .get("limit")
+                        .and_then(Value::as_u64)
+                        .is_some_and(|limit| (1..=10).contains(&limit))
+                    && params
+                        .get("after")
+                        .is_none_or(|after| after.is_null() || after.is_object())
+            } else {
+                params
+                    .keys()
+                    .all(|key| matches!(key.as_str(), "pool_id" | "enrollment_id"))
+                    && id("pool_id")
+                    && id("enrollment_id")
+            };
+            if !valid {
+                return Err(ReadError::invalid("pool_completion_params"));
             }
         }
         if self.resource == Resource::PoolInventorySnapshot {
