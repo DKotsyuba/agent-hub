@@ -33,6 +33,7 @@ fn connections(socket: &Path) -> Connections {
     let mut config = Connections::resolve(Path::new("/nonexistent/hub-test-user"), None)
         .expect("absolute defaults");
     config.socket = socket.to_owned();
+    config.broker_uid = None;
     config
 }
 

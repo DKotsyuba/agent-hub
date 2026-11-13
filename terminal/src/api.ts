@@ -2,6 +2,7 @@
 export type Resource =
   | 'run.identity' | 'run.agents' | 'run.status' | 'run.transcript' | 'run.transcript_exact' | 'run.answer' | 'run.answer_chunk'
   | 'run.models' | 'run.limits' | 'run.initial_task'
+  | 'quota.status' | 'quota.snapshot'
   | 'pool.identity' | 'pool.list' | 'pool.get' | 'pool.run_proof' | 'pool.inventory_snapshot'
   | 'bridge.identity' | 'bridge.overview' | 'bridge.deliveries' | 'bridge.incidents';
 

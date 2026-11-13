@@ -50,6 +50,12 @@ pub enum Resource {
     /// Legacy Run pool detail.
     #[serde(rename = "run.pool")]
     RunPool,
+    /// Quota service collection and external-ingest status.
+    #[serde(rename = "quota.status")]
+    QuotaStatus,
+    /// Quota snapshot for all configured accounts, or a closed account/model scope.
+    #[serde(rename = "quota.snapshot")]
+    QuotaSnapshot,
     /// Structured Worktree product identity.
     #[serde(rename = "worktree.identity")]
     WorktreeIdentity,
@@ -116,6 +122,7 @@ impl Resource {
             | Self::RunLimits
             | Self::RunPools
             | Self::RunPool => "run",
+            Self::QuotaStatus | Self::QuotaSnapshot => "quota",
             Self::WorktreeIdentity | Self::WorktreeList | Self::WorktreeInspect => "worktree",
             Self::TasksIdentity | Self::TasksPeek => "tasks",
             Self::PoolIdentity
@@ -146,6 +153,8 @@ impl Resource {
             Self::RunLimits => "limits",
             Self::RunPools => "list_pools",
             Self::RunPool => "pool",
+            Self::QuotaStatus => "status",
+            Self::QuotaSnapshot => "snapshot",
             Self::WorktreeIdentity | Self::TasksIdentity => "get_status",
             Self::WorktreeList => "list_worktrees",
             Self::WorktreeInspect => "inspect_worktree",
@@ -188,6 +197,7 @@ impl Resource {
     pub(crate) fn interval(self) -> Duration {
         Duration::from_secs(match self {
             Self::RunModels | Self::RunLimits => 60,
+            Self::QuotaStatus | Self::QuotaSnapshot => 15,
             Self::PoolGet | Self::PoolRunProof => 2,
             Self::WorktreeIdentity
             | Self::WorktreeList
@@ -291,6 +301,37 @@ impl ReadRequest {
                 || params.values().any(Value::is_null)
             {
                 return Err(ReadError::invalid("initial_task_params"));
+            }
+        }
+        if matches!(
+            self.resource,
+            Resource::QuotaStatus | Resource::QuotaSnapshot
+        ) {
+            let params = self
+                .params
+                .as_object()
+                .ok_or_else(|| ReadError::invalid("params_object"))?;
+            // Status takes no scope; a snapshot scope is a bounded account list and model name.
+            let scoped = self.resource == Resource::QuotaSnapshot;
+            if params
+                .keys()
+                .any(|key| !scoped || !matches!(key.as_str(), "accounts" | "model"))
+                || params.get("accounts").is_some_and(|accounts| {
+                    accounts.as_array().is_none_or(|items| {
+                        items.len() > 256
+                            || items.iter().any(|item| {
+                                item.as_str()
+                                    .is_none_or(|text| text.is_empty() || text.len() > 256)
+                            })
+                    })
+                })
+                || params.get("model").is_some_and(|model| {
+                    model
+                        .as_str()
+                        .is_none_or(|text| text.is_empty() || text.len() > 256)
+                })
+            {
+                return Err(ReadError::invalid("quota_params"));
             }
         }
         if self.resource == Resource::PoolInventorySnapshot {

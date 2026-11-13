@@ -27,6 +27,8 @@ import {
 } from '../../src/live/protocol.ts';
 import type { Cursor, Page, RunAgent, TranscriptBlock } from '../../src/live/protocol.ts';
 import type { AppMode, ObservationClient, ReadResponse, Resource } from './api.ts';
+import { quotaLines, quotaSnapshot, quotaStatus, quotaSummary, percent } from './quota.ts';
+import type { QuotaSnapshot, QuotaStatus, Tone } from './quota.ts';
 
 /** One exact request's latest outcome and last usable, validated observation. */
 interface Slot<T> { value: T | null; good: ReadResponse | null; response: ReadResponse | null; busy: boolean; generation: number }
@@ -66,7 +68,7 @@ interface PoolStatusObservation { targetKey: string; evidence: RunStatusEvidence
 /** Page navigation stores source selection and focus without discarding underlying state. */
 interface Location { route: Route; selected: string | null; boundSequence: number | null; boundTarget: BoundTarget | null; detailFromRelated: boolean; focus: Focus; tab: SessionTab; full: boolean; pool: string | null; poolTab: PoolTab; poolMetadata: boolean; poolCursor: number; poolRevision: number | null; poolPrevious: number[]; poolProposalId: string | null; poolScroll: number; poolMemberIndex: number; poolDeliveryIndex: number; poolDecisionIndex: number; poolVoteIndex: number; poolVoteMember: string | null; bridgeAfter: number; bridgeThrough: number | null; incidentScroll: number; query: string; filterFolder: string; filterProject: string; filterStatus: string; filterPeriodFailures: boolean; listTop: number; finishedOpen: boolean }
 /** Current read-only destination. */
-type Route = 'overview' | 'sessions' | 'pools' | 'info' | 'incidents';
+type Route = 'overview' | 'sessions' | 'pools' | 'info' | 'quota' | 'incidents';
 /** Keyboard region within a session view. */
 type Focus = 'list' | 'tabs' | 'history';
 /** Selected session evidence kind. */
@@ -354,7 +356,7 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
   let selected: string | null = null, boundSequence: number | null = null, tab: SessionTab = 'history', full = false, previousFocus: Focus = 'list';
   let boundTarget: BoundTarget | null = null;
   let pool: string | null = start?.pool ?? null, poolTab: PoolTab = 'members', poolMetadata = false, period: Period = 'Today', overlay: Overlay | null = null;
-  let listTop = 0, poolIndex = 0, poolMemberIndex = 0, poolDeliveryIndex = 0, poolDecisionIndex = 0, poolVoteIndex = 0, poolVoteMember: string | null = null, poolScroll = 0, infoScroll = 0, incidentScroll = 0, attentionIndex = 0;
+  let listTop = 0, poolIndex = 0, poolMemberIndex = 0, poolDeliveryIndex = 0, poolDecisionIndex = 0, poolVoteIndex = 0, poolVoteMember: string | null = null, poolScroll = 0, infoScroll = 0, quotaScroll = 0, incidentScroll = 0, attentionIndex = 0;
   let revealPoolSelection = false, poolSelectionShown = false;
   let finishedOpen = false, filterFolder = '', filterProject = start?.project ?? '', filterStatus = '', filterPeriodFailures = false, query = '', alert = '';
   let detailFromRelated = false, spinnerFrame = 0;
@@ -389,6 +391,7 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
   const poolTotals = slot<InventoryPage>();
   const bridge = slot<Record<string, unknown>>(), deliveries = slot<Record<string, unknown>>(), incidentMetric = slot<Record<string, unknown>>(), incidents = slot<Record<string, unknown>>();
   const identity = slot<Record<string, unknown>>(), limits = slot<Record<string, unknown>>(), models = slot<Record<string, unknown>>();
+  const quota = slot<QuotaSnapshot>(), quotaService = slot<QuotaStatus>();
   const histories = new Map<string, History>(), beginnings = new Map<string, Beginning>(), answers = new Map<string, Answer>(), initialTasks = new Map<string, InitialTaskState>();
   const historyPositions = new WeakMap<History, HistoryPosition>();
   const relatedKeys = new WeakMap<RunAgent, string>();
@@ -1260,6 +1263,8 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
       void observe(limits, 'run.limits', {}, limitsData);
       void observe(models, 'run.models', {}, modelsData);
     }
+    if (route === 'overview' || route === 'quota') void observe(quota, 'quota.snapshot', {}, quotaSnapshot);
+    if (route === 'quota') void observe(quotaService, 'quota.status', {}, quotaStatus);
     if (route === 'incidents') { const key = JSON.stringify([bridgeAfter, bridgeThrough]); if (incidentRequestKey !== key) { reset(incidents); incidentRequestKey = key; } void observe(incidents, 'bridge.incidents', { limit: 100, after_seq: bridgeAfter, include_closed: true, ...(bridgeThrough === null ? {} : { through_seq: bridgeThrough }) }, value => bridgeData(value, 'incident_page')); }
   }
   /** Replaces the current poll timer without interrupting reads already in progress. */
@@ -1430,7 +1435,7 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
       textAt(attention, 0, 2, width - 2, `${attentionIndex === 1 ? '›' : ' '} Bridge incidents: ${compact(bridgeCount(incidentMetric, 'incidents', 'created_ms'))} [Open]`, { color: C.error, bg: C.panel, click: () => openAttention(1) });
       return;
     }
-    const sourceH = Math.min(10, Math.max(5, Math.floor((body - 7) / 2))), attentionY = 4 + sourceH * 2 + 2, attentionH = Math.min(8, Math.max(4, h - attentionY - 1));
+    const quotaCard = h >= 32, sourceH = Math.min(10, Math.max(5, Math.floor((body - (quotaCard ? 12 : 7)) / 2))), attentionY = 4 + sourceH * 2 + 2 + (quotaCard ? 5 : 0), attentionH = Math.min(8, Math.max(4, h - attentionY - 1));
     /** Renders three equal metric cells inside one independently bounded source panel. */
     const drawSource = (title: string, y: number, names: string[], values: string[], coverage: string, action: { label: string; open: () => void }) => {
       const compact = sourceH <= 7, box = panel(parent, left, y, width, sourceH, compact ? title : ''), inner = width - 4, cellWidth = Math.floor((inner - 2) / 3), cellHeight = compact ? 2 : Math.max(3, sourceH - 5);
@@ -1454,6 +1459,7 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
     const active = activeCount();
     drawSource('Agent Run', 4, ['Active · now', `Finished · ${period}`, `Failed · ${period}`], [active, runCount('finished'), runCount('failed')], runFailed() ? `${notice(agents)} · ${agents.value ? `${agents.value.items.length} loaded / ${agents.value.total} reported` : 'coverage unknown'}` : `${agents.value ? `${agents.value.items.length} loaded / ${agents.value.total} reported` : 'coverage unknown'} · failed included in finished · ${notice(agents)}`, { label: 'Open sessions →', open: () => navigate('sessions') });
     drawSource('Agent Bridge', 5 + sourceH, [`Accepted by Bridge · ${period}`, 'Pending · now', `Incidents · ${period}`], [bridgeCount(deliveries, 'deliveries', 'accepted_at_ms'), 'Unknown', bridgeCount(incidentMetric, 'incidents', 'created_ms')], `${notice(bridge)} · Retained by Bridge · deliveries ${sourceState(deliveries)} · incidents ${sourceState(incidentMetric)}`, { label: 'View incidents →', open: () => navigate('incidents') });
+    if (quotaCard) drawQuotaCard(parent, left, 6 + sourceH * 2, width);
     const attention = panel(parent, left, attentionY, width, attentionH, '');
     const failed = runCount('failed'), incident = bridgeCount(incidentMetric, 'incidents', 'created_ms');
     textAt(attention, 2, 0, width - 4, 'Needs attention', { color: C.text, bg: C.panel, bold: true });
@@ -1464,6 +1470,26 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
       textAt(attention, 1, row, width - 4, `${attentionIndex === index ? '›' : ' '} ${label}: ${value} · ${period}`, { color: C.error, bg: background, click: () => openAttention(index) });
       if (width >= 65) textAt(attention, width - 12, row, 8, 'Open →', { color: C.accent, bg: background, click: () => openAttention(index) });
     }
+  }
+  /** Draws the Quota summary card; unknown and stale models are counted, never shown as capacity. */
+  function drawQuotaCard(parent: BoxRenderable, left: number, y: number, width: number): void {
+    const box = panel(parent, left, y, width, 4, '');
+    textAt(box, 2, 0, Math.max(1, width - 30), 'Agent Quota', { color: C.text, bg: C.panel, bold: true });
+    textAt(box, Math.max(0, width - 25), 0, 21, 'Open quota →', { color: C.accent, bg: C.panel, click: () => navigate('quota') });
+    const summary = quota.value ? quotaSummary(quota.value) : null;
+    const line = summary ? `Known ${summary.known} · Unknown ${summary.unknown} · Exhausted ${summary.exhausted} · Not fresh ${summary.stale} · Lowest known: ${summary.lowest ? `${summary.lowest.account}/${summary.lowest.model} ${percent(summary.lowest.remaining)}` : 'Unknown'}` : 'Known Unknown · Unknown Unknown · Exhausted Unknown';
+    textAt(box, 2, 1, width - 4, line, { color: summary && (summary.exhausted || summary.unknown) ? C.error : summary ? C.text : C.muted, bg: C.panel, bold: !!summary });
+    textAt(box, 2, 2, width - 4, `${summary ? `${summary.accounts} accounts · coverage ${summary.coverage}` : 'coverage unknown'} · ${notice(quota)}`, { color: C.muted, bg: C.panel });
+  }
+  /** Draws every Quota account/model, window, latch and advice row as a scrollable read-only view. */
+  function drawQuota(parent: BoxRenderable): void {
+    const width = renderer.width - 4, height = renderer.height - 6, lines: Line[] = [];
+    textAt(parent, 2, 2, width, 'Agent Quota · accounts and models', { bold: true });
+    const tone = (value: Tone) => value === 'muted' ? C.muted : value === 'good' ? C.good : value === 'error' ? C.error : value === 'accent' ? C.accent : C.text;
+    lines.push({ text: `Snapshot: ${notice(quota)}`, color: C.muted }, { text: `Service: ${notice(quotaService)}`, color: C.muted }, { text: '' });
+    for (const line of quotaLines(quota.value, quotaService.value, Date.now() / 1000)) addWrapped(lines, line.text, width, { color: tone(line.tone), bold: line.bold });
+    quotaScroll = Math.max(0, Math.min(quotaScroll, Math.max(0, lines.length - height)));
+    lineViewport(parent, 2, 4, width, height, lines, quotaScroll, delta => { quotaScroll = Math.max(0, Math.min(Math.max(0, lines.length - height), quotaScroll + delta)); render(); });
   }
   /** Reports whether the latest Run inventory read failed, so its diagnosis leads the card. */
   function runFailed(): boolean { return !!agents.response && agents.response.outcome !== 'ok' && agents.response.outcome !== 'partial'; }
@@ -2192,7 +2218,8 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
   function drawInfo(parent: BoxRenderable): void {
     const width = renderer.width - 4, height = renderer.height - 6, lines: Line[] = [];
     textAt(parent, 2, 2, width, 'Agent Run · information', { bold: true });
-    for (const [title, state] of [['Connection and identity', identity], ['Cached provider limits', limits], ['Model / profile compatibility', models]] as const) {
+    lines.push({ text: 'Quota per account and model: open the Quota tab (4).', color: C.accent, action: () => navigate('quota') }, { text: '' });
+    for (const [title, state] of [['Connection and identity', identity], ['Cached provider limits (Run view; see Quota tab)', limits], ['Model / profile compatibility', models]] as const) {
       lines.push({ text: title, bold: true, color: C.accent }, { text: notice(state), color: C.muted });
       if (state.value) addWrapped(lines, shown(state.value), width); lines.push({ text: '' });
     }
@@ -2222,6 +2249,7 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
     return [
       { name: 'Overview · 0', action: () => navigate('overview') }, { name: 'Sessions · 1', action: () => navigate('sessions') },
       { name: 'Agent Pool · 2', action: () => navigate('pools') }, { name: 'Run info · 3', action: () => navigate('info') },
+      { name: 'Quota · 4', action: () => navigate('quota') },
       { name: 'Refresh observations · r', action: () => refresh() }, { name: 'Cycle polling interval · u', action: cyclePolling }, { name: 'Back · Esc', action: back },
       { name: 'History fullscreen · z', action: toggleFull }, { name: 'Result · a', action: () => selectTab('result') },
       { name: 'Details · d', action: () => selectTab('details') }, { name: 'History beginning · i', action: jumpBeginning }, { name: 'Follow latest · G', action: followLatest },
@@ -2243,7 +2271,7 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
     if (active.kind === 'folder') return ['All working folders', ...folders().filter(path => path.toLocaleLowerCase().includes(active.query.toLocaleLowerCase()))];
     if (active.kind === 'status') return ['All statuses', ...new Set(loadedAgents().map(agent => agent.status))];
     if (active.kind === 'help') return [
-      '0 Overview · 1 Sessions · 2 Agent Pool · 3 Run info',
+      '0 Overview · 1 Sessions · 2 Agent Pool · 3 Run info · 4 Quota',
       'Tab / Shift+Tab: move focus; Left / Right: switch focused tabs',
       'Up / Down or j / k: move selection or scroll',
       'Page Up / Down: scroll · Home / i: beginning · End: latest',
@@ -2408,6 +2436,7 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
     }
     if (route === 'pools') { if (poolContent) { poolScroll = Math.max(0, poolScroll + amount); render(); return; } const journal = pool && poolTab === 'discussion' && poolHistorySupported() === true ? poolHistory(pool) : null; if (pool && !poolDetail.value && !journal) return; if (!pool) { poolIndex = Math.max(0, Math.min(visiblePools().length - 1, poolIndex + delta * (page ? Math.max(1, Math.floor((renderer.height - 7) / 3)) : 1))); revealPoolSelection = true; } else if (poolTab === 'deliveries' && !page && poolDetail.value?.view) { const rows = object(poolDetail.value.view).deliveries; if (Array.isArray(rows)) selectPoolDelivery(Math.max(0, Math.min(rows.length - 1, poolDeliveryIndex + delta))); revealPoolSelection = true; } else if (poolTab === 'members' && !page && poolDetail.value?.view) { const members = object(poolDetail.value.view).members; if (Array.isArray(members)) { poolMemberIndex = Math.max(0, Math.min(members.length - 1, poolMemberIndex + delta)); void refreshPoolStatus(); } revealPoolSelection = true; } else if (poolTab === 'decisions' && !page && Array.isArray(poolDetail.value?.decisions) && poolDetail.value.decisions.length) { poolDecisionIndex = Math.max(0, Math.min(poolDetail.value.decisions.length - 1, poolDecisionIndex + delta)); revealPoolSelection = true; } else if (poolTab === 'votes' && !page && poolVoteRows().length) { poolVoteIndex = Math.max(0, Math.min(poolVoteRows().length - 1, poolVoteIndex + delta)); revealPoolSelection = true; } else { if (journal) journal.follow = false; poolScroll = Math.max(0, poolScroll + amount); if (journal && poolScroll <= 2 && journal.previous) void olderPoolHistory(); } render(); return; }
     if (route === 'info') { infoScroll = Math.max(0, infoScroll + amount); render(); }
+    if (route === 'quota') { quotaScroll = Math.max(0, quotaScroll + amount); render(); }
     if (route === 'incidents') { incidentScroll = Math.max(0, incidentScroll + amount); render(); }
   }
   /** Copies only a complete, bounded source snapshot for the originally selected target. */
@@ -2460,6 +2489,7 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
     if (name === '1') { navigate('sessions'); return; }
     if (name === '2') { navigate('pools'); return; }
     if (name === '3') { navigate('info'); return; }
+    if (name === '4') { navigate('quota'); return; }
     if (name === 'r') { if (route === 'sessions') { const agent = selectedAgent(); if (agent) { const key = JSON.stringify([executionKey(agent), agent.answerSha]); answers.get(key)?.controller?.abort(); answers.delete(key); initialTasks.get(executionKey(agent))?.controller?.abort(); initialTasks.delete(executionKey(agent)); } if (detailFromRelated) { directStatus = null; relatedNextScan = 0; } } if (route === 'pools') poolStatusRetryAt = 0; refresh(); return; }
     if (name === 'tab' && route === 'sessions') { const choices: Focus[] = full || renderer.width < 110 && focus !== 'list' ? ['tabs', 'history'] : ['list', 'tabs', 'history']; const current = choices.indexOf(focus); focus = choices[(current + (key.shift ? choices.length - 1 : 1)) % choices.length]; render(); return; }
     if (name === 'up' || name === 'k') { move(-1); return; }
@@ -2539,7 +2569,7 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
     textAt(frame, 2, 0, 12, 'agent-hub', { bold: true, color: C.text, bg: C.header });
     const modeLabel = mode === 'demo' ? 'DEMO DATA' : 'LIVE READ-ONLY', modeX = Math.max(15, w - stringWidth(modeLabel) - 2);
     let navX = 16;
-    for (const item of [{ route: 'overview' as const, label: 'Overview' }, { route: 'sessions' as const, label: 'Sessions' }, { route: 'pools' as const, label: 'Pools' }, { route: 'info' as const, label: 'Run info' }]) {
+    for (const item of [{ route: 'overview' as const, label: 'Overview' }, { route: 'sessions' as const, label: 'Sessions' }, { route: 'pools' as const, label: 'Pools' }, { route: 'info' as const, label: 'Run info' }, { route: 'quota' as const, label: 'Quota' }]) {
       const label = item.route === route ? `[${item.label}]` : item.label, width = Math.min(stringWidth(label), modeX - navX - 1);
       textAt(frame, navX, 0, width, label, { color: item.route === route ? C.text : C.muted, bg: C.header, click: () => navigate(item.route) });
       navX += stringWidth(label) + 3;
@@ -2552,6 +2582,7 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
     else if (route === 'sessions') drawSessions(frame);
     else if (route === 'pools') drawPools(frame);
     else if (route === 'info') drawInfo(frame);
+    else if (route === 'quota') drawQuota(frame);
     else drawIncidents(frame);
     const hint = route === 'overview' ? '↑↓ select   enter open   1 sessions   p period   r refresh   ? help' : route === 'sessions' ? (w < 105 ? '↑↓ select  enter open  i start  o finished  z full  esc back  ? help' : '↑↓ select   enter history   i start   o finished   z fullscreen   ctrl+p commands   ? help   q quit') : route === 'pools' ? '↑↓ move  enter open  ←→ tabs  i details  n/g/G pages  esc back  ?' : '↑↓ scroll   n next   r refresh   esc back   ? help';
     textAt(frame, 2, h - 1, Math.max(1, w - 4), alert || hint, { color: alert ? C.accent : C.muted });

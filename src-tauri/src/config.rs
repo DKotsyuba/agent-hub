@@ -18,6 +18,16 @@ pub(crate) struct RunConfig {
     pub broker_uid: Option<u32>,
 }
 
+/// Optional Quota service socket and its trusted service identity.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct QuotaConfig {
+    /// Absolute Unix socket path; absence uses the platform default when one exists.
+    pub socket: Option<PathBuf>,
+    /// Expected Unix UID of the Quota service; required with an explicit socket.
+    pub server_uid: Option<u32>,
+}
+
 /// Reviewed executable and observer configuration paths, never arbitrary argv.
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -39,6 +49,9 @@ pub(crate) struct FileConfig {
     /// Optional Run endpoint override.
     #[serde(default)]
     pub run: RunConfig,
+    /// Optional Quota service endpoint override.
+    #[serde(default)]
+    pub quota: QuotaConfig,
     /// Optional Worktree executable override.
     #[serde(default)]
     pub worktree: ProgramConfig,
@@ -66,6 +79,8 @@ pub(crate) struct Connections {
     pub socket: PathBuf,
     /// Trusted broker UID for the explicitly configured shared endpoint.
     pub broker_uid: Option<u32>,
+    /// Quota socket and trusted service UID; `None` when not configured on this platform.
+    pub quota: Option<(PathBuf, u32)>,
     /// Fixed product executable/config paths keyed only by native namespaces.
     pub programs: BTreeMap<&'static str, ProgramConfig>,
     /// Known repository paths for diagnostics.
@@ -86,6 +101,13 @@ const DEFAULT_RUN: Option<(&str, u32)> = Some(("/run/agent-mcp/api.sock", 1003))
 /// Other platforms default to the private per-user Run socket.
 #[cfg(not(target_os = "linux"))]
 const DEFAULT_RUN: Option<(&str, u32)> = None;
+
+/// Linux default: the reference host's Quota service socket and service UID.
+#[cfg(target_os = "linux")]
+const DEFAULT_QUOTA: Option<(&str, u32)> = Some(("/run/agent-quota/quota.sock", 999));
+/// Other platforms have no Quota default; configure `quota` explicitly.
+#[cfg(not(target_os = "linux"))]
+const DEFAULT_QUOTA: Option<(&str, u32)> = None;
 
 /// Reads one bounded config file; only NotFound maps to `None`.
 async fn read_file(path: &Path) -> Result<Option<FileConfig>, ReadError> {
@@ -186,6 +208,7 @@ impl Connections {
         let mut resolved = Self {
             socket,
             broker_uid,
+            quota: DEFAULT_QUOTA.map(|(socket, uid)| (PathBuf::from(socket), uid)),
             programs,
             repositories: Vec::new(),
         };
@@ -201,6 +224,11 @@ impl Connections {
             if let Some(socket) = file.run.socket {
                 resolved.socket = socket;
                 resolved.broker_uid = file.run.broker_uid;
+            }
+            match (file.quota.socket, file.quota.server_uid) {
+                (Some(socket), Some(uid)) => resolved.quota = Some((socket, uid)),
+                (None, None) => {}
+                _ => return Err(ReadError::invalid("quota_config_incomplete")),
             }
             resolved.repositories = file.repositories;
             for (source, input) in [
@@ -220,6 +248,10 @@ impl Connections {
             }
         }
         if !resolved.socket.is_absolute()
+            || resolved
+                .quota
+                .as_ref()
+                .is_some_and(|(socket, _)| !socket.is_absolute())
             || resolved.repositories.iter().any(|p| !p.is_absolute())
             || resolved.programs.values().any(|p| {
                 p.program.as_ref().is_none_or(|p| !p.is_absolute())

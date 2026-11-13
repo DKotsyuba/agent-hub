@@ -1,4 +1,5 @@
 {
   "schema_version": 1,
-  "run": { "socket": "/run/agent-mcp/api.sock", "broker_uid": 1003 }
+  "run": { "socket": "/run/agent-mcp/api.sock", "broker_uid": 1003 },
+  "quota": { "socket": "/run/agent-quota/quota.sock", "server_uid": 999 }
 }

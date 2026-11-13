@@ -15,6 +15,8 @@ mod contract;
 #[path = "../../../src-tauri/src/process.rs"]
 mod process;
 #[cfg(unix)]
+mod quota;
+#[cfg(unix)]
 #[path = "../../../src-tauri/src/run.rs"]
 mod run;
 
@@ -166,6 +168,8 @@ async fn observe(
             | Resource::RunAnswerChunk
             | Resource::RunModels
             | Resource::RunLimits
+            | Resource::QuotaStatus
+            | Resource::QuotaSnapshot
             | Resource::PoolIdentity
             | Resource::PoolList
             | Resource::PoolGet
@@ -194,6 +198,7 @@ async fn observe(
     };
     match request.resource.source() {
         "run" => read_run(&config, request, cancel).await,
+        "quota" => read_quota(&config, request, cancel).await,
         "pool" | "bridge" => read_observer(&config, request, cancel).await,
         _ => Err(ReadError::invalid("resource_denied")),
     }
@@ -315,6 +320,37 @@ async fn read_run(
         result = tokio::time::timeout(READ_TIMEOUT + Duration::from_secs(wait), operation) =>
             result.unwrap_or_else(|_| Err(ReadError::unavailable("client_timeout"))),
     }
+}
+
+/// Reads one Quota status or snapshot from the configured trusted service socket.
+#[cfg(unix)]
+async fn read_quota(
+    config: &Connections,
+    request: &ReadRequest,
+    cancel: &mut watch::Receiver<bool>,
+) -> Result<Value, ReadError> {
+    let (socket, server_uid) = config
+        .quota
+        .as_ref()
+        .ok_or_else(|| ReadError::incompatible("not_configured"))?;
+    tokio::select! {
+        biased;
+        _ = cancel.changed() => Err(ReadError::unavailable("cancelled")),
+        result = tokio::time::timeout(
+            READ_TIMEOUT,
+            quota::call(socket, *server_uid, request.resource.method(), &request.params),
+        ) => result.unwrap_or_else(|_| Err(ReadError::unavailable("client_timeout"))),
+    }
+}
+
+/// Reports the unsupported Quota transport on hosts without Unix sockets.
+#[cfg(not(unix))]
+async fn read_quota(
+    _config: &Connections,
+    _request: &ReadRequest,
+    _cancel: &mut watch::Receiver<bool>,
+) -> Result<Value, ReadError> {
+    Err(ReadError::incompatible("quota_platform"))
 }
 
 /// Reports the unsupported Run transport on hosts without Unix sockets.
