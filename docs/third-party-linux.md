@@ -1,11 +1,14 @@
 # Third-party material in the Linux terminal
 
 Agent Hub's own code is covered by the repository's [MIT license](../LICENSE).
-Third-party components retain their own licenses and notices; the standalone
-build command produces the executable only and does not assemble those files.
+Third-party components retain their own licenses and notices. The standalone
+build command produces the executable only; the license texts for the bundled
+components are collected in [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md)
+and are shipped with each release next to the executable.
 
 The Linux executable embeds Bun 1.4.4, the OpenTUI 0.8.2 native library and the
-Rust observer. A distribution bundle should retain:
+Rust observer. A distribution bundle retains (all included in
+`THIRD_PARTY_NOTICES.md`):
 
 - Bun's exact [versioned license and third-party notices](https://github.com/oven-sh/bun/blob/bun-v1.4.4/LICENSE.md).
 - The OpenTUI native package's `LICENSE*`, `AUTHORS*`, `PATENTS*` and

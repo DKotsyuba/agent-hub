@@ -2,6 +2,26 @@
 
 A terminal-first OpenTUI interface is in `terminal/`. It starts with Run and Bridge observations, and provides read-only Sessions, Agent Pool, Quota and Worktree views. The earlier desktop prototype remains available below.
 
+## Installing a release
+
+Each GitHub release publishes the Linux x86-64 (glibc 2.39 or newer) terminal build: `agent-hub-<version>-linux-x86_64.tar.gz` (the `agent-hub` executable, `LICENSE`, `THIRD_PARTY_NOTICES.md` and the `etc/agent-hub/connections.json` template), the bare executable `agent-hub-linux-x86_64`, the notices file and a `SHA256SUMS` file. Verify the download before running it:
+
+```sh
+sha256sum --check --ignore-missing SHA256SUMS
+```
+
+The release contains only the terminal Hub. The desktop (Tauri) application in this repository is parked and is not built or released.
+
+`packaging/etc/agent-hub/connections.json` is the host-wide default for the Dobi reference host. Copy it to `/etc/agent-hub/connections.json` on a machine that runs the same services:
+
+| Source | Socket | Trusted UID |
+|---|---|---|
+| Agent Run broker (`run`) | `/run/agent-mcp/api.sock` | 1003 |
+| Agent Quota (`quota`) | `/run/agent-quota/quota.sock` | 999 |
+| Agent Pool group observer (`pool`) | `/run/agent-pool/observer.sock` | 1003 |
+
+The UIDs are specific to Dobi; on any other host set the real sockets and server UIDs, or use `AGENT_HUB_CONFIG` or `~/.config/dev.agent-mcp.hub/connections.json`, which take precedence. The user running Hub must hold the groups that grant access to these sockets (for example `agent-run`).
+
 ## Terminal interface
 
 Use Bun 1.4.4 or newer and the pinned Rust toolchain. Node 26.4 or newer remains available for the existing Node compatibility checks. Install the terminal project's locked dependencies with scripts disabled, then build its local read-only observer:
@@ -17,11 +37,11 @@ npm run build:binary
 
 `npm run build:binary` produces `terminal/dist/agent-hub`, a single Linux x64 executable containing Bun, OpenTUI and the native observer. The current build requires glibc 2.39 or newer and an accessible `/proc` filesystem. Live views need the existing Agent Run, Agent Pool and Bridge services and their connection settings; the binary does not install or start them. At startup it extracts its native files into an owned private, executable runtime directory and removes them on normal exit. Set `TMPDIR` to an owned, writable directory outside `/tmp` on an executable filesystem if no suitable runtime directory is available.
 
-The executable alone is not a complete distribution bundle; see [third-party material](docs/third-party-linux.md) for notices and the remaining rebuild verification.
+Third-party license texts for the embedded Bun runtime, OpenTUI and the npm and Rust dependencies are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md); a distribution of the executable must retain that file and `LICENSE`. See [third-party material](docs/third-party-linux.md) for the remaining rebuild verification.
 
 `--demo` uses synthetic data only. `--live` is the default and never falls back to demo when a source fails. Live mode reads the same `connections.json` / `AGENT_HUB_CONFIG` contract as the desktop shell; Run, Pool and Bridge remain independent sources. The development launcher honors `CARGO_TARGET_DIR` when locating the built observer. Pool and Bridge need their separately configured observer-only access and an absolute temporary-directory environment. No source service, agent or model is started or managed by the interface.
 
-On Linux the configuration is read from `AGENT_HUB_CONFIG` if set (never falling back), otherwise `~/.config/dev.agent-mcp.hub/connections.json`, otherwise the host-wide `/etc/agent-hub/connections.json` (a template is in `packaging/etc/agent-hub/`). With no file, or a file without `run.socket`, Linux Run defaults to the shared broker `/run/agent-mcp/api.sock` trusted as UID 1003; the terminal process must hold the `agent-run` group (check with `id`). A Run card error shows its code, and socket/group failures add a hint. To use an authorized shared Run socket, set its absolute path and the broker's trusted Unix UID explicitly:
+On Linux the configuration is read from `AGENT_HUB_CONFIG` if set (never falling back), otherwise `~/.config/dev.agent-mcp.hub/connections.json`, otherwise the host-wide `/etc/agent-hub/connections.json` (the template in `packaging/etc/agent-hub/connections.json` is the Dobi reference-host default, see [Installing a release](#installing-a-release)). With no file, or a file without `run.socket`, Linux Run defaults to the shared broker `/run/agent-mcp/api.sock` trusted as UID 1003; the terminal process must hold the `agent-run` group (check with `id`). A Run card error shows its code, and socket/group failures add a hint. To use an authorized shared Run socket, set its absolute path and the broker's trusted Unix UID explicitly:
 
 ```json
 {"schema_version":1,"run":{"socket":"/absolute/path/to/api.sock","broker_uid":1000},"pool":{"config":"/absolute/path/to/pool.toml"},"bridge":{"config":"/absolute/path/to/interfaces.toml"}}
