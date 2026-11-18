@@ -4,6 +4,8 @@ All notable changes to Agent Hub are documented here. The format follows [Keep a
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-11-18
+
 ### Added
 
 - Release workflow (`.github/workflows/release.yml`): source gate, independent build with `--remap-path-prefix`, `SHA256SUMS`, artifact attestation and draft-verified publication on `vX.Y.Z` tags; `scripts/release.mjs` (prepare, check, notes, package, verify), `scripts/generate-notices.mjs` (reproducible `THIRD_PARTY_NOTICES.md`) and `RELEASING.md`.
@@ -35,4 +37,5 @@ First public release: the terminal Hub for Linux x86-64 (standalone executable).
 
 - Archived Tasks and IDE sources are denied by the observer; the terminal has no Tasks, IDE or Run info tabs.
 
+[0.1.1]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.1.1
 [0.1.0]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.1.0
