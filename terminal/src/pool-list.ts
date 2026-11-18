@@ -7,15 +7,19 @@ export interface PoolListGroup {
   loaded: number;
 }
 
-/** Open and closed groups plus their shared keyboard navigation order. */
+/** Open and closed groups plus their shared keyboard navigation order (closed rows only when shown). */
 export interface GroupedPoolList {
   open: PoolListGroup;
   closed: PoolListGroup;
   items: Record<string, unknown>[];
 }
 
-/** Filters validated source-shaped rows, preserving their order within each closure group. */
-export function groupPools(rows: readonly unknown[], query: string): GroupedPoolList {
+/**
+ * Filters validated source-shaped rows, preserving their order within each closure group. Closed pools are
+ * history: both groups always report their loaded counts, but `items` (the navigation order) contains closed
+ * rows only when `showClosed` is true.
+ */
+export function groupPools(rows: readonly unknown[], query: string, showClosed = true): GroupedPoolList {
   const open: Record<string, unknown>[] = [], closed: Record<string, unknown>[] = [];
   const term = query.trim().toLocaleLowerCase();
   for (const value of rows) {
@@ -26,5 +30,5 @@ export function groupPools(rows: readonly unknown[], query: string): GroupedPool
     if (term && !`${pool.name} ${pool.purpose} ${pool.pool_id}`.toLocaleLowerCase().includes(term)) continue;
     (pool.closed ? closed : open).push(row);
   }
-  return { open: { items: open, loaded: open.length }, closed: { items: closed, loaded: closed.length }, items: [...open, ...closed] };
+  return { open: { items: open, loaded: open.length }, closed: { items: closed, loaded: closed.length }, items: showClosed ? [...open, ...closed] : open };
 }

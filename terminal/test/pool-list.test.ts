@@ -26,6 +26,16 @@ test('groups loaded pools by source closure while preserving order and row ident
   assert.deepEqual(rows, original);
 });
 
+test('closed pools stay counted but leave the navigation order unless shown', () => {
+  const rows = [row('closed-1', true), row('open-1', false), row('closed-2', true)];
+  const hidden = groupPools(rows, '', false);
+  assert.deepEqual(ids(hidden.items), ['open-1']);
+  assert.deepEqual(ids(hidden.closed.items), ['closed-1', 'closed-2']);
+  assert.equal(hidden.closed.loaded, 2);
+  assert.deepEqual(ids(groupPools(rows, '', true).items), ['open-1', 'closed-1', 'closed-2']);
+  assert.deepEqual(ids(groupPools([row('only', true)], '', false).items), []);
+});
+
 test('search counts only matching loaded rows by name, purpose or ID', () => {
   const rows = [row('alpha', false, 'Inspect', 'Review this'), row('beta', true, 'REVIEW', 'Other'), row('review-3', false, 'Other', 'Other'), row('skip', true, 'Skip', 'Other')];
   const groups = groupPools(rows, '  ReViEw  ');

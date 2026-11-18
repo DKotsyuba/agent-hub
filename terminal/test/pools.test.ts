@@ -74,6 +74,10 @@ test('pool groups show loaded counts and keep the selected pool when another pag
     await setup.waitForFrame(value => value.includes('4 loaded / 4 reported'));
     setup.mockInput.pressKey('2');
     let frame = await setup.waitForFrame(value => value.includes('Open · 1 loaded') && value.includes('Closed · 1 loaded'));
+    assert.match(frame, /▸ Closed · 1 loaded  \[o\] show/);
+    assert.doesNotMatch(frame, /Closed first/);
+    setup.mockInput.pressKey('o'); frame = await setup.waitForFrame(value => value.includes('Closed first'));
+    assert.match(frame, /▾ Closed · 1 loaded  \[o\] hide/);
     assert.ok(frame.indexOf('Open first') < frame.indexOf('Closed first'));
     setup.mockInput.pressArrow('down'); await setup.waitForFrame(value => value.includes('› Closed first'));
     setup.mockInput.pressKey('n');
@@ -99,7 +103,8 @@ test('a selected pool stays visible when new groups move it below the viewport',
   const unmount = mountHub(setup.renderer, client, 'demo', () => {});
   try {
     await setup.waitForFrame(value => value.includes('4 loaded / 4 reported'));
-    setup.mockInput.pressKey('2'); await setup.waitForFrame(value => value.includes('Open first') && value.includes('Closed target'));
+    setup.mockInput.pressKey('2'); await setup.waitForFrame(value => value.includes('Open first') && value.includes('Closed · 1 loaded'));
+    setup.mockInput.pressKey('o'); await setup.waitForFrame(value => value.includes('Closed target'));
     setup.mockInput.pressArrow('down'); await setup.waitForFrame(value => value.includes('› Closed target'));
     setup.mockInput.pressKey('n');
     const frame = await setup.waitForFrame(value => value.includes('› Closed target') && value.includes('End observed'));
@@ -296,5 +301,40 @@ test('keyboard selection scrolls the pool title into a short viewport', async ()
     setup.mockInput.pressKey('2'); await setup.waitForFrame(value => value.includes('Synthetic review pool'));
     setup.mockInput.pressArrow('down');
     await setup.waitForFrame(value => value.includes('› Second pool'));
+  } finally { unmount(); await client.close(); await setup.dispose(); }
+});
+
+test('closed pools are hidden by default, keep their count and open on demand', async () => {
+  const setup = await createTestRenderer({ width: 120, height: 30 }), demo = createDemoClient();
+  const row = (id: string, name: string, closed: boolean) => ({ pool: { pool_id: id, name, purpose: 'Fixture', closed, revision: 1 }, leader_id: 'leader' });
+  const rows = [row('01', 'Done pool', true), row('02', 'Live pool', false), row('03', 'Old pool', true)];
+  const opened: string[] = [];
+  const client: ObservationClient = {
+    async read(resource, params = {}, signal) {
+      if (resource === 'pool.get' && typeof params.pool_id === 'string') opened.push(params.pool_id);
+      const response = await demo.read(resource, params, signal);
+      if (resource !== 'pool.list' || !response.data) return response;
+      const outer = response.data as { data: Record<string, unknown> };
+      return { ...response, data: { ...outer, data: { ...outer.data, pools: rows, cursor: rows.at(-1)!.pool.pool_id, returned: rows.length, has_more: false } } };
+    },
+    close: () => demo.close(),
+  };
+  const unmount = mountHub(setup.renderer, client, 'demo', () => {});
+  try {
+    await setup.waitForFrame(value => value.includes('4 loaded / 4 reported'));
+    setup.mockInput.pressKey('2');
+    let frame = await setup.waitForFrame(value => value.includes('Live pool'));
+    assert.match(frame, /Open · 1 loaded/);
+    assert.match(frame, /▸ Closed · 2 loaded  \[o\] show/);
+    assert.doesNotMatch(frame, /Done pool|Old pool/);
+    setup.mockInput.pressArrow('down'); setup.mockInput.pressEnter(); await setup.waitFor(() => opened.includes('02'));
+    assert.deepEqual(opened.filter(id => id !== '02'), []);
+    await setup.waitForFrame(value => value.includes('‹ Pools'));
+    setup.mockInput.pressEscape(); await new Promise(resolve => setTimeout(resolve, 25));
+    await setup.waitForFrame(value => value.includes('Closed · 2 loaded'));
+    setup.mockInput.pressKey('o'); frame = await setup.waitForFrame(value => value.includes('Done pool') && value.includes('Old pool'));
+    assert.match(frame, /▾ Closed · 2 loaded  \[o\] hide/);
+    setup.mockInput.pressKey('o'); frame = await setup.waitForFrame(value => !value.includes('Done pool'));
+    assert.match(frame, /▸ Closed · 2 loaded/);
   } finally { unmount(); await client.close(); await setup.dispose(); }
 });
