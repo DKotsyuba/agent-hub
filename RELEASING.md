@@ -9,7 +9,7 @@ A release is the Linux x86-64 (glibc) terminal Hub, published by `.github/workfl
 | `agent-hub-X.Y.Z-linux-x86_64.tar.gz` | `agent-hub`, `LICENSE`, `THIRD_PARTY_NOTICES.md`, `etc/agent-hub/connections.json`; sorted entries, root ownership, commit-time mtimes, `gzip -n` |
 | `agent-hub-linux-x86_64` | the bare executable (identical to the archived one) |
 | `THIRD_PARTY_NOTICES.md` | license texts of the embedded Bun, OpenTUI, npm and Rust components |
-| `SHA256SUMS` | SHA-256 of the three files above; it is the subject of the artifact attestation |
+| `SHA256SUMS` | SHA-256 of the three files above; the attestation covers exactly these three listed files (`SHA256SUMS` is the inventory, not an attestation subject) |
 
 ## Prepare
 
@@ -26,8 +26,8 @@ A release is the Linux x86-64 (glibc) terminal Hub, published by `.github/workfl
 ## Publish
 
 1. Tag the merged `main` commit and push the tag (the owner signs it): `git tag -s vX.Y.Z -m "Agent Hub X.Y.Z" && git push origin vX.Y.Z`.
-2. The workflow runs three jobs. `check` (source gate: tag/version/changelog/main-ancestry consistency, notices up to date, typecheck, Rust fmt/clippy/tests, standalone build, Bun and Node suites) and `build` (no credentials) run in parallel. `publish` needs both, uses the `release` environment (configure required reviewers on it in the repository settings), attests `SHA256SUMS`, creates a **draft** release with the assets, downloads them again, re-checks the hashes and attestations, and only then publishes it.
-3. After publication, verify a download: `sha256sum --check --ignore-missing SHA256SUMS` and `gh attestation verify agent-hub-linux-x86_64 --repo DKotsyuba/agent-hub`.
+2. The workflow runs three jobs. `check` (source gate: tag/version/changelog/main-ancestry consistency, notices up to date, typecheck, Rust fmt/clippy/tests, standalone build, Bun and Node suites) and `build` (no credentials) run in parallel. `publish` needs both, uses the `release` environment (configure required reviewers on it in the repository settings), attests the three files listed in `SHA256SUMS`, creates a **draft** release with the assets, downloads them again, re-checks the hashes and attestations, and only then publishes it.
+3. After publication, verify a download: `sha256sum --check --ignore-missing SHA256SUMS` and `gh attestation verify <asset> --repo DKotsyuba/agent-hub` for each of the three assets (for example `agent-hub-linux-x86_64`).
 
 ## No local paths in binaries
 
