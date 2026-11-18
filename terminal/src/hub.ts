@@ -370,7 +370,7 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
   let boundTarget: BoundTarget | null = null;
   let pool: string | null = start?.pool ?? null, poolTab: PoolTab = 'members', poolMetadata = false, period: Period = 'Today', overlay: Overlay | null = null;
   let listTop = 0, poolIndex = 0, poolMemberIndex = 0, poolDeliveryIndex = 0, poolDecisionIndex = 0, poolVoteIndex = 0, poolVoteMember: string | null = null, poolScroll = 0, quotaScroll = 0, quotaDetails = false, incidentScroll = 0, attentionIndex = 0;
-  let revealPoolSelection = false, poolSelectionShown = false;
+  let revealPoolSelection = false, poolSelectionShown = false, closedPoolsOpen = false;
   let finishedOpen = false, filterFolder = '', filterProject = start?.project ?? '', filterStatus = '', filterPeriodFailures = false, query = '', alert = '';
   let detailFromRelated = false, spinnerFrame = 0;
   let rawTranscript = false;
@@ -1386,8 +1386,10 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
     const count = exact ?? items.filter(agent => terminalStates.has(agent.status)).length;
     return `${count}${exact === null && agents.value && !agents.value.complete ? ' loaded' : ''}`;
   }
-  /** Filters and groups only the currently loaded Agent Pool inventory. */
-  function visiblePools(): Record<string, unknown>[] { return groupPools(pools.value?.items ?? [], query).items; }
+  /** Filters and groups only the currently loaded Agent Pool inventory; closed pools are listed only when expanded. */
+  function visiblePools(): Record<string, unknown>[] { return groupPools(pools.value?.items ?? [], query, closedPoolsOpen).items; }
+  /** Shows or hides closed pools in the list; counts stay visible either way. */
+  function toggleClosedPools(): void { closedPoolsOpen = !closedPoolsOpen; render(); }
   /** Opens a selected execution without attributing content from a previous sequence. */
   function chooseAgent(id: string): void { const changed = selected !== id || detailFromRelated; if (changed) cancelSessionReads(); if (detailFromRelated) cancelRelatedRead(); selected = id; boundSequence = null; boundTarget = null; detailFromRelated = false; tab = 'history'; if (changed && currentBeginning()) jumpBeginning(false); else ensureDefaultHistory(); void loadHistory(); render(); }
   /** Opens a pool while invalidating the previous pool's keyed observation. */
@@ -2134,7 +2136,7 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
     const lines: Line[] = []; let selectedLine = -1;
     const data = pool ? poolDetail.value : null, view = data?.view ? object(data.view) : null;
     const journal = pool && !poolContent && poolTab === 'discussion' && poolHistorySupported() === true ? poolHistory(pool) : null;
-    const selectedPool = pool ? visiblePools().find(item => object(item.pool).pool_id === pool) : null;
+    const selectedPool = pool ? groupPools(pools.value?.items ?? [], query).items.find(item => object(item.pool).pool_id === pool) : null;
     const info = view ? object(view.pool) : selectedPool ? object(selectedPool.pool) : null;
     const members = view && Array.isArray(view.members) ? view.members : [], bindings = data && Array.isArray(data.bindings) ? data.bindings : [];
     const entries = view && Array.isArray(view.events) ? view.events : [];
@@ -2143,7 +2145,7 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
     if (!pool) {
       textAt(parent, 2, 2, width, 'Agent Pool', { bold: true });
       textAt(parent, 2, 3, width, 'Pools · independently observed pages', { color: C.muted });
-      const groups = groupPools(pools.value?.items ?? [], query), items = groups.items;
+      const groups = groupPools(pools.value?.items ?? [], query, closedPoolsOpen), items = groups.items;
       poolIndex = Math.min(poolIndex, Math.max(0, items.length - 1));
       /* Source-wide totals come only from an advertised snapshot read; loaded rows below are a separate read. */
       const supported = poolCapability(INVENTORY_SNAPSHOT_CAPABILITY);
@@ -2153,7 +2155,10 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
       if (pools.value) {
         let index = 0;
         for (const [title, group] of [['Open', groups.open], ['Closed', groups.closed]] as const) {
-          lines.push({ text: `${title} · ${group.loaded} loaded`, bold: true });
+          const closedGroup = title === 'Closed';
+          if (closedGroup) lines.push({ text: ` ${closedPoolsOpen ? '▾' : '▸'} Closed · ${group.loaded} loaded  [o] ${closedPoolsOpen ? 'hide' : 'show'}`, bold: true, action: toggleClosedPools, hover: 'closed pools' });
+          else lines.push({ text: `${title} · ${group.loaded} loaded`, bold: true });
+          if (closedGroup && !closedPoolsOpen) continue;
           for (const item of group.items) {
             const selectedIndex = index++, source = object(item.pool), id = String(source.pool_id);
             if (selectedIndex === poolIndex) selectedLine = lines.length + 1;
@@ -2167,7 +2172,7 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
         }
       }
       if (!items.length) {
-        const message = pools.value ? pools.value.items.length ? 'No matching pools in loaded records.' : 'No pools in the reported coverage.' : pools.response && !usable(pools.response) ? `Pool source ${pools.response.outcome}.` : 'Loading pool observations…';
+        const message = pools.value ? groups.closed.loaded && !closedPoolsOpen ? 'No open pools in loaded records; closed pools are hidden.' : pools.value.items.length ? 'No matching pools in loaded records.' : 'No pools in the reported coverage.' : pools.response && !usable(pools.response) ? `Pool source ${pools.response.outcome}.` : 'Loading pool observations…';
         lines.push({ text: message, color: C.muted });
       }
       if (pools.value?.next !== null && pools.value?.next !== undefined) lines.push({ text: 'Load more  [n]', color: C.accent, action: () => { poolPages++; refresh(); } });
@@ -2483,7 +2488,7 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
       'Enter / Space: open selection or expand the current message',
       'p: period on Overview; working folder on Sessions',
       '/: search loaded records · t: lifecycle · x: reset filters',
-      'o: expand/collapse Finished · n: load offered continuation',
+      'o: expand/collapse Finished (Sessions) or Closed pools (Agent Pool) · n: load offered continuation',
       'z: fullscreen · g: older · G: follow · f: pause · [ / ]: long message parts',
       'a: result · d: details · c: copy verified result · y: copy session lineage',
       'Quota: d / Enter: show or hide technical details · Up / Down / Page Up / Down: scroll',
@@ -2743,6 +2748,7 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
     if (name === 't' && route === 'sessions') { overlay = { kind: 'status', query: '', index: 0, original: filterStatus }; render(); return; }
     if (name === 'x' && (route === 'sessions' || route === 'pools')) { query = ''; filterFolder = ''; filterProject = ''; filterStatus = ''; filterPeriodFailures = false; listTop = 0; render(); return; }
     if (name === 'o' && route === 'sessions') { toggleFinished(); return; }
+    if (name === 'o' && route === 'pools' && !pool) { toggleClosedPools(); return; }
     if (name === 'n') {
       if (route === 'sessions' && tab === 'history' && focus === 'history' && currentBeginning()?.active) { void loadBeginningPage(); return; }
       if (route === 'sessions' && agents.value?.next !== null && agents.value?.next !== undefined) { agentPages++; refresh(); }
@@ -2805,7 +2811,7 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
     else if (route === 'quota') drawQuota(frame);
     else if (route === 'worktree') drawWorktree(frame);
     else drawIncidents(frame);
-    const hint = route === 'overview' ? '↑↓ select   enter open   1 sessions   p period   r refresh   ? help' : route === 'sessions' ? (w < 105 ? '↑↓ select  enter open  i start  o finished  z full  esc back  ? help' : '↑↓ select   enter history   i start   o finished   z fullscreen   ctrl+p commands   ? help   q quit') : route === 'pools' ? '↑↓ move  enter open  ←→ tabs  i details  n/g/G pages  esc back  ?' : route === 'quota' ? '↑↓ scroll   d details   n next   r refresh   esc back   ? help' : route === 'worktree' ? '↑↓ select   enter open   d details   s measure   r refresh   esc back   ? help' : '↑↓ scroll   n next   r refresh   esc back   ? help';
+    const hint = route === 'overview' ? '↑↓ select   enter open   1 sessions   p period   r refresh   ? help' : route === 'sessions' ? (w < 105 ? '↑↓ select  enter open  i start  o finished  z full  esc back  ? help' : '↑↓ select   enter history   i start   o finished   z fullscreen   ctrl+p commands   ? help   q quit') : route === 'pools' ? (pool ? '↑↓ move  enter open  ←→ tabs  i details  n/g/G pages  esc back  ?' : '↑↓ move  enter open  o closed  n pages  / search  esc back  ?') : route === 'quota' ? '↑↓ scroll   d details   n next   r refresh   esc back   ? help' : route === 'worktree' ? '↑↓ select   enter open   d details   s measure   r refresh   esc back   ? help' : '↑↓ scroll   n next   r refresh   esc back   ? help';
     textAt(frame, 2, h - 1, Math.max(1, w - 4), alert || hint, { color: alert ? C.accent : C.muted });
     if (overlay) { historyTrack.visible = false; poolTrack.visible = false; drawOverlay(frame); }
     requestVisibleToolTime();

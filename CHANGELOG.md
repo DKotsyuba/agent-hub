@@ -8,6 +8,10 @@ All notable changes to Agent Hub are documented here. The format follows [Keep a
 
 - Release workflow (`.github/workflows/release.yml`): source gate, independent build with `--remap-path-prefix`, `SHA256SUMS`, artifact attestation and draft-verified publication on `vX.Y.Z` tags; `scripts/release.mjs` (prepare, check, notes, package, verify), `scripts/generate-notices.mjs` (reproducible `THIRD_PARTY_NOTICES.md`) and `RELEASING.md`.
 
+### Changed
+
+- Pools tab: closed pools are collapsed by default behind a `Closed · N loaded` header (count stays visible); `o` or a click shows or hides them.
+
 ## [0.1.0] - 2026-11-15
 
 First public release: the terminal Hub for Linux x86-64 (standalone executable). The desktop (Tauri) application is retained in the repository but is parked and not released.
