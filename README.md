@@ -10,7 +10,7 @@ Each GitHub release publishes the Linux x86-64 (glibc 2.39 or newer) terminal bu
 sha256sum --check --ignore-missing SHA256SUMS
 ```
 
-The release contains only the terminal Hub. The desktop (Tauri) application in this repository is parked and is not built or released.
+The release contains only the terminal Hub. The desktop (Tauri) application in this repository is parked and is not built or released. Maintainers: see [RELEASING.md](RELEASING.md).
 
 `packaging/etc/agent-hub/connections.json` is the host-wide default for the Dobi reference host. Copy it to `/etc/agent-hub/connections.json` on a machine that runs the same services:
 
