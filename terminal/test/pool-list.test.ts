@@ -16,12 +16,12 @@ function ids(rows: Record<string, unknown>[]): unknown[] {
 test('groups loaded pools by source closure while preserving order and row identity', () => {
   const rows = [row('closed-1', true), row('open-1', false), row('closed-2', true), row('open-2', false)];
   const original = [...rows];
-  const groups = groupPools(rows, '');
-  assert.deepEqual(ids(groups.open.items), ['open-1', 'open-2']);
-  assert.deepEqual(ids(groups.closed.items), ['closed-1', 'closed-2']);
+  const groups = groupPools(rows, '', true);
+  assert.deepEqual(ids(groups.live.items), ['open-1', 'open-2']);
+  assert.deepEqual(ids(groups.finished.items), ['closed-1', 'closed-2']);
   assert.deepEqual(ids(groups.items), ['open-1', 'open-2', 'closed-1', 'closed-2']);
-  assert.equal(groups.open.loaded, 2);
-  assert.equal(groups.closed.loaded, 2);
+  assert.equal(groups.live.loaded, 2);
+  assert.equal(groups.finished.loaded, 2);
   assert.equal(groups.items[0], rows[1]);
   assert.deepEqual(rows, original);
 });
@@ -30,28 +30,28 @@ test('closed pools stay counted but leave the navigation order unless shown', ()
   const rows = [row('closed-1', true), row('open-1', false), row('closed-2', true)];
   const hidden = groupPools(rows, '', false);
   assert.deepEqual(ids(hidden.items), ['open-1']);
-  assert.deepEqual(ids(hidden.closed.items), ['closed-1', 'closed-2']);
-  assert.equal(hidden.closed.loaded, 2);
+  assert.deepEqual(ids(hidden.finished.items), ['closed-1', 'closed-2']);
+  assert.equal(hidden.finished.loaded, 2);
   assert.deepEqual(ids(groupPools(rows, '', true).items), ['open-1', 'closed-1', 'closed-2']);
   assert.deepEqual(ids(groupPools([row('only', true)], '', false).items), []);
 });
 
 test('search counts only matching loaded rows by name, purpose or ID', () => {
   const rows = [row('alpha', false, 'Inspect', 'Review this'), row('beta', true, 'REVIEW', 'Other'), row('review-3', false, 'Other', 'Other'), row('skip', true, 'Skip', 'Other')];
-  const groups = groupPools(rows, '  ReViEw  ');
+  const groups = groupPools(rows, '  ReViEw  ', true);
   assert.deepEqual(ids(groups.items), ['alpha', 'review-3', 'beta']);
-  assert.equal(groups.open.loaded, 2);
-  assert.equal(groups.closed.loaded, 1);
+  assert.equal(groups.live.loaded, 2);
+  assert.equal(groups.finished.loaded, 1);
   assert.deepEqual(ids(groupPools(rows, 'other review').items), ['review-3']);
 });
 
 test('empty input, empty matches and later loaded pages remain explicitly loaded-only', () => {
-  assert.deepEqual(groupPools([], ''), { open: { items: [], loaded: 0 }, closed: { items: [], loaded: 0 }, items: [] });
+  assert.deepEqual(groupPools([], ''), { live: { items: [], loaded: 0 }, finished: { items: [], loaded: 0 }, items: [] });
   const partial = [row('one', false), row('two', true)];
-  assert.deepEqual(groupPools(partial, 'absent'), { open: { items: [], loaded: 0 }, closed: { items: [], loaded: 0 }, items: [] });
-  const next = groupPools([...partial, row('three', true)], '');
-  assert.equal(next.open.loaded, 1);
-  assert.equal(next.closed.loaded, 2);
+  assert.deepEqual(groupPools(partial, 'absent'), { live: { items: [], loaded: 0 }, finished: { items: [], loaded: 0 }, items: [] });
+  const next = groupPools([...partial, row('three', true)], '', true);
+  assert.equal(next.live.loaded, 1);
+  assert.equal(next.finished.loaded, 2);
   assert.deepEqual(ids(next.items), ['one', 'two', 'three']);
 });
 
@@ -60,8 +60,8 @@ test('accepted decisions and other states never decide whether a pool is closed'
   Object.assign(accepted.pool as Record<string, unknown>, { proposal: { state: 'accepted' }, state: 'completed' });
   Object.assign(closed.pool as Record<string, unknown>, { proposal: { state: 'open' } });
   const groups = groupPools([accepted, closed], '');
-  assert.deepEqual(ids(groups.open.items), ['accepted']);
-  assert.deepEqual(ids(groups.closed.items), ['closed']);
+  assert.deepEqual(ids(groups.live.items), ['accepted']);
+  assert.deepEqual(ids(groups.finished.items), ['closed']);
 });
 
 test('rejects malformed producer rows instead of guessing a closure state', () => {
@@ -78,4 +78,12 @@ test('rejects malformed producer rows instead of guessing a closure state', () =
     { ...valid, pool: { ...(valid.pool as Record<string, unknown>), revision: -1 } },
     { ...valid, leader_id: null },
   ]) assert.throws(() => groupPools([valid, malformed], 'valid'));
+});
+
+test('only a durable completion ID or closure moves a pool to Finished', () => {
+  const active = { ...row('live', false), kind: 'chat', completion_id: null };
+  const completed = { ...row('done', false), kind: 'chat', completion_id: 'agreement-1' };
+  const closed = { ...row('closed', true), kind: 'chat' };
+  assert.deepEqual(ids(groupPools([active, completed, closed], '').items), ['live']);
+  assert.deepEqual(ids(groupPools([active, completed, closed], '', true).finished.items), ['done', 'closed']);
 });

@@ -32,10 +32,11 @@ for (const width of [80, 120, 200]) {
       frame = await setup.waitForFrame(value => value.includes('Example reviewer') && value.includes('[Members]'));
       assert.doesNotMatch(frame, /[┌┐└┘│─╭╮╰╯]/);
       row = frame.split('\n').findIndex(value => value.includes('Example reviewer'));
-      assert.notDeepEqual(backgroundAt(setup.captureSpans(), row, 2), backgroundAt(setup.captureSpans(), row, 0));
+      const detail = width >= 110 ? Math.round(width * 38 / 120) + 2 : 2;
+      assert.notDeepEqual(backgroundAt(setup.captureSpans(), row, detail + 2), backgroundAt(setup.captureSpans(), row, detail - 1));
       assert.match(frame, /Open matching Run session/);
       setup.mockInput.pressArrow('right');
-      frame = await setup.waitForFrame(value => value.includes('[Discussion]') && value.includes('Synthetic discussion'));
+      frame = await setup.waitForFrame(value => value.includes('[History]') && value.includes('Synthetic discussion'));
       assert.match(frame, /historical timestamps not reported/);
       setup.mockInput.pressKey('d');
       await setup.waitForFrame(value => value.includes('[Decisions]') && value.includes('Synthetic proposed result'));
@@ -73,15 +74,15 @@ test('pool groups show loaded counts and keep the selected pool when another pag
   try {
     await setup.waitForFrame(value => value.includes('4 loaded / 4 reported'));
     setup.mockInput.pressKey('2');
-    let frame = await setup.waitForFrame(value => value.includes('Open · 1 loaded') && value.includes('Closed · 1 loaded'));
-    assert.match(frame, /▸ Closed · 1 loaded  \[o\] show/);
+    let frame = await setup.waitForFrame(value => value.includes('Live  1') && value.includes('Finished  1'));
+    assert.match(frame, /▸ Finished  1  \[o\]/);
     assert.doesNotMatch(frame, /Closed first/);
     setup.mockInput.pressKey('o'); frame = await setup.waitForFrame(value => value.includes('Closed first'));
-    assert.match(frame, /▾ Closed · 1 loaded  \[o\] hide/);
+    assert.match(frame, /▾ Finished  1  \[o\]/);
     assert.ok(frame.indexOf('Open first') < frame.indexOf('Closed first'));
     setup.mockInput.pressArrow('down'); await setup.waitForFrame(value => value.includes('› Closed first'));
     setup.mockInput.pressKey('n');
-    frame = await setup.waitForFrame(value => value.includes('Open · 2 loaded') && value.includes('Closed · 2 loaded'));
+    frame = await setup.waitForFrame(value => value.includes('Live  2') && value.includes('Finished  2'));
     assert.match(frame, /› Closed first/);
     setup.mockInput.pressEnter(); await setup.waitFor(() => opened.includes('01'));
   } finally { unmount(); await client.close(); await setup.dispose(); }
@@ -103,7 +104,7 @@ test('a selected pool stays visible when new groups move it below the viewport',
   const unmount = mountHub(setup.renderer, client, 'demo', () => {});
   try {
     await setup.waitForFrame(value => value.includes('4 loaded / 4 reported'));
-    setup.mockInput.pressKey('2'); await setup.waitForFrame(value => value.includes('Open first') && value.includes('Closed · 1 loaded'));
+    setup.mockInput.pressKey('2'); await setup.waitForFrame(value => value.includes('Open first') && value.includes('Finished  1'));
     setup.mockInput.pressKey('o'); await setup.waitForFrame(value => value.includes('Closed target'));
     setup.mockInput.pressArrow('down'); await setup.waitForFrame(value => value.includes('› Closed target'));
     setup.mockInput.pressKey('n');
@@ -133,10 +134,10 @@ test('a visible pool stays visible when an earlier purpose grows on refresh', as
   try {
     await setup.waitForFrame(value => value.includes('4 loaded / 4 reported'));
     setup.mockInput.pressKey('2'); await setup.waitForFrame(value => value.includes('First pool') && value.includes('Selected pool'));
-    setup.mockInput.pressArrow('down'); await setup.waitForFrame(value => value.includes('› Selected pool'));
+    setup.mockInput.pressArrow('down'); await setup.waitForFrame(value => /› [⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] Selected pool/.test(value));
     const before = reads; longer = true; setup.mockInput.pressKey('r');
     await setup.waitFor(() => reads > before);
-    await setup.waitForFrame(value => value.includes('Long purpose') && value.includes('› Selected pool'));
+    await setup.waitForFrame(value => /› [⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] Selected pool/.test(value));
   } finally { unmount(); await client.close(); await setup.dispose(); }
 });
 
@@ -157,10 +158,10 @@ test('returning from a pool reveals the selected row in a short viewport', async
     await setup.waitForFrame(value => value.includes('4 loaded / 4 reported'));
     setup.mockInput.pressKey('2'); await setup.waitForFrame(value => value.includes('Pool 1'));
     for (let index = 0; index < 9; index++) setup.mockInput.pressArrow('down');
-    await setup.waitForFrame(value => value.includes('› Pool 10'));
+    await setup.waitForFrame(value => /› [⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] Pool 10/.test(value));
     setup.mockInput.pressEnter(); await setup.waitForFrame(value => value.includes('‹ Pools') && value.includes('Pool 10'));
     setup.mockInput.pressEscape(); await new Promise(resolve => setTimeout(resolve, 25));
-    await setup.waitForFrame(value => value.includes('› Pool 10'));
+    await setup.waitForFrame(value => /› [⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] Pool 10/.test(value));
   } finally { unmount(); await client.close(); await setup.dispose(); }
 });
 
@@ -194,8 +195,8 @@ test('clicking an older pool frame retains the clicked ID after a concurrent inv
     freeze = false; const paint = pending; pending = undefined; paint?.(0);
     await setup.waitForFrame(value => value.includes('‹ Pools') && value.includes('Pool B'));
     setup.mockInput.pressEscape(); await new Promise(resolve => setTimeout(resolve, 25));
-    const back = await setup.waitForFrame(value => value.includes('› Pool B'));
-    assert.doesNotMatch(back, /› Pool C/);
+    const back = await setup.waitForFrame(value => /› [⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] Pool B/.test(value));
+    assert.doesNotMatch(back, /› [⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] Pool C/);
   } finally { freeze = false; setup.renderer.requestAnimationFrame = original; pending?.(0); unmount(); await client.close(); await setup.dispose(); }
 });
 
@@ -300,7 +301,7 @@ test('keyboard selection scrolls the pool title into a short viewport', async ()
     await setup.waitForFrame(value => value.includes('Agent Run'));
     setup.mockInput.pressKey('2'); await setup.waitForFrame(value => value.includes('Synthetic review pool'));
     setup.mockInput.pressArrow('down');
-    await setup.waitForFrame(value => value.includes('› Second pool'));
+    await setup.waitForFrame(value => /› [⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] Second pool/.test(value));
   } finally { unmount(); await client.close(); await setup.dispose(); }
 });
 
@@ -324,17 +325,17 @@ test('closed pools are hidden by default, keep their count and open on demand', 
     await setup.waitForFrame(value => value.includes('4 loaded / 4 reported'));
     setup.mockInput.pressKey('2');
     let frame = await setup.waitForFrame(value => value.includes('Live pool'));
-    assert.match(frame, /Open · 1 loaded/);
-    assert.match(frame, /▸ Closed · 2 loaded  \[o\] show/);
+    assert.match(frame, /Live  1/);
+    assert.match(frame, /▸ Finished  2  \[o\]/);
     assert.doesNotMatch(frame, /Done pool|Old pool/);
     setup.mockInput.pressArrow('down'); setup.mockInput.pressEnter(); await setup.waitFor(() => opened.includes('02'));
     assert.deepEqual(opened.filter(id => id !== '02'), []);
     await setup.waitForFrame(value => value.includes('‹ Pools'));
     setup.mockInput.pressEscape(); await new Promise(resolve => setTimeout(resolve, 25));
-    await setup.waitForFrame(value => value.includes('Closed · 2 loaded'));
+    await setup.waitForFrame(value => value.includes('Finished  2'));
     setup.mockInput.pressKey('o'); frame = await setup.waitForFrame(value => value.includes('Done pool') && value.includes('Old pool'));
-    assert.match(frame, /▾ Closed · 2 loaded  \[o\] hide/);
+    assert.match(frame, /▾ Finished  2  \[o\]/);
     setup.mockInput.pressKey('o'); frame = await setup.waitForFrame(value => !value.includes('Done pool'));
-    assert.match(frame, /▸ Closed · 2 loaded/);
+    assert.match(frame, /▸ Finished  2/);
   } finally { unmount(); await client.close(); await setup.dispose(); }
 });

@@ -42,6 +42,19 @@ export function groupPoolEvents(events: Record<string, unknown>[]): PoolMessage[
   return groups;
 }
 
+/** Displays observer-approved event fields with membership labels where the exact member still exists. */
+export function poolEventHeading(group: PoolMessage, roster: readonly Record<string, unknown>[]): string {
+  const event = group.head, author = object(event.author);
+  const member = author.kind === 'member' ? roster.find(row => row.member_id === author.member_id) : undefined;
+  const authorLabel = author.kind === 'member' ? [member?.name ?? author.member_id ?? 'Unknown member', member?.profile].filter(Boolean).join(' · ')
+    : author.kind === 'leader' ? 'owner' : author.kind === 'service' ? 'system' : String(author.kind ?? 'unknown');
+  const kind = event.kind ?? 'unknown event';
+  // The owner observer may expose an exact recipient. Never infer a missing target from the roster or body.
+  const recipient = kind === 'direct_message' && typeof event.recipient === 'string' && event.recipient ? ` · to ${event.recipient}` : '';
+  const part = group.complete ? '' : ` · incomplete message (${event.part_index ?? '?'}–${group.parts.at(-1)?.part_index ?? '?'}/${event.part_count ?? '?'})`;
+  return `${authorLabel} · #${event.message_event_id ?? event.event_id_exact ?? event.event_id ?? '?'} · ${kind}${part} · revision ${event.revision ?? '?'}${recipient}`;
+}
+
 /** Validates one nonnegative i64 encoded without a JavaScript numeric conversion. */
 function exact(value: unknown): string {
   if (typeof value !== 'string' || value.length > 19 || !/^(0|[1-9]\d*)$/.test(value) || BigInt(value) > 9223372036854775807n) throw new Error('pool_exact_cursor');

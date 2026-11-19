@@ -4,7 +4,7 @@ import test from 'node:test';
 import { createTestRenderer } from '@opentui/core/testing';
 import { createDemoClient } from '../src/demo.ts';
 import { mountHub } from '../src/hub.ts';
-import { groupPoolEvents } from '../src/pool.ts';
+import { groupPoolEvents, poolEventHeading } from '../src/pool.ts';
 import { exportHistory } from '../src/export.ts';
 import type { ObservationClient } from '../src/api.ts';
 
@@ -91,3 +91,43 @@ for (const incomplete of [false, true]) {
     } finally { unmount(); await client.close(); await setup.dispose(); }
   });
 }
+
+test('direct messages display only the recipient provided by the observer', () => {
+  const roster = [{ member_id: 'm1', name: 'Reviewer', profile: 'review' }, { member_id: 'private-target', name: 'Private label' }];
+  const direct = { event_id: 1, revision: 2, author: { kind: 'member', member_id: 'm1' }, kind: 'direct_message', body: 'Hello' };
+  const redacted = poolEventHeading(groupPoolEvents([direct])[0], roster);
+  assert.match(redacted, /Reviewer · review/);
+  assert.doesNotMatch(redacted, /private-target|Private label| · to /);
+  const visible = poolEventHeading(groupPoolEvents([{ ...direct, recipient: 'private-target' }])[0], roster);
+  assert.match(visible, / · to private-target$/);
+  assert.doesNotMatch(visible, /Private label/);
+  assert.match(poolEventHeading(groupPoolEvents([direct])[0], []), /^m1 ·/);
+});
+
+test('long Pool history collapses and Enter expands the selected event', async () => {
+  const setup = await createTestRenderer({ width: 140, height: 40 }), demo = createDemoClient();
+  const client: ObservationClient = {
+    async read(resource, params = {}, signal) {
+      const response = await demo.read(resource, params, signal);
+      if (resource !== 'pool.get' || params.section !== 'history' || !params.direction || !response.data) return response;
+      const outer = response.data as { data: { view: { events: Record<string, unknown>[] } } };
+      const events = outer.data.view.events.map(event => ({ ...event, body: 'Long body\n'.repeat(12) + 'Final line' }));
+      return { ...response, data: { ...outer, data: { ...outer.data, view: { ...outer.data.view, events } } } };
+    },
+    close: () => demo.close(),
+  };
+  const unmount = mountHub(setup.renderer, client, 'demo', () => {}, undefined, { pool: 'demo-pool' });
+  try {
+    await setup.waitForFrame(frame => frame.includes('[Members]'));
+    setup.mockInput.pressArrow('right');
+    const collapsed = await setup.waitForFrame(frame => frame.includes('Enter to expand'));
+    assert.doesNotMatch(collapsed, /Final line/);
+    setup.mockInput.pressEnter();
+    await setup.waitForFrame(frame => frame.includes('Final line') && frame.includes('Enter to collapse'));
+    setup.mockInput.pressKey('z');
+    await setup.waitForFrame(frame => frame.includes('Final line') && !frame.includes('Finished  0'));
+    setup.mockInput.pressEscape();
+    await new Promise(resolve => setTimeout(resolve, 25));
+    await setup.waitForFrame(frame => frame.includes('Final line') && frame.includes('Finished  0'));
+  } finally { unmount(); await client.close(); await setup.dispose(); }
+});

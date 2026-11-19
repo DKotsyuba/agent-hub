@@ -69,7 +69,7 @@ test('a failed or malformed snapshot is labelled and never replaced by loaded-ro
       await openPools(setup);
       const frame = await setup.waitForFrame(value => value.includes(label));
       assert.doesNotMatch(frame, /Source snapshot r/, name);
-      assert.match(frame, /Open · 1 loaded/, 'loaded groups keep their loaded-only label');
+      assert.match(frame, /Live  1/, 'loaded groups keep their loaded-only label');
     } finally { unmount(); await hub.close(); await setup.dispose(); }
   }
 });
