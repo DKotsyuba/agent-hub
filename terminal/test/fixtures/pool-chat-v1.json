@@ -1,0 +1,83 @@
+{
+  "_provenance": "Synthetic fixture shaped from agent-pool feat/pool-chat-v1 (c68385c): the Agreement and AgreementBallot records of src/chat.rs and the completion_get header answer of src/store.rs. `kind` and `completion_id` (on inventory pools[] rows and get detail) and the seat fields seat_id, run_agent_id, profile, admission, joined (on inventory pools[].roster[] and get view.members[]) follow the Pool owner's stated observer addition and are not yet in a Pool commit. Not captured from a running Pool.",
+  "pool_chat": {
+    "pool": {
+      "pool_id": "pool-chat-1",
+      "name": "Chat review pool",
+      "purpose": "Review the change together",
+      "revision": 9,
+      "closed": false,
+      "proposal": null
+    },
+    "leader_id": "pool-chat-v1-owner",
+    "kind": "chat",
+    "completion_id": "agr-7"
+  },
+  "pool_managed": {
+    "pool": {
+      "pool_id": "pool-managed-1",
+      "name": "Legacy managed pool",
+      "purpose": "Managed work",
+      "revision": 4,
+      "closed": true,
+      "proposal": null
+    },
+    "leader_id": "leader-managed",
+    "kind": "managed",
+    "completion_id": null
+  },
+  "seats": [
+    {
+      "member_id": "m-seat-00",
+      "name": "implement",
+      "role": "implement",
+      "task": "Write the change",
+      "state": "active",
+      "runtime": "unknown",
+      "seat_id": "m-seat-00",
+      "run_agent_id": "demo-inspect",
+      "profile": "implement",
+      "admission": "admitted",
+      "joined": true
+    },
+    {
+      "member_id": "m-seat-01",
+      "name": "review",
+      "role": "review",
+      "task": "Review the change",
+      "state": "pending",
+      "runtime": "unknown",
+      "seat_id": "m-seat-01",
+      "run_agent_id": null,
+      "profile": "review",
+      "admission": "pending",
+      "joined": false
+    }
+  ],
+  "agreement": {
+    "schema_version": 1,
+    "kind": "completion_page",
+    "data": {
+      "version": 1,
+      "completion_id": "agr-7",
+      "pool_id": "pool-chat-1",
+      "revision": 12,
+      "event_id": "31",
+      "proposal_id": "prop-3",
+      "roster_key": "roster-abc",
+      "result": "Ship it.\nAll checks pass.",
+      "ballots": [
+        {
+          "seat_id": "m-seat-00",
+          "agent_id": "demo-inspect",
+          "vote_event_id": "27"
+        },
+        {
+          "seat_id": "m-seat-01",
+          "agent_id": "demo-index",
+          "vote_event_id": "30"
+        }
+      ]
+    }
+  }
+}

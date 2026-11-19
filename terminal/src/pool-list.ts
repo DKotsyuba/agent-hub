@@ -1,5 +1,6 @@
 /** Groups loaded standalone Pool inventory rows for display and navigation. */
 import { integer, object } from '../../src/live/protocol.ts';
+import { poolFacts } from './pool-chat.ts';
 
 /** A filtered group whose count covers loaded rows only. */
 export interface PoolListGroup {
@@ -25,7 +26,7 @@ export function groupPools(rows: readonly unknown[], query: string, showClosed =
   for (const value of rows) {
     const row = object(value), pool = object(row.pool);
     if (typeof pool.pool_id !== 'string' || typeof pool.name !== 'string' || typeof pool.purpose !== 'string' || typeof pool.closed !== 'boolean' || typeof row.leader_id !== 'string') throw new Error('pool_metadata');
-    integer(pool.revision);
+    integer(pool.revision); poolFacts(row, pool);
     if (!pool.pool_id) throw new Error('pool_inventory_order');
     if (term && !`${pool.name} ${pool.purpose} ${pool.pool_id}`.toLocaleLowerCase().includes(term)) continue;
     (pool.closed ? closed : open).push(row);

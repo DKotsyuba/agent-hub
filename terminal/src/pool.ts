@@ -1,6 +1,7 @@
 /** Validates Agent Pool's independent observer pages and continuation cursors. */
 import { decimalCursor, integer, object, poolDetail, poolPage, product } from '../../src/live/protocol.ts';
 import type { Page } from '../../src/live/protocol.ts';
+import { checkSeats, poolFacts } from './pool-chat.ts';
 
 /** Agent Pool sections shown by the terminal. */
 export type PoolSection = 'members' | 'history' | 'proposal' | 'votes' | 'criteria' | 'decisions' | 'deliveries';
@@ -103,6 +104,8 @@ export function poolSection(value: unknown, id: string, section: PoolSection, af
   if ((section === 'decisions') !== (view === null)) throw new Error('pool_view');
   if (view) {
     const pool = object(view.pool), observedRevision = integer(pool.revision);
+    const { kind } = poolFacts(data, view, pool);
+    if (section === 'members') checkSeats(view.members, kind);
     if (pool.pool_id !== id || view.section !== section || integer(view.next_after) !== next || view.has_more !== data.has_more || (revision !== null && observedRevision !== revision)) throw new Error('pool_attribution');
     const rows = section === 'members' ? view.members : section === 'history' ? view.events : section === 'deliveries' ? view.deliveries : section === 'criteria' ? pool.acceptance ?? [] : section === 'votes' ? pool.proposal === null ? [] : Object.values(object(object(pool.proposal).votes)) : pool.proposal === null ? [] : [pool.proposal];
     if (!Array.isArray(rows) || integer(data.returned) !== rows.length) throw new Error('pool_returned');
