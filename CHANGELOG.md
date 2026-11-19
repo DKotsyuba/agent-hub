@@ -4,6 +4,8 @@ All notable changes to Agent Hub are documented here. The format follows [Keep a
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-11-19
+
 ### Added
 
 - Pools tab: Pool chat v1. Rows and details that report `kind` show `chat pool` or `managed pool (legacy)` and, when `completion_id` is reported, `completed`. A chat pool lists its seats with profile, admission (`pending`/`admitted`/`refused`/`unknown`), join state and Run agent ID; Enter or a click opens that agent in Sessions when it is in the loaded Run inventory. `l` opens the chat agreement (`completion_get` header: result, proposal, roster key, per-seat ballots with Run agent links) or, for managed pools, the existing frozen completion record. A reported `completion_id` is used directly and an explicit `null` reads nothing; without it the ID still comes from the `pool_completed` journal event, which now also recognises the agreement wording. Observers without the new fields keep the previous display. Written against the Pool owner's stated observer fields (`kind`, `completion_id`, and `seat_id`, `run_agent_id`, `profile`, `admission`, `joined` per seat); not yet exercised against a running Pool.
@@ -41,5 +43,6 @@ First public release: the terminal Hub for Linux x86-64 (standalone executable).
 
 - Archived Tasks and IDE sources are denied by the observer; the terminal has no Tasks, IDE or Run info tabs.
 
+[0.1.2]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.1.2
 [0.1.1]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.1.1
 [0.1.0]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.1.0
