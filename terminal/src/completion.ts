@@ -18,12 +18,12 @@ export interface CompletionPage {
 /** Strict Pool identifier form accepted for a completion ID taken from journal text. */
 const ID = /^[A-Za-z0-9_.:-]{1,128}$/;
 
-/** Returns the completion ID announced by the latest `pool_completed` journal event, or null. */
+/** Returns the completion or chat agreement ID announced by the latest `pool_completed` journal event, or null. */
 export function completionIdFromEvents(events: Record<string, unknown>[]): string | null {
   for (let index = events.length - 1; index >= 0; index--) {
     const event = events[index]!;
     if (event.kind !== 'pool_completed' || typeof event.body !== 'string') continue;
-    const match = /\bCompletion (\S+?)\./.exec(event.body);
+    const match = /\bCompletion (\S+?)\./.exec(event.body) ?? /^Agreement (\S+) committed for proposal /.exec(event.body);
     if (match && ID.test(match[1]!)) return match[1]!;
   }
   return null;
@@ -86,3 +86,51 @@ export function completionText(poolId: string, pages: Map<CompletionSection, Com
   }
   return lines.join('\n');
 }
+
+/** One seat's recorded ready vote in a chat agreement. */
+export interface AgreementBallot { seatId: string; agentId: string; voteEventId: string }
+
+/** Immutable chat agreement: unanimous ready votes of the current seats on one proposal and roster. */
+export interface AgreementRecord {
+  completionId: string; poolId: string; revision: number; eventId: string; proposalId: string; rosterKey: string; result: string; ballots: AgreementBallot[];
+}
+
+/**
+ * Reads a chat pool's `completion_get` header answer. Chat pools answer with the agreement object under the
+ * same `completion_page` kind; the legacy format carries `record_digest` and paged sections instead. Returns
+ * null for the legacy format and throws on a malformed or mismatched agreement.
+ */
+export function agreementRecord(value: unknown, request: { pool_id: string; completion_id: string }): AgreementRecord | null {
+  const data = product(value, 'completion_page');
+  if (data.record_digest !== undefined || !Array.isArray(data.ballots) || typeof data.result !== 'string') return null;
+  const text = (field: string): string => { const item = data[field]; if (typeof item !== 'string' || !item) throw new Error('agreement_record'); return item; };
+  if (data.version !== 1 || data.pool_id !== request.pool_id || data.completion_id !== request.completion_id || typeof data.revision !== 'number' || !Number.isSafeInteger(data.revision) || data.revision < 1 || !ID.test(text('completion_id')) || !/^(0|[1-9]\d{0,18})$/.test(text('event_id'))) throw new Error('agreement_binding');
+  const seen = new Set<string>();
+  const ballots = data.ballots.map(item => {
+    const ballot = object(item);
+    if (typeof ballot.seat_id !== 'string' || !ballot.seat_id || typeof ballot.agent_id !== 'string' || !ballot.agent_id || typeof ballot.vote_event_id !== 'string' || !/^(0|[1-9]\d{0,18})$/.test(ballot.vote_event_id) || seen.has(ballot.seat_id)) throw new Error('agreement_ballot');
+    seen.add(ballot.seat_id);
+    return { seatId: ballot.seat_id, agentId: ballot.agent_id, voteEventId: ballot.vote_event_id };
+  });
+  if (!ballots.length) throw new Error('agreement_ballot');
+  return { completionId: text('completion_id'), poolId: text('pool_id'), revision: data.revision, eventId: text('event_id'), proposalId: text('proposal_id'), rosterKey: text('roster_key'), result: data.result, ballots };
+}
+
+/** Builds the agreement view text; the result carries no digest, so it is labeled as recorded, not verified. */
+export function agreementText(record: AgreementRecord): string {
+  const lines = [
+    `Pool ${record.poolId} · agreement ${record.completionId}`,
+    'Chat pool agreement v1 · all current seats voted ready on one proposal and roster',
+    'Immutable: the result and ballots cannot change after the agreement. It records member agreement only; process outcome and cleanup are reported separately by Run.',
+    '',
+    'Header',
+    `  pool revision: ${record.revision}`, `  completion event: ${record.eventId}`, `  proposal: ${safeLine(record.proposalId)}`, `  roster key: ${safeLine(record.rosterKey)}`,
+    '', 'Result (recorded by Pool · no digest)', ...record.result.split('\n').map(line => `  ${line}`), '',
+    `Ballots (${record.ballots.length})`,
+  ];
+  for (const ballot of record.ballots) lines.push(`  seat ${safeLine(ballot.seatId)} · ready · Run agent ${safeLine(ballot.agentId)} · vote event ${ballot.voteEventId}`);
+  return lines.join('\n');
+}
+
+/** Keeps one producer value on one line. */
+function safeLine(value: string): string { return value.replace(/[\r\n]+/g, ' '); }

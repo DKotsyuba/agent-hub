@@ -1,6 +1,7 @@
 /** Validates Agent Pool's source-wide `inventory_snapshot_v1` pages and exact totals. */
 import { integer, invalid, object, product, usable } from '../../src/live/protocol.ts';
 import type { ReadResponse, Resource } from './api.ts';
+import { checkSeats, poolFacts } from './pool-chat.ts';
 
 /** Capability name that the Pool observer must advertise before this read is attempted. */
 export const INVENTORY_SNAPSHOT_CAPABILITY = 'inventory_snapshot_v1';
@@ -86,8 +87,11 @@ function inventoryRow(value: unknown, filter: InventoryFilter): Record<string, u
   const row = object(value), pool = object(row.pool);
   if (typeof pool.pool_id !== 'string' || !pool.pool_id || typeof pool.name !== 'string' || typeof pool.purpose !== 'string' || typeof pool.closed !== 'boolean' || typeof row.leader_id !== 'string' || !Array.isArray(row.roster)) return invalid('inventory_row');
   integer(pool.revision);
+  let kind;
+  try { kind = poolFacts(row, pool).kind; } catch { return invalid('inventory_row'); }
   if (filter === 'closed' && !pool.closed || filter === 'not_closed' && pool.closed) return invalid('inventory_filter');
   for (const member of row.roster) if (typeof object(member).member_id !== 'string') return invalid('inventory_roster');
+  try { checkSeats(row.roster, kind); } catch { return invalid('inventory_roster'); }
   return row;
 }
 

@@ -34,7 +34,8 @@ import { detailLines, linkedSessions, repositoriesData, worktreeDetail as parseW
 import { orderedWorktrees, projectViews, sizeSummary, tabSummary, tabSummaryText, technicalLines, worktreeBody } from './worktree-view.ts';
 import type { FactsEntry, ProjectView } from './worktree-view.ts';
 import type { WorktreeGroup, WorktreeRow } from './worktree.ts';
-import { COMPLETION_CAPABILITY, COMPLETION_SECTIONS, completionIdFromEvents, completionPage, completionText } from './completion.ts';
+import { COMPLETION_CAPABILITY, COMPLETION_SECTIONS, agreementRecord, agreementText, completionIdFromEvents, completionPage, completionText } from './completion.ts';
+import { poolFacts, poolKindLabel, poolSeat } from './pool-chat.ts';
 import type { CompletionPage, CompletionSection } from './completion.ts';
 
 /** One exact request's latest outcome and last usable, validated observation. */
@@ -59,7 +60,7 @@ interface PoolHistory { entries: Record<string, unknown>[]; previous: string | n
 /** Exact, on-demand evidence associated with one immutable vote event. */
 interface PoolChecks { busy: boolean; rows: Record<string, unknown>[] | null; error: string | null }
 /** Explicitly opened long source text, published only after every page is verified. */
-interface PoolContent { field: 'purpose' | 'snapshot' | 'completion'; text: string | null; error: string | null; busy: boolean; previousScroll: number; controller: AbortController }
+interface PoolContent { field: 'purpose' | 'snapshot' | 'completion'; /** Chat agreement view title and the Run agents whose sessions it links. */ agreement?: { agents: { seat: string; id: string }[] }; text: string | null; error: string | null; busy: boolean; previousScroll: number; controller: AbortController }
 /** A complete answer exists only after source sequence and hash checks pass. */
 interface Answer { executionKey: string; controller: AbortController | null; busy: boolean; loaded: boolean; content: string | null; issue: string | null; width: number; chunk: number; lines: Line[] | null }
 /** A rendered line remembers the source block and character offset for stable scroll anchors. */
@@ -673,9 +674,11 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
     const current = () => alive && !state.controller.signal.aborted && poolContent === state && route === 'pools' && pool === id;
     const deadline = setTimeout(() => { state.error = 'Completion record timed out; retry.'; state.controller.abort(); }, 60000);
     try {
-      const completionId = completionIdFromEvents(poolHistories.get(id)?.entries ?? []) ?? await scanCompletionId(id, state.controller.signal);
+      const reported = poolFacts(...[poolDetail.value, poolDetail.value?.view ? object(object(poolDetail.value.view).pool) : null].filter((value): value is Record<string, unknown> => !!value)).completionId;
+      if (reported === null) { state.error = 'This pool has no completion or agreement record yet.'; return; }
+      const completionId = reported ?? completionIdFromEvents(poolHistories.get(id)?.entries ?? []) ?? await scanCompletionId(id, state.controller.signal);
       if (!current()) return;
-      if (!completionId) { state.error = 'No pool_completed event: this pool has no completion record (closed is not completion).'; return; }
+      if (!completionId) { state.error = 'No pool_completed event: this pool has no completion or agreement record (closed is not completion).'; return; }
       const pages = new Map<CompletionSection, CompletionPage[]>();
       let bound: { digest: string; version: number } | null = null;
       for (const section of COMPLETION_SECTIONS) {
@@ -686,6 +689,10 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
           const envelope = await read('pool.completion_get', { ...request, limit: 10, ...(after ? { after } : {}) }, state.controller.signal);
           if (!current()) return;
           if (!usable(envelope)) throw new Error(`${envelope.outcome}${envelope.error?.code ? ` [${envelope.error.code}]` : ''}`);
+          if (section === 'header' && count === 0) {
+            const agreement = agreementRecord(envelope.data, request);
+            if (agreement) { state.agreement = { agents: agreement.ballots.map(ballot => ({ seat: ballot.seatId, id: ballot.agentId })) }; state.text = agreementText(agreement); return; }
+          }
           const page = completionPage(envelope.data, request, bound);
           bound ??= { digest: page.recordDigest, version: page.recordVersion };
           list.push(page);
@@ -2129,6 +2136,11 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
       lineViewport(parent, detailX, y, detailWidth, height, lines, position, delta => { if (state) { state.detailsScroll = Math.max(0, Math.min(Math.max(0, lines.length - height), position + delta)); render(); } }, C.bg, 2);
     }
   }
+  /** Opens the Sessions view for a seat's Run agent when that agent is in the loaded Run inventory. */
+  function openSeatSession(agentId: string): void {
+    if (!agents.value?.items.some(agent => agent.id === agentId)) { alert = 'Run session is not in the loaded inventory; refresh Sessions or load more.'; render(); return; }
+    openSession(agentId);
+  }
   /** Draws Agent Pool records as independently paged, read-only sections. */
   function drawPools(parent: BoxRenderable): void {
     const width = renderer.width - 4, wide = renderer.width >= 110, mainWidth = wide ? Math.floor((width - 2) * 0.64) : width;
@@ -2138,6 +2150,8 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
     const journal = pool && !poolContent && poolTab === 'discussion' && poolHistorySupported() === true ? poolHistory(pool) : null;
     const selectedPool = pool ? groupPools(pools.value?.items ?? [], query).items.find(item => object(item.pool).pool_id === pool) : null;
     const info = view ? object(view.pool) : selectedPool ? object(selectedPool.pool) : null;
+    /* Facts come from one validated source only: the detail page when loaded, else the selected list row. */
+    const poolInfo = data ? poolFacts(data, ...(view ? [view, object(view.pool)] : [])) : selectedPool ? poolFacts(selectedPool, object(selectedPool.pool)) : { kind: null, completionId: undefined };
     const members = view && Array.isArray(view.members) ? view.members : [], bindings = data && Array.isArray(data.bindings) ? data.bindings : [];
     const entries = view && Array.isArray(view.events) ? view.events : [];
     const bodyY = pool ? 8 : 5, available = Math.max(1, renderer.height - bodyY - 4);
@@ -2166,7 +2180,8 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
             lines.push({ text: '', bg: background, action: click });
             addWrapped(lines, `${selectedIndex === poolIndex ? '›' : ' '} ${shown(source.name)}`, mainWidth, { bg: background, bold: true, action: click });
             addWrapped(lines, `  ${shown(source.purpose)}`, mainWidth, { bg: background, color: C.muted, action: click });
-            addWrapped(lines, `  ${title} · ${id}`, mainWidth, { bg: background, color: C.muted, action: click });
+            const facts = poolFacts(item, source), kind = poolKindLabel(facts.kind);
+            addWrapped(lines, `  ${title}${kind ? ` · ${kind}` : ''}${typeof facts.completionId === 'string' ? ' · completed' : ''} · ${id}`, mainWidth, { bg: background, color: C.muted, action: click });
             lines.push({ text: '', bg: background, action: click }, { text: '' });
           }
         }
@@ -2188,10 +2203,16 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
       }
       if (renderer.width - tabX > 20) textAt(parent, renderer.width - 20, 6, 18, poolMetadata ? 'Hide details  [i]' : 'Source details [i]', { color: C.accent, click: () => { poolMetadata = !poolMetadata; render(); } });
       if (poolContent) {
-        lines.push({ text: poolContent.field === 'purpose' ? 'Full purpose' : poolContent.field === 'completion' ? 'Completion record (frozen)' : 'Full proposal snapshot', bold: true }, { text: 'Esc returns to the pool', color: C.muted }, { text: '' });
+        lines.push({ text: poolContent.field === 'purpose' ? 'Full purpose' : poolContent.field === 'completion' ? poolContent.agreement ? 'Agreement record (frozen)' : 'Completion record (frozen)' : 'Full proposal snapshot', bold: true }, { text: 'Esc returns to the pool', color: C.muted }, { text: '' });
         if (poolContent.busy) lines.push({ text: 'Loading verified content…', color: C.muted });
         else if (poolContent.error) lines.push({ text: poolContent.error, color: C.muted });
-        else if (poolContent.text !== null) addWrapped(lines, poolContent.text, mainWidth);
+        else if (poolContent.text !== null) {
+          addWrapped(lines, poolContent.text, mainWidth);
+          if (poolContent.agreement) {
+            lines.push({ text: '' });
+            for (const agent of poolContent.agreement.agents) lines.push({ text: `  Open Run session · seat ${shown(agent.seat).replace(/\n/g, ' ')} →`, color: C.accent, action: () => openSeatSession(agent.id) });
+          }
+        }
       } else if (!data && !journal) {
         let message = 'Pool observation unavailable.';
         if (poolTab === 'criteria' && poolCapability('structured_acceptance_v1') === false) message = 'Structured criteria are not supported by this observer.';
@@ -2200,12 +2221,24 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
         lines.push({ text: message, color: C.muted });
       } else if (poolTab === 'members' && view) {
         if (info?.purpose) { addWrapped(lines, `Purpose: ${shown(info.purpose)}${typeof info.purpose_bytes === 'number' ? ' · preview [e] full' : ''}`, mainWidth, { color: C.muted, action: () => { void openPoolContent('purpose'); } }); lines.push({ text: '' }); }
-        lines.push({ text: `Members · ${shown(view.active)} active · ${shown(view.pending)} pending`, bold: true }, { text: '' });
+        const chat = poolInfo.kind === 'chat' || members.some(value => poolSeat(object(value)) !== null);
+        lines.push({ text: `${chat ? 'Seats' : 'Members'} · ${shown(view.active)} active · ${shown(view.pending)} pending`, bold: true }, { text: '' });
         poolMemberIndex = Math.min(poolMemberIndex, Math.max(0, members.length - 1));
         for (const [index, value] of members.entries()) {
           if (index === poolMemberIndex) selectedLine = lines.length + 1;
           const member = object(value), binding = bindings.map(object).find(item => object(item.member).member_id === member.member_id);
-          const background = index === poolMemberIndex ? C.selected : C.panel;
+          const background = index === poolMemberIndex ? C.selected : C.panel, seat = poolSeat(member);
+          if (seat) {
+            const open = seat.runAgentId ? () => { poolMemberIndex = index; openSeatSession(seat.runAgentId!); } : () => { poolMemberIndex = index; alert = 'This seat has no Run agent yet.'; render(); };
+            lines.push({ text: '', bg: background, action: open });
+            addWrapped(lines, `${index === poolMemberIndex ? '›' : ' '} ${shown(seat.seatId)} · ${shown(seat.profile)} · ${shown(member.state)}`, mainWidth, { bg: background, bold: true, action: open });
+            addWrapped(lines, `  ${shown(member.task)}`, mainWidth, { bg: background, color: C.muted, action: open });
+            addWrapped(lines, `  Admission: ${seat.admission} · ${seat.joined ? 'Joined chat' : 'Not joined'} · Execution: ${shown(member.runtime)}`, mainWidth, { bg: background, color: C.muted, action: open });
+            addWrapped(lines, seat.runAgentId ? `  Run agent: ${shown(seat.runAgentId)}` : `  Run agent: none yet · admission ${seat.admission}`, mainWidth, { bg: background, color: C.muted, action: open });
+            if (seat.runAgentId) addWrapped(lines, '  Open Run session →', mainWidth, { bg: background, color: C.accent, action: open });
+            lines.push({ text: '', bg: background, action: open }, { text: '' });
+            continue;
+          }
           const choose = () => { poolMemberIndex = index; if (binding) openMember(binding); else { alert = 'No confirmed Run binding for this member.'; render(); } };
           const statusTarget = index === poolMemberIndex ? selectedPoolStatusTarget() : null;
           const observation = statusTarget && poolStatus.value?.targetKey === statusTarget.key && poolDetail.response === poolDetail.good ? poolStatus.value : null;
@@ -2318,13 +2351,13 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
       if (!poolContent && !journal && data && data.has_more === true) lines.push({ text: '[n] Next source page', color: C.accent, action: () => pagePool('next') });
       if (!poolContent && !journal && poolPrevious.length) lines.push({ text: '[g] Previous source page', color: C.accent, action: () => pagePool('older') });
       if (!poolContent && !journal && poolCursor > 0 && poolDetail.response && !usable(poolDetail.response)) lines.push({ text: '[h] Restart this section', color: C.accent, action: () => pagePool('first') });
-      if (!poolContent && data && poolMetadata) { lines.push({ text: '' }, { text: `Coverage: ${shown(data.coverage)}`, color: C.muted }, { text: `Leader: ${shown(data.leader_id)} · source timestamps not reported`, color: C.muted }); }
+      if (!poolContent && data && poolMetadata) { lines.push({ text: '' }, ...(info && poolInfo.kind ? [{ text: `Kind: ${poolKindLabel(poolInfo.kind)}`, color: C.muted }] : []), { text: `Coverage: ${shown(data.coverage)}`, color: C.muted }, { text: `Leader: ${shown(data.leader_id)} · source timestamps not reported`, color: C.muted }); }
     }
 
     if (wide && asideWidth > 12) {
       const sideHeight = Math.max(0, Math.min(12, renderer.height - bodyY - 3));
       surface(parent, asideX, bodyY, asideWidth, sideHeight, C.sidebar);
-      const facts: string[] = pool && info ? ['Pool overview', `State: ${info.closed === true ? 'Closed' : 'Open'}`, `Revision: ${shown(info.revision)}`, `Source: Agent Pool`, `Page: ${data ? data.has_more === true ? 'More available' : 'End observed' : 'Unknown'}`, 'Historical timestamps unavailable'] : ['Observation', 'Source: Agent Pool', `Loaded: ${pools.value?.items.length ?? 'Unknown'}`, `Coverage: ${pools.value ? pools.value.complete ? 'End observed' : 'More available' : 'Unknown'}`, 'Pages are independent observations'];
+      const facts: string[] = pool && info ? ['Pool overview', `State: ${info.closed === true ? 'Closed' : 'Open'}`, ...(poolInfo.kind ? [`Kind: ${poolKindLabel(poolInfo.kind)}`] : []), ...(typeof poolInfo.completionId === 'string' ? [`Completion: ${shown(poolInfo.completionId)}`] : poolInfo.completionId === null ? ['Completion: none'] : []), `Revision: ${shown(info.revision)}`, `Source: Agent Pool`, `Page: ${data ? data.has_more === true ? 'More available' : 'End observed' : 'Unknown'}`, 'Historical timestamps unavailable'] : ['Observation', 'Source: Agent Pool', `Loaded: ${pools.value?.items.length ?? 'Unknown'}`, `Coverage: ${pools.value ? pools.value.complete ? 'End observed' : 'More available' : 'Unknown'}`, 'Pages are independent observations'];
       facts.slice(0, Math.max(0, sideHeight - 2)).forEach((fact, index) => textAt(parent, asideX + 2, bodyY + 1 + index, asideWidth - 4, fact, { color: index === 0 ? C.text : C.muted, bg: C.sidebar, bold: index === 0 }));
     }
     const journalStatus = journal ? `${journal.response && !usable(journal.response) ? journal.loaded ? 'History unavailable · last good' : 'History unavailable' : journal.busy ? 'Loading history' : 'History observed'} · ${journal.follow ? 'Following' : `Follow paused${journal.unseen ? ` · ${journal.unseen} new` : ''}`}${journal.previous ? ' · older available [g]' : ''}` : null;
@@ -2493,7 +2526,7 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
       'a: result · d: details · c: copy verified result · y: copy session lineage',
       'Quota: d / Enter: show or hide technical details · Up / Down / Page Up / Down: scroll',
       'Worktree: Enter open · d raw codes · s measure size again',
-      'Pool: m members · d decisions · c criteria · v votes · b deliveries · e purpose · s snapshot · l completion record (ledger)',
+      'Pool: m members · d decisions · c criteria · v votes · b deliveries · e purpose · s snapshot · l completion / agreement record',
       'r: refresh · u: polling interval · ,: appearance · Esc: back · F: forward · Ctrl+P: commands · q: quit',
     ];
     if (active.kind === 'commands') return commands().map(command => command.name).filter(name => name.toLocaleLowerCase().includes(active.query.toLocaleLowerCase()));
@@ -2736,7 +2769,7 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
       }
       else if (route === 'sessions') { if (focus === 'list') { focus = 'history'; void loadHistory(); render(); } else if (focus === 'history' && tab === 'history') toggleMessage(); }
       else if (route === 'pools' && !pool) { const items = visiblePools(); if (items[poolIndex]) choosePool(String(object(items[poolIndex].pool).pool_id)); }
-      else if (route === 'pools' && poolTab === 'members' && poolDetail.value?.view) { const members = object(poolDetail.value.view).members, bindings = poolDetail.value.bindings; if (Array.isArray(members) && members[poolMemberIndex] && Array.isArray(bindings)) { const id = object(members[poolMemberIndex]).member_id, binding = bindings.map(object).find(value => object(value.member).member_id === id); if (binding) openMember(binding); } }
+      else if (route === 'pools' && poolTab === 'members' && poolDetail.value?.view) { const members = object(poolDetail.value.view).members, bindings = poolDetail.value.bindings; const seat = Array.isArray(members) && members[poolMemberIndex] ? poolSeat(object(members[poolMemberIndex])) : null; if (seat) { if (seat.runAgentId) openSeatSession(seat.runAgentId); else { alert = 'This seat has no Run agent yet.'; render(); } } else if (Array.isArray(members) && members[poolMemberIndex] && Array.isArray(bindings)) { const id = object(members[poolMemberIndex]).member_id, binding = bindings.map(object).find(value => object(value.member).member_id === id); if (binding) openMember(binding); } }
       else if (route === 'pools' && poolTab === 'decisions' && Array.isArray(poolDetail.value?.decisions)) { const proposal = poolDetail.value.decisions[poolDecisionIndex]; if (proposal && typeof object(proposal).proposal_id === 'string') choosePoolProposal(String(object(proposal).proposal_id)); }
       else if (route === 'pools' && poolTab === 'votes') choosePoolVote(poolVoteIndex);
       else if (route === 'pools' && poolTab === 'deliveries') void openFormerMember();
