@@ -319,7 +319,7 @@ test('overview rows pick the most constraining window per account', () => {
     account.windows.push(weekly);
   });
   const [row] = overviewRows(snapshot, NOW, 12);
-  assert.equal(row!.account, 'acct-test');
+  assert.equal(row!.account, 'Codex (ChatGPT)');
   assert.equal(row!.window, 'Weekly (7d)');
   assert.match(row!.text, /^40% left · resets in 1d 0h$/);
   assert.equal(barText(row!.bar).length, 12);

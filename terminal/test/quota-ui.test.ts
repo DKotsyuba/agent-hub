@@ -45,7 +45,7 @@ test('Quota tab is a block per account, window rows with bar and pace, technical
     const rows = frame.split('\n').map(row => row.trimEnd());
     const at = (needle: RegExp) => rows.findIndex(row => needle.test(row));
     // account header: name, provider · source, freshness and state badge
-    assert.match(rows[at(/demo-account {2}demo/)], /demo-account {2}demo · demo-source +updated [01]m ago {2}\[AT RISK\]$/);
+    assert.match(rows[at(/demo-account {2}demo/)], /demo-account {2}demo +updated [01]m ago {2}\[AT RISK\]$/);
     // window block: title, % left, right-aligned countdown; bar; reserve/deficit subline; shared models listed once
     const session = at(/Session \(5h\) {2}72% left/), weekly = at(/Weekly \(7d\) {2}26% left/);
     assert.ok(session > 0 && weekly > session);
@@ -62,7 +62,7 @@ test('Quota tab is a block per account, window rows with bar and pace, technical
     assert.ok(unknown > weekly);
     assert.match(rows[unknown + 1], /^ {4}░+$/);
     assert.match(rows[unknown + 2], /never sampled/);
-    assert.match(frame, /demo-unknown {2}demo · demo-source +not observed yet {2}\[UNKNOWN\]/);
+    assert.match(frame, /demo-unknown {2}demo +not observed yet {2}\[UNKNOWN\]/);
     assert.match(frame, /! Source demo-source failed: collector_timeout/);
     assert.match(frame, /! demo-account\/secondary seven_day is trending toward exhaustion/);
     assert.match(frame, /Coverage partial/);
