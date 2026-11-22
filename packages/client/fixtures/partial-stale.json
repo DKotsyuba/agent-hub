@@ -1,0 +1,679 @@
+{
+  "clockMs": 1794011100000,
+  "observations": {
+    "run": {
+      "source": "run",
+      "outcome": "partial",
+      "producerAtMs": 1794011099000,
+      "observedAtMs": 1794011100000,
+      "coverage": {
+        "scope": "retained",
+        "state": "partial",
+        "reason": "history_retention",
+        "consistency": "offset_unfenced"
+      },
+      "staleSinceMs": 1794011115000,
+      "issue": {
+        "code": "refresh_timeout"
+      }
+    },
+    "pool": {
+      "source": "pool",
+      "outcome": "ok",
+      "producerAtMs": 1794011099000,
+      "observedAtMs": 1794011100000,
+      "coverage": {
+        "scope": "retained",
+        "state": "complete"
+      }
+    },
+    "quota": {
+      "source": "quota",
+      "outcome": "partial",
+      "producerAtMs": 1794011099000,
+      "observedAtMs": 1794011100000,
+      "coverage": {
+        "scope": "source_snapshot",
+        "state": "partial",
+        "reason": "collector_timeout"
+      },
+      "issue": {
+        "code": "collector_timeout"
+      }
+    },
+    "worktree": {
+      "source": "worktree",
+      "outcome": "partial",
+      "producerAtMs": 1794011099000,
+      "observedAtMs": 1794011100000,
+      "coverage": {
+        "scope": "listed_inventory",
+        "state": "partial",
+        "reason": "probe_timeout"
+      },
+      "issue": {
+        "code": "probe_timeout"
+      }
+    },
+    "bridge": {
+      "source": "bridge",
+      "outcome": "unavailable",
+      "producerAtMs": null,
+      "observedAtMs": 1794011100000,
+      "coverage": {
+        "scope": "retained",
+        "state": "unknown"
+      },
+      "issue": {
+        "code": "diagnostics_unavailable"
+      }
+    }
+  },
+  "capabilities": {
+    "run": {
+      "groupedHistory": "unsupported",
+      "bidirectionalHistory": "unsupported",
+      "initialTaskCurrent": "unsupported",
+      "initialTaskStrict": "unsupported",
+      "verifiedResult": "unsupported",
+      "exactExport": "unsupported"
+    },
+    "pool": {
+      "bidirectionalHistory": "unsupported",
+      "poolKind": "unsupported",
+      "runProofs": "unsupported",
+      "runBindings": "unsupported",
+      "inventorySnapshot": "unsupported",
+      "completionTotals": "unsupported",
+      "completionRecord": "unsupported",
+      "agreementRecord": "unsupported",
+      "formerMember": "unsupported"
+    },
+    "worktree": {
+      "worktreeInspect": "supported"
+    },
+    "bridge": {
+      "bridgeIncidents": "unknown"
+    },
+    "quota": {}
+  },
+  "overview": {
+    "run": {
+      "active": {
+        "value": 1,
+        "kind": "exact"
+      },
+      "started": {
+        "value": 3,
+        "kind": "lower_bound"
+      },
+      "succeeded": {
+        "value": 1,
+        "kind": "lower_bound"
+      },
+      "failed": {
+        "value": 1,
+        "kind": "lower_bound"
+      },
+      "finished": {
+        "value": 2,
+        "kind": "lower_bound"
+      },
+      "current": [
+        {
+          "id": "demo-inspect",
+          "execution": "exec-inspect",
+          "sequence": 1,
+          "status": "running",
+          "name": "Inspect execution history",
+          "summary": "Review the available execution history.",
+          "runtime": "synthetic-run",
+          "model": "model-alpha",
+          "effort": "high",
+          "projectId": "hub",
+          "projectInferred": true,
+          "workdir": "/demo/agent-hub",
+          "createdAtMs": 1794010380000,
+          "finishedAtMs": null,
+          "observedAtMs": 1794011099000,
+          "progressAtMs": 1794011092000,
+          "elapsedMs": 192000,
+          "silenceMs": 7000,
+          "lastAction": "Read history",
+          "failureKind": null,
+          "failureText": null,
+          "answerAvailable": false
+        }
+      ]
+    },
+    "bridge": null,
+    "quota": {
+      "accounts": 1,
+      "known": 0,
+      "unknown": 1,
+      "exhausted": 0,
+      "stale": 0,
+      "lowest": null
+    }
+  },
+  "sessions": [
+    {
+      "detail": {
+        "session": {
+          "id": "demo-inspect",
+          "execution": "exec-inspect",
+          "sequence": 1,
+          "status": "running",
+          "name": "Inspect execution history",
+          "summary": "Review the available execution history.",
+          "runtime": "synthetic-run",
+          "model": "model-alpha",
+          "effort": "high",
+          "projectId": "hub",
+          "projectInferred": true,
+          "workdir": "/demo/agent-hub",
+          "createdAtMs": 1794010380000,
+          "finishedAtMs": null,
+          "observedAtMs": 1794011099000,
+          "progressAtMs": 1794011092000,
+          "elapsedMs": 192000,
+          "silenceMs": 7000,
+          "lastAction": "Read history",
+          "failureKind": null,
+          "failureText": null,
+          "answerAvailable": false
+        },
+        "lineage": null,
+        "historyAttribution": "retained_lineage",
+        "answerAttribution": "unavailable",
+        "executionUsage": [
+          {
+            "metric": "output_tokens",
+            "count": "123"
+          }
+        ],
+        "cumulativeUsage": [],
+        "toolCounts": [
+          {
+            "metric": "Read",
+            "count": "1"
+          }
+        ],
+        "delivery": null,
+        "cleanup": null
+      },
+      "history": {
+        "sessionId": "demo-inspect",
+        "execution": "exec-inspect",
+        "format": "legacy_raw",
+        "attribution": "retained_lineage",
+        "entries": [
+          {
+            "head": {
+              "id": "block-2",
+              "position": "2",
+              "role": "assistant",
+              "name": null,
+              "sourceRef": null,
+              "text": "I am checking the available records.",
+              "atMs": 1794010902000,
+              "error": null,
+              "complete": true
+            },
+            "calls": [],
+            "results": [],
+            "partialBefore": false,
+            "partialAfter": false
+          },
+          {
+            "head": {
+              "id": "block-3",
+              "position": "3",
+              "role": "tool_call",
+              "name": null,
+              "sourceRef": null,
+              "text": "Searching",
+              "atMs": 1794010903000,
+              "error": null,
+              "complete": false,
+              "omittedBytes": 17
+            },
+            "calls": [
+              {
+                "id": "block-3",
+                "position": "3",
+                "role": "tool_call",
+                "name": null,
+                "sourceRef": null,
+                "text": "Searching",
+                "atMs": 1794010903000,
+                "error": null,
+                "complete": false,
+                "omittedBytes": 17
+              }
+            ],
+            "results": [],
+            "partialBefore": false,
+            "partialAfter": true
+          },
+          {
+            "head": {
+              "id": "block-4",
+              "position": "4",
+              "role": "tool_result",
+              "name": null,
+              "sourceRef": null,
+              "text": "An ungrouped result.",
+              "atMs": 1794010904000,
+              "error": null,
+              "complete": true
+            },
+            "calls": [],
+            "results": [],
+            "partialBefore": false,
+            "partialAfter": false
+          }
+        ],
+        "coverage": {
+          "scope": "retained",
+          "state": "partial",
+          "boundary": "run-transcript-6"
+        }
+      },
+      "initialTask": {
+        "state": "unverified",
+        "reason": "unsupported_capability"
+      },
+      "result": null,
+      "exports": {
+        "retained": null
+      }
+    }
+  ],
+  "pools": [
+    {
+      "detail": {
+        "pool": {
+          "id": "pool-managed-1",
+          "name": "Legacy managed pool",
+          "purposePreview": "Managed work",
+          "leader": "leader-managed",
+          "state": "closed",
+          "kind": null,
+          "revision": "4"
+        },
+        "proposalId": null,
+        "coverage": {
+          "scope": "retained",
+          "state": "complete"
+        }
+      },
+      "sections": {
+        "members": [
+          {
+            "id": "m-managed",
+            "name": "Example reviewer",
+            "role": "reviewer",
+            "task": "Review the evidence",
+            "state": "active",
+            "runtime": "running",
+            "seat": null,
+            "session": null,
+            "lineage": null
+          }
+        ],
+        "proposals": [],
+        "decisions": [],
+        "criteria": [],
+        "votes": [],
+        "deliveries": [
+          {
+            "id": "delivery-1",
+            "memberId": "m-managed",
+            "state": "accepted",
+            "kind": "replacement",
+            "text": "A replacement was recorded.",
+            "atMs": 1794011090000,
+            "formerMemberId": "m-former",
+            "formerSession": {
+              "sessionId": "demo-historical",
+              "execution": "exec-old",
+              "match": "verified"
+            },
+            "formerLineage": {
+              "storeFenced": true,
+              "match": {
+                "sessionId": "demo-historical",
+                "execution": "exec-old",
+                "match": "verified"
+              },
+              "pinState": "active",
+              "selected": {
+                "sequence": 1,
+                "executionRef": "ex1_e39c4259e095240153791a611a7fba019a83a30d109ce4ac36fd40d4b263d6f4",
+                "rawStatus": "succeeded"
+              },
+              "retainedLatest": {
+                "sequence": 2,
+                "executionRef": "ex1_f1816b6c97480f6d7f6fc5e7a9392b42dfce428bea2ecf596e965be53b21a662",
+                "rawStatus": "running"
+              },
+              "coverage": {
+                "scope": "lineage",
+                "state": "complete"
+              },
+              "restartResume": "none",
+              "lineageTerminal": false,
+              "terminalOutcome": null,
+              "successCommit": "unknown",
+              "cleanup": "pending",
+              "poolObservedAtMs": 1794011097000,
+              "statusObservedAtMs": 1794011098000,
+              "sampledAtMs": 1794011099000
+            }
+          }
+        ]
+      },
+      "history": {
+        "poolId": "pool-managed-1",
+        "format": "legacy_forward",
+        "upperBound": null,
+        "items": [
+          {
+            "id": "event-1",
+            "position": "1",
+            "revision": "9",
+            "kind": "message",
+            "authorKind": "member",
+            "authorId": "m-seat-00",
+            "recipientId": null,
+            "atMs": 1794011068500,
+            "parts": [
+              "Synthetic discussion."
+            ],
+            "complete": true,
+            "valid": true,
+            "proposalId": null
+          },
+          {
+            "id": "event-2",
+            "position": "2",
+            "revision": "9",
+            "kind": "message",
+            "authorKind": "member",
+            "authorId": "m-seat-00",
+            "recipientId": null,
+            "atMs": 1794011069000,
+            "parts": [
+              "Review the evidence in part one.",
+              "Continue the same message in part two."
+            ],
+            "complete": true,
+            "valid": true,
+            "proposalId": null,
+            "partRange": {
+              "first": 1,
+              "last": 2,
+              "expected": 2
+            }
+          }
+        ],
+        "coverage": {
+          "scope": "retained",
+          "state": "partial"
+        }
+      },
+      "content": [
+        {
+          "poolId": "pool-managed-1",
+          "field": "purpose",
+          "proposalId": null,
+          "revision": "4",
+          "content": {
+            "text": "Managed work",
+            "offsetBytes": 0,
+            "totalBytes": 12
+          }
+        }
+      ],
+      "records": []
+    }
+  ],
+  "poolTotals": null,
+  "quota": {
+    "status": {
+      "status": "ready",
+      "startedAtMs": 1794009900000,
+      "sourceCount": 1,
+      "lastCollectionAtMs": 1794010900000,
+      "lastCollectionOk": false,
+      "external": []
+    },
+    "snapshot": {
+      "revision": 1,
+      "evaluatedAtMs": 1794010900000,
+      "configRevision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "coverage": {
+        "state": "partial",
+        "unobserved": [],
+        "lastCollectionAtMs": 1794010900000,
+        "lastCollectionOk": false,
+        "sources": [
+          {
+            "account": "acct-test",
+            "provider": "codex",
+            "source": "fixture-source",
+            "status": "failed",
+            "windows": 0,
+            "issues": [
+              "collector_timeout"
+            ]
+          }
+        ]
+      },
+      "accounts": [
+        {
+          "account": "acct-test",
+          "models": [
+            {
+              "provider": "codex",
+              "model": "model-a",
+              "nativeModel": "model-a",
+              "state": "unknown",
+              "validity": {
+                "kind": "unknown"
+              },
+              "score": null,
+              "window": null,
+              "remaining": null,
+              "burn": null,
+              "resetAtMs": null,
+              "risk": "unknown",
+              "evidence": "missing",
+              "newestObservedAtMs": null,
+              "exhaustedUntilMs": null,
+              "pools": []
+            }
+          ],
+          "windows": [],
+          "latches": [],
+          "advice": []
+        }
+      ]
+    }
+  },
+  "projects": [
+    {
+      "id": "hub",
+      "name": "Agent Hub",
+      "path": "/demo/agent-hub",
+      "coverage": {
+        "scope": "listed_inventory",
+        "state": "complete"
+      }
+    }
+  ],
+  "worktrees": [
+    {
+      "worktree": {
+        "id": "wt-main",
+        "projectId": "hub",
+        "class": "main",
+        "path": "/demo/agent-hub",
+        "branch": "main",
+        "detached": false,
+        "head": "1234abcd",
+        "activity": "recent",
+        "mtimeBased": true,
+        "integration": "merged",
+        "removalStarted": false,
+        "creator": null,
+        "facts": {
+          "observedAtMs": 1794011097000,
+          "expiresAtMs": 1794011697000,
+          "status": {
+            "state": "known",
+            "value": {
+              "staged": 1,
+              "unstaged": 2,
+              "untracked": 3,
+              "conflicts": 0
+            },
+            "lowerBound": false
+          },
+          "size": {
+            "state": "known",
+            "value": 1288490189,
+            "lowerBound": false
+          }
+        },
+        "sessions": [
+          {
+            "sessionId": "demo-inspect",
+            "execution": "exec-inspect",
+            "match": "unverified"
+          }
+        ]
+      },
+      "coverage": {
+        "scope": "listed_inventory",
+        "state": "complete"
+      },
+      "warnings": [],
+      "probes": [
+        {
+          "name": "status",
+          "state": "known",
+          "code": null,
+          "detail": null
+        },
+        {
+          "name": "size",
+          "state": "known",
+          "code": null,
+          "detail": null
+        }
+      ],
+      "inspectedAtMs": 1794011097000,
+      "repositoryPath": "/demo/agent-hub/.git",
+      "activitySignals": {
+        "headMtimeMs": 1794011090000,
+        "indexMtimeMs": 1794011085000,
+        "reflogAtMs": null
+      },
+      "hygiene": [
+        {
+          "key": "integration",
+          "value": "merged"
+        }
+      ],
+      "managedRecord": null
+    },
+    {
+      "worktree": {
+        "id": "wt-review",
+        "projectId": "hub",
+        "class": "managed",
+        "path": "/demo/agent-hub/.worktrees/review",
+        "branch": "feat/review",
+        "detached": false,
+        "head": "1234abcd",
+        "activity": "recent",
+        "mtimeBased": true,
+        "integration": "unmerged",
+        "removalStarted": false,
+        "creator": null,
+        "facts": {
+          "observedAtMs": 1794011097000,
+          "expiresAtMs": 1794011697000,
+          "status": {
+            "state": "known",
+            "value": {
+              "staged": 1,
+              "unstaged": 2,
+              "untracked": 3,
+              "conflicts": 0
+            },
+            "lowerBound": true
+          },
+          "size": {
+            "state": "unavailable",
+            "code": "probe_timeout"
+          }
+        },
+        "sessions": [
+          {
+            "sessionId": "demo-finished",
+            "execution": "exec-finished",
+            "match": "unverified"
+          }
+        ]
+      },
+      "coverage": {
+        "scope": "listed_inventory",
+        "state": "partial",
+        "reason": "probe_timeout"
+      },
+      "warnings": [
+        {
+          "code": "unmerged"
+        }
+      ],
+      "probes": [
+        {
+          "name": "status",
+          "state": "known",
+          "code": null,
+          "detail": null
+        },
+        {
+          "name": "size",
+          "state": "unavailable",
+          "code": "probe_timeout",
+          "detail": null
+        }
+      ],
+      "inspectedAtMs": 1794011097000,
+      "repositoryPath": "/demo/agent-hub/.git",
+      "activitySignals": {
+        "headMtimeMs": 1794011090000,
+        "indexMtimeMs": 1794011085000,
+        "reflogAtMs": null
+      },
+      "hygiene": [
+        {
+          "key": "integration",
+          "value": "unmerged"
+        }
+      ],
+      "managedRecord": [
+        {
+          "key": "state",
+          "value": "registered"
+        }
+      ]
+    }
+  ],
+  "incidents": [],
+  "bridgeAcceptedAtMs": []
+}

@@ -1,0 +1,8 @@
+{
+  "name": "agent-hub-server",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@agent-hub/domain": "*"
+  }
+}

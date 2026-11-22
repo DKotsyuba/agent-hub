@@ -2,7 +2,7 @@
 import { accessSync, closeSync, constants, fstatSync, lstatSync, mkdirSync, mkdtempSync, openSync, realpathSync, readdirSync, rmdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
 import observerAsset from '../observer/target/x86_64-unknown-linux-gnu/release/agent-hub-observer' with { type: 'file' };
-import nativeAsset from '../node_modules/@opentui/core-linux-x64/libopentui.so' with { type: 'file' };
+import nativeAsset from '@opentui/core-linux-x64';
 import { useEmbeddedObserver } from './client.ts';
 
 /** Finds owned runtime parents outside operating-system temporary roots. */

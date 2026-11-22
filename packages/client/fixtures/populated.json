@@ -1,0 +1,2176 @@
+{
+  "clockMs": 1794011100000,
+  "observations": {
+    "run": {
+      "source": "run",
+      "outcome": "ok",
+      "producerAtMs": 1794011099000,
+      "observedAtMs": 1794011100000,
+      "coverage": {
+        "scope": "retained",
+        "state": "complete"
+      }
+    },
+    "pool": {
+      "source": "pool",
+      "outcome": "ok",
+      "producerAtMs": 1794011099000,
+      "observedAtMs": 1794011100000,
+      "coverage": {
+        "scope": "retained",
+        "state": "complete"
+      }
+    },
+    "quota": {
+      "source": "quota",
+      "outcome": "ok",
+      "producerAtMs": 1794011099000,
+      "observedAtMs": 1794011100000,
+      "coverage": {
+        "scope": "retained",
+        "state": "complete"
+      }
+    },
+    "worktree": {
+      "source": "worktree",
+      "outcome": "ok",
+      "producerAtMs": 1794011099000,
+      "observedAtMs": 1794011100000,
+      "coverage": {
+        "scope": "retained",
+        "state": "complete"
+      }
+    },
+    "bridge": {
+      "source": "bridge",
+      "outcome": "ok",
+      "producerAtMs": 1794011099000,
+      "observedAtMs": 1794011100000,
+      "coverage": {
+        "scope": "retained",
+        "state": "complete"
+      }
+    }
+  },
+  "capabilities": {
+    "run": {
+      "groupedHistory": "supported",
+      "bidirectionalHistory": "supported",
+      "initialTaskCurrent": "supported",
+      "initialTaskStrict": "supported",
+      "verifiedResult": "supported",
+      "exactExport": "supported"
+    },
+    "pool": {
+      "bidirectionalHistory": "supported",
+      "runBindings": "supported",
+      "runProofs": "supported",
+      "poolKind": "supported",
+      "inventorySnapshot": "supported",
+      "completionTotals": "unsupported",
+      "completionRecord": "supported",
+      "agreementRecord": "supported",
+      "formerMember": "supported"
+    },
+    "worktree": {
+      "worktreeInspect": "supported"
+    },
+    "bridge": {
+      "bridgeIncidents": "supported"
+    },
+    "quota": {}
+  },
+  "overview": {
+    "run": {
+      "active": {
+        "value": 2,
+        "kind": "exact"
+      },
+      "started": {
+        "value": 5,
+        "kind": "lower_bound"
+      },
+      "succeeded": {
+        "value": 2,
+        "kind": "lower_bound"
+      },
+      "failed": {
+        "value": 1,
+        "kind": "lower_bound"
+      },
+      "finished": {
+        "value": 3,
+        "kind": "lower_bound"
+      },
+      "current": [
+        {
+          "id": "demo-inspect",
+          "execution": "exec-inspect",
+          "sequence": 1,
+          "status": "running",
+          "name": "Inspect execution history",
+          "summary": "Review the available execution history.",
+          "runtime": "synthetic-run",
+          "model": "model-alpha",
+          "effort": "high",
+          "projectId": "hub",
+          "projectInferred": true,
+          "workdir": "/demo/agent-hub",
+          "createdAtMs": 1794010380000,
+          "finishedAtMs": null,
+          "observedAtMs": 1794011099000,
+          "progressAtMs": 1794011092000,
+          "elapsedMs": 192000,
+          "silenceMs": 7000,
+          "lastAction": "Read history",
+          "failureKind": null,
+          "failureText": null,
+          "answerAvailable": false
+        },
+        {
+          "id": "demo-index",
+          "execution": "exec-index",
+          "sequence": 1,
+          "status": "running",
+          "name": "Index repository",
+          "summary": "Review the available execution history.",
+          "runtime": "synthetic-run",
+          "model": "model-beta",
+          "effort": "high",
+          "projectId": "hub",
+          "projectInferred": true,
+          "workdir": "/demo/agent-hub",
+          "createdAtMs": 1794010380000,
+          "finishedAtMs": null,
+          "observedAtMs": 1794011099000,
+          "progressAtMs": 1794011092000,
+          "elapsedMs": 192000,
+          "silenceMs": 7000,
+          "lastAction": "Read history",
+          "failureKind": null,
+          "failureText": null,
+          "answerAvailable": false
+        }
+      ]
+    },
+    "bridge": {
+      "accepted": {
+        "value": 2,
+        "kind": "lower_bound"
+      },
+      "pending": {
+        "value": null,
+        "kind": "unknown"
+      },
+      "incidents": {
+        "value": 2,
+        "kind": "lower_bound"
+      }
+    },
+    "quota": {
+      "accounts": 2,
+      "known": 1,
+      "unknown": 0,
+      "exhausted": 1,
+      "stale": 0,
+      "lowest": {
+        "account": "acct-exhausted",
+        "model": "model-exhausted",
+        "remaining": 0
+      }
+    }
+  },
+  "sessions": [
+    {
+      "detail": {
+        "session": {
+          "id": "demo-inspect",
+          "execution": "exec-inspect",
+          "sequence": 1,
+          "status": "running",
+          "name": "Inspect execution history",
+          "summary": "Review the available execution history.",
+          "runtime": "synthetic-run",
+          "model": "model-alpha",
+          "effort": "high",
+          "projectId": "hub",
+          "projectInferred": true,
+          "workdir": "/demo/agent-hub",
+          "createdAtMs": 1794010380000,
+          "finishedAtMs": null,
+          "observedAtMs": 1794011099000,
+          "progressAtMs": 1794011092000,
+          "elapsedMs": 192000,
+          "silenceMs": 7000,
+          "lastAction": "Read history",
+          "failureKind": null,
+          "failureText": null,
+          "answerAvailable": false
+        },
+        "lineage": null,
+        "historyAttribution": "retained_lineage",
+        "answerAttribution": "unavailable",
+        "executionUsage": [
+          {
+            "metric": "output_tokens",
+            "count": "123"
+          }
+        ],
+        "cumulativeUsage": [],
+        "toolCounts": [
+          {
+            "metric": "Read",
+            "count": "1"
+          }
+        ],
+        "delivery": null,
+        "cleanup": null
+      },
+      "history": {
+        "sessionId": "demo-inspect",
+        "execution": "exec-inspect",
+        "format": "grouped",
+        "attribution": "retained_lineage",
+        "entries": [
+          {
+            "head": {
+              "id": "block-1",
+              "position": "1",
+              "role": "user",
+              "name": null,
+              "sourceRef": null,
+              "text": "Inspect the saved execution history. Identify missing records and explain what can be confirmed from the available evidence.",
+              "atMs": 1794010901000,
+              "error": null,
+              "complete": true
+            },
+            "calls": [],
+            "results": [],
+            "partialBefore": false,
+            "partialAfter": false
+          },
+          {
+            "head": {
+              "id": "block-2",
+              "position": "2",
+              "role": "assistant",
+              "name": null,
+              "sourceRef": null,
+              "text": "I am checking the available records.",
+              "atMs": 1794010902000,
+              "error": null,
+              "complete": true
+            },
+            "calls": [],
+            "results": [],
+            "partialBefore": false,
+            "partialAfter": false
+          },
+          {
+            "head": {
+              "id": "block-3",
+              "position": "3",
+              "role": "tool_call",
+              "name": "Search earlier messages",
+              "sourceRef": "demo-search",
+              "text": "{\"pattern\":\"earlier synthetic history\"}",
+              "atMs": 1794010903000,
+              "error": null,
+              "complete": true
+            },
+            "calls": [
+              {
+                "id": "block-3",
+                "position": "3",
+                "role": "tool_call",
+                "name": "Search earlier messages",
+                "sourceRef": "demo-search",
+                "text": "{\"pattern\":\"earlier synthetic history\"}",
+                "atMs": 1794010903000,
+                "error": null,
+                "complete": true
+              }
+            ],
+            "results": [
+              {
+                "id": "block-4",
+                "position": "4",
+                "role": "tool_result",
+                "name": "Search earlier messages",
+                "sourceRef": "demo-search",
+                "text": "No earlier synthetic records.",
+                "atMs": 1794010904000,
+                "error": false,
+                "complete": true,
+                "endAtMs": 1794010904000
+              }
+            ],
+            "partialBefore": false,
+            "partialAfter": false
+          },
+          {
+            "head": {
+              "id": "block-5",
+              "position": "5",
+              "role": "tool_result",
+              "name": "Inspect",
+              "sourceRef": "orphan",
+              "text": "Output with no retained call.",
+              "atMs": 1794010905000,
+              "error": null,
+              "complete": true
+            },
+            "calls": [],
+            "results": [],
+            "partialBefore": false,
+            "partialAfter": false
+          },
+          {
+            "head": {
+              "id": "block-6",
+              "position": "6",
+              "role": "assistant",
+              "name": null,
+              "sourceRef": null,
+              "text": "Synthetic result: the available execution history was reviewed.\nNo real service was contacted.",
+              "atMs": 1794010906000,
+              "error": null,
+              "complete": true
+            },
+            "calls": [],
+            "results": [],
+            "partialBefore": false,
+            "partialAfter": false
+          }
+        ],
+        "coverage": {
+          "scope": "retained",
+          "state": "complete",
+          "boundary": "run-transcript-6"
+        }
+      },
+      "initialTask": {
+        "state": "verified",
+        "content": {
+          "text": "Inspect the saved execution history. Identify missing records and explain what can be confirmed from the available evidence.",
+          "offsetBytes": 0,
+          "totalBytes": 124
+        },
+        "proof": {
+          "kind": "current",
+          "root": {
+            "execution": "exec-inspect",
+            "sequence": 1,
+            "sha256": "e6fa9a6a6aec496e44de74edc08cb95533772ac8bf1534859765c178da3cfa78"
+          }
+        }
+      },
+      "result": null,
+      "exports": {
+        "retained": {
+          "mode": "retained",
+          "content": {
+            "text": "user: Inspect the saved execution history. Identify missing records and explain what can be confirmed from the available evidence.\nassistant: I am checking the available records.\ntool_call: {\"pattern\":\"earlier synthetic history\"}\ntool_result: No earlier synthetic records.\ntool_result: Output with no retained call.\nassistant: Synthetic result: the available execution history was reviewed.\nNo real service was contacted.",
+            "offsetBytes": 0,
+            "totalBytes": 421
+          },
+          "boundary": "retained-end-6",
+          "coverage": {
+            "scope": "retained",
+            "state": "partial",
+            "reason": "Earlier entries may have been removed."
+          }
+        }
+      }
+    },
+    {
+      "detail": {
+        "session": {
+          "id": "demo-index",
+          "execution": "exec-index",
+          "sequence": 1,
+          "status": "running",
+          "name": "Index repository",
+          "summary": "Review the available execution history.",
+          "runtime": "synthetic-run",
+          "model": "model-beta",
+          "effort": "high",
+          "projectId": "hub",
+          "projectInferred": true,
+          "workdir": "/demo/agent-hub",
+          "createdAtMs": 1794010380000,
+          "finishedAtMs": null,
+          "observedAtMs": 1794011099000,
+          "progressAtMs": 1794011092000,
+          "elapsedMs": 192000,
+          "silenceMs": 7000,
+          "lastAction": "Read history",
+          "failureKind": null,
+          "failureText": null,
+          "answerAvailable": false
+        },
+        "lineage": null,
+        "historyAttribution": "retained_lineage",
+        "answerAttribution": "unavailable",
+        "executionUsage": [
+          {
+            "metric": "output_tokens",
+            "count": "123"
+          }
+        ],
+        "cumulativeUsage": [],
+        "toolCounts": [
+          {
+            "metric": "Read",
+            "count": "1"
+          }
+        ],
+        "delivery": null,
+        "cleanup": null
+      },
+      "history": {
+        "sessionId": "demo-index",
+        "execution": "exec-index",
+        "format": "grouped",
+        "attribution": "retained_lineage",
+        "entries": [
+          {
+            "head": {
+              "id": "block-1",
+              "position": "1",
+              "role": "user",
+              "name": null,
+              "sourceRef": null,
+              "text": "Inspect the saved execution history. Identify missing records and explain what can be confirmed from the available evidence.",
+              "atMs": 1794010901000,
+              "error": null,
+              "complete": true
+            },
+            "calls": [],
+            "results": [],
+            "partialBefore": false,
+            "partialAfter": false
+          },
+          {
+            "head": {
+              "id": "block-2",
+              "position": "2",
+              "role": "assistant",
+              "name": null,
+              "sourceRef": null,
+              "text": "I am checking the available records.",
+              "atMs": 1794010902000,
+              "error": null,
+              "complete": true
+            },
+            "calls": [],
+            "results": [],
+            "partialBefore": false,
+            "partialAfter": false
+          },
+          {
+            "head": {
+              "id": "block-3",
+              "position": "3",
+              "role": "tool_call",
+              "name": "Search earlier messages",
+              "sourceRef": "demo-search",
+              "text": "{\"pattern\":\"earlier synthetic history\"}",
+              "atMs": 1794010903000,
+              "error": null,
+              "complete": true
+            },
+            "calls": [
+              {
+                "id": "block-3",
+                "position": "3",
+                "role": "tool_call",
+                "name": "Search earlier messages",
+                "sourceRef": "demo-search",
+                "text": "{\"pattern\":\"earlier synthetic history\"}",
+                "atMs": 1794010903000,
+                "error": null,
+                "complete": true
+              }
+            ],
+            "results": [
+              {
+                "id": "block-4",
+                "position": "4",
+                "role": "tool_result",
+                "name": "Search earlier messages",
+                "sourceRef": "demo-search",
+                "text": "No earlier synthetic records.",
+                "atMs": 1794010904000,
+                "error": false,
+                "complete": true,
+                "endAtMs": 1794010904000
+              }
+            ],
+            "partialBefore": false,
+            "partialAfter": false
+          },
+          {
+            "head": {
+              "id": "block-5",
+              "position": "5",
+              "role": "tool_result",
+              "name": "Inspect",
+              "sourceRef": "orphan",
+              "text": "Output with no retained call.",
+              "atMs": 1794010905000,
+              "error": null,
+              "complete": true
+            },
+            "calls": [],
+            "results": [],
+            "partialBefore": false,
+            "partialAfter": false
+          },
+          {
+            "head": {
+              "id": "block-6",
+              "position": "6",
+              "role": "assistant",
+              "name": null,
+              "sourceRef": null,
+              "text": "Synthetic result: the available execution history was reviewed.\nNo real service was contacted.",
+              "atMs": 1794010906000,
+              "error": null,
+              "complete": true
+            },
+            "calls": [],
+            "results": [],
+            "partialBefore": false,
+            "partialAfter": false
+          }
+        ],
+        "coverage": {
+          "scope": "retained",
+          "state": "complete",
+          "boundary": "run-transcript-6"
+        }
+      },
+      "initialTask": {
+        "state": "verified",
+        "content": {
+          "text": "Inspect the saved execution history. Identify missing records and explain what can be confirmed from the available evidence.",
+          "offsetBytes": 0,
+          "totalBytes": 124
+        },
+        "proof": {
+          "kind": "current",
+          "root": {
+            "execution": "exec-index",
+            "sequence": 1,
+            "sha256": "e6fa9a6a6aec496e44de74edc08cb95533772ac8bf1534859765c178da3cfa78"
+          }
+        }
+      },
+      "result": null,
+      "exports": {
+        "retained": {
+          "mode": "retained",
+          "content": {
+            "text": "user: Inspect the saved execution history. Identify missing records and explain what can be confirmed from the available evidence.\nassistant: I am checking the available records.\ntool_call: {\"pattern\":\"earlier synthetic history\"}\ntool_result: No earlier synthetic records.\ntool_result: Output with no retained call.\nassistant: Synthetic result: the available execution history was reviewed.\nNo real service was contacted.",
+            "offsetBytes": 0,
+            "totalBytes": 421
+          },
+          "boundary": "retained-end-6",
+          "coverage": {
+            "scope": "retained",
+            "state": "partial",
+            "reason": "Earlier entries may have been removed."
+          }
+        }
+      }
+    },
+    {
+      "detail": {
+        "session": {
+          "id": "demo-finished",
+          "execution": "exec-finished",
+          "sequence": 1,
+          "status": "succeeded",
+          "name": "Review saved output",
+          "summary": "Review the available execution history.",
+          "runtime": "synthetic-run",
+          "model": "model-alpha",
+          "effort": "high",
+          "projectId": "hub",
+          "projectInferred": true,
+          "workdir": "/demo/agent-hub/.worktrees/review",
+          "createdAtMs": 1794010380000,
+          "finishedAtMs": 1794010650000,
+          "observedAtMs": 1794011099000,
+          "progressAtMs": 1794011092000,
+          "elapsedMs": 192000,
+          "silenceMs": 7000,
+          "lastAction": "Read history",
+          "failureKind": null,
+          "failureText": null,
+          "answerAvailable": true
+        },
+        "lineage": null,
+        "historyAttribution": "retained_lineage",
+        "answerAttribution": "execution_verified",
+        "executionUsage": [
+          {
+            "metric": "output_tokens",
+            "count": "123"
+          }
+        ],
+        "cumulativeUsage": [],
+        "toolCounts": [
+          {
+            "metric": "Read",
+            "count": "1"
+          }
+        ],
+        "delivery": null,
+        "cleanup": null
+      },
+      "history": {
+        "sessionId": "demo-finished",
+        "execution": "exec-finished",
+        "format": "grouped",
+        "attribution": "retained_lineage",
+        "entries": [
+          {
+            "head": {
+              "id": "block-1",
+              "position": "1",
+              "role": "user",
+              "name": null,
+              "sourceRef": null,
+              "text": "Inspect the saved execution history. Identify missing records and explain what can be confirmed from the available evidence.",
+              "atMs": 1794010901000,
+              "error": null,
+              "complete": true
+            },
+            "calls": [],
+            "results": [],
+            "partialBefore": false,
+            "partialAfter": false
+          },
+          {
+            "head": {
+              "id": "block-2",
+              "position": "2",
+              "role": "assistant",
+              "name": null,
+              "sourceRef": null,
+              "text": "I am checking the available records.",
+              "atMs": 1794010902000,
+              "error": null,
+              "complete": true
+            },
+            "calls": [],
+            "results": [],
+            "partialBefore": false,
+            "partialAfter": false
+          },
+          {
+            "head": {
+              "id": "block-3",
+              "position": "3",
+              "role": "tool_call",
+              "name": "Search earlier messages",
+              "sourceRef": "demo-search",
+              "text": "{\"pattern\":\"earlier synthetic history\"}",
+              "atMs": 1794010903000,
+              "error": null,
+              "complete": true
+            },
+            "calls": [
+              {
+                "id": "block-3",
+                "position": "3",
+                "role": "tool_call",
+                "name": "Search earlier messages",
+                "sourceRef": "demo-search",
+                "text": "{\"pattern\":\"earlier synthetic history\"}",
+                "atMs": 1794010903000,
+                "error": null,
+                "complete": true
+              }
+            ],
+            "results": [
+              {
+                "id": "block-4",
+                "position": "4",
+                "role": "tool_result",
+                "name": "Search earlier messages",
+                "sourceRef": "demo-search",
+                "text": "No earlier synthetic records.",
+                "atMs": 1794010904000,
+                "error": false,
+                "complete": true,
+                "endAtMs": 1794010904000
+              }
+            ],
+            "partialBefore": false,
+            "partialAfter": false
+          },
+          {
+            "head": {
+              "id": "block-5",
+              "position": "5",
+              "role": "tool_result",
+              "name": "Inspect",
+              "sourceRef": "orphan",
+              "text": "Output with no retained call.",
+              "atMs": 1794010905000,
+              "error": null,
+              "complete": true
+            },
+            "calls": [],
+            "results": [],
+            "partialBefore": false,
+            "partialAfter": false
+          },
+          {
+            "head": {
+              "id": "block-6",
+              "position": "6",
+              "role": "assistant",
+              "name": null,
+              "sourceRef": null,
+              "text": "Synthetic result: the available execution history was reviewed.\nNo real service was contacted.",
+              "atMs": 1794010906000,
+              "error": null,
+              "complete": true
+            },
+            "calls": [],
+            "results": [],
+            "partialBefore": false,
+            "partialAfter": false
+          }
+        ],
+        "coverage": {
+          "scope": "retained",
+          "state": "complete",
+          "boundary": "run-transcript-6"
+        }
+      },
+      "initialTask": {
+        "state": "verified",
+        "content": {
+          "text": "Inspect the saved execution history. Identify missing records and explain what can be confirmed from the available evidence.",
+          "offsetBytes": 0,
+          "totalBytes": 124
+        },
+        "proof": {
+          "kind": "current",
+          "root": {
+            "execution": "exec-finished",
+            "sequence": 1,
+            "sha256": "e6fa9a6a6aec496e44de74edc08cb95533772ac8bf1534859765c178da3cfa78"
+          }
+        }
+      },
+      "result": {
+        "content": {
+          "text": "Synthetic result: the available execution history was reviewed.\nNo real service was contacted.",
+          "offsetBytes": 0,
+          "totalBytes": 94
+        },
+        "proof": {
+          "execution": "exec-finished",
+          "sequence": 1,
+          "sha256": "1df1948c22cb918f4dd1015ffc6335a49002a23590962cfd011e21c9ad02d05a"
+        }
+      },
+      "exports": {
+        "retained": {
+          "mode": "retained",
+          "content": {
+            "text": "user: Inspect the saved execution history. Identify missing records and explain what can be confirmed from the available evidence.\nassistant: I am checking the available records.\ntool_call: {\"pattern\":\"earlier synthetic history\"}\ntool_result: No earlier synthetic records.\ntool_result: Output with no retained call.\nassistant: Synthetic result: the available execution history was reviewed.\nNo real service was contacted.",
+            "offsetBytes": 0,
+            "totalBytes": 421
+          },
+          "boundary": "retained-end-6",
+          "coverage": {
+            "scope": "retained",
+            "state": "partial",
+            "reason": "Earlier entries may have been removed."
+          }
+        }
+      }
+    },
+    {
+      "detail": {
+        "session": {
+          "id": "demo-failed",
+          "execution": "exec-failed",
+          "sequence": 1,
+          "status": "failed",
+          "name": "Inspect failed observation",
+          "summary": "Review the available execution history.",
+          "runtime": "synthetic-run",
+          "model": "model-alpha",
+          "effort": "high",
+          "projectId": "hub",
+          "projectInferred": true,
+          "workdir": "/demo/agent-hub",
+          "createdAtMs": 1794010380000,
+          "finishedAtMs": 1794010880000,
+          "observedAtMs": 1794011099000,
+          "progressAtMs": 1794011092000,
+          "elapsedMs": 192000,
+          "silenceMs": 7000,
+          "lastAction": "Read history",
+          "failureKind": "fixture_failure",
+          "failureText": "Synthetic failure in saved history.",
+          "answerAvailable": false
+        },
+        "lineage": null,
+        "historyAttribution": "retained_lineage",
+        "answerAttribution": "unavailable",
+        "executionUsage": [
+          {
+            "metric": "output_tokens",
+            "count": "123"
+          }
+        ],
+        "cumulativeUsage": [],
+        "toolCounts": [
+          {
+            "metric": "Read",
+            "count": "1"
+          }
+        ],
+        "delivery": null,
+        "cleanup": null
+      },
+      "history": {
+        "sessionId": "demo-failed",
+        "execution": "exec-failed",
+        "format": "grouped",
+        "attribution": "retained_lineage",
+        "entries": [
+          {
+            "head": {
+              "id": "block-1",
+              "position": "1",
+              "role": "user",
+              "name": null,
+              "sourceRef": null,
+              "text": "Inspect the saved execution history. Identify missing records and explain what can be confirmed from the available evidence.",
+              "atMs": 1794010901000,
+              "error": null,
+              "complete": true
+            },
+            "calls": [],
+            "results": [],
+            "partialBefore": false,
+            "partialAfter": false
+          },
+          {
+            "head": {
+              "id": "block-2",
+              "position": "2",
+              "role": "assistant",
+              "name": null,
+              "sourceRef": null,
+              "text": "I am checking the available records.",
+              "atMs": 1794010902000,
+              "error": null,
+              "complete": true
+            },
+            "calls": [],
+            "results": [],
+            "partialBefore": false,
+            "partialAfter": false
+          },
+          {
+            "head": {
+              "id": "block-3",
+              "position": "3",
+              "role": "tool_call",
+              "name": "Search earlier messages",
+              "sourceRef": "demo-search",
+              "text": "{\"pattern\":\"earlier synthetic history\"}",
+              "atMs": 1794010903000,
+              "error": null,
+              "complete": true
+            },
+            "calls": [
+              {
+                "id": "block-3",
+                "position": "3",
+                "role": "tool_call",
+                "name": "Search earlier messages",
+                "sourceRef": "demo-search",
+                "text": "{\"pattern\":\"earlier synthetic history\"}",
+                "atMs": 1794010903000,
+                "error": null,
+                "complete": true
+              }
+            ],
+            "results": [
+              {
+                "id": "block-4",
+                "position": "4",
+                "role": "tool_result",
+                "name": "Search earlier messages",
+                "sourceRef": "demo-search",
+                "text": "No earlier synthetic records.",
+                "atMs": 1794010904000,
+                "error": false,
+                "complete": true,
+                "endAtMs": 1794010904000
+              }
+            ],
+            "partialBefore": false,
+            "partialAfter": false
+          },
+          {
+            "head": {
+              "id": "block-5",
+              "position": "5",
+              "role": "tool_result",
+              "name": "Inspect",
+              "sourceRef": "orphan",
+              "text": "Output with no retained call.",
+              "atMs": 1794010905000,
+              "error": null,
+              "complete": true
+            },
+            "calls": [],
+            "results": [],
+            "partialBefore": false,
+            "partialAfter": false
+          },
+          {
+            "head": {
+              "id": "block-6",
+              "position": "6",
+              "role": "assistant",
+              "name": null,
+              "sourceRef": null,
+              "text": "Synthetic result: the available execution history was reviewed.\nNo real service was contacted.",
+              "atMs": 1794010906000,
+              "error": null,
+              "complete": true
+            },
+            "calls": [],
+            "results": [],
+            "partialBefore": false,
+            "partialAfter": false
+          }
+        ],
+        "coverage": {
+          "scope": "retained",
+          "state": "complete",
+          "boundary": "run-transcript-6"
+        }
+      },
+      "initialTask": {
+        "state": "unverified",
+        "reason": "root_task_unavailable"
+      },
+      "result": null,
+      "exports": {
+        "retained": {
+          "mode": "retained",
+          "content": {
+            "text": "user: Inspect the saved execution history. Identify missing records and explain what can be confirmed from the available evidence.\nassistant: I am checking the available records.\ntool_call: {\"pattern\":\"earlier synthetic history\"}\ntool_result: No earlier synthetic records.\ntool_result: Output with no retained call.\nassistant: Synthetic result: the available execution history was reviewed.\nNo real service was contacted.",
+            "offsetBytes": 0,
+            "totalBytes": 421
+          },
+          "boundary": "retained-end-6",
+          "coverage": {
+            "scope": "retained",
+            "state": "partial",
+            "reason": "Earlier entries may have been removed."
+          }
+        }
+      }
+    },
+    {
+      "detail": {
+        "session": {
+          "id": "demo-historical",
+          "execution": "exec-old",
+          "sequence": 1,
+          "status": "succeeded",
+          "name": "Selected historical execution",
+          "summary": "Review the available execution history.",
+          "runtime": "synthetic-run",
+          "model": "model-alpha",
+          "effort": "high",
+          "projectId": "hub",
+          "projectInferred": true,
+          "workdir": "/demo/agent-hub",
+          "createdAtMs": 1794010380000,
+          "finishedAtMs": 1794010800000,
+          "observedAtMs": 1794011099000,
+          "progressAtMs": 1794011092000,
+          "elapsedMs": 192000,
+          "silenceMs": 7000,
+          "lastAction": "Read history",
+          "failureKind": null,
+          "failureText": null,
+          "answerAvailable": false
+        },
+        "lineage": {
+          "storeFenced": true,
+          "match": {
+            "sessionId": "demo-historical",
+            "execution": "exec-old",
+            "match": "verified"
+          },
+          "pinState": "active",
+          "selected": {
+            "sequence": 1,
+            "executionRef": "ex1_e39c4259e095240153791a611a7fba019a83a30d109ce4ac36fd40d4b263d6f4",
+            "rawStatus": "succeeded"
+          },
+          "retainedLatest": {
+            "sequence": 2,
+            "executionRef": "ex1_f1816b6c97480f6d7f6fc5e7a9392b42dfce428bea2ecf596e965be53b21a662",
+            "rawStatus": "running"
+          },
+          "coverage": {
+            "scope": "lineage",
+            "state": "complete"
+          },
+          "restartResume": "none",
+          "lineageTerminal": false,
+          "terminalOutcome": null,
+          "successCommit": "unknown",
+          "cleanup": "pending",
+          "poolObservedAtMs": 1794011097000,
+          "statusObservedAtMs": 1794011098000,
+          "sampledAtMs": 1794011099000
+        },
+        "historyAttribution": "retained_lineage",
+        "answerAttribution": "unverified",
+        "executionUsage": [
+          {
+            "metric": "output_tokens",
+            "count": "123"
+          }
+        ],
+        "cumulativeUsage": [],
+        "toolCounts": [
+          {
+            "metric": "Read",
+            "count": "1"
+          }
+        ],
+        "delivery": null,
+        "cleanup": null
+      },
+      "history": {
+        "sessionId": "demo-historical",
+        "execution": "exec-old",
+        "format": "grouped",
+        "attribution": "retained_lineage",
+        "entries": [
+          {
+            "head": {
+              "id": "block-1",
+              "position": "1",
+              "role": "user",
+              "name": null,
+              "sourceRef": null,
+              "text": "Inspect the saved execution history. Identify missing records and explain what can be confirmed from the available evidence.",
+              "atMs": 1794010901000,
+              "error": null,
+              "complete": true
+            },
+            "calls": [],
+            "results": [],
+            "partialBefore": false,
+            "partialAfter": false
+          },
+          {
+            "head": {
+              "id": "block-2",
+              "position": "2",
+              "role": "assistant",
+              "name": null,
+              "sourceRef": null,
+              "text": "I am checking the available records.",
+              "atMs": 1794010902000,
+              "error": null,
+              "complete": true
+            },
+            "calls": [],
+            "results": [],
+            "partialBefore": false,
+            "partialAfter": false
+          },
+          {
+            "head": {
+              "id": "block-3",
+              "position": "3",
+              "role": "tool_call",
+              "name": "Search earlier messages",
+              "sourceRef": "demo-search",
+              "text": "{\"pattern\":\"earlier synthetic history\"}",
+              "atMs": 1794010903000,
+              "error": null,
+              "complete": true
+            },
+            "calls": [
+              {
+                "id": "block-3",
+                "position": "3",
+                "role": "tool_call",
+                "name": "Search earlier messages",
+                "sourceRef": "demo-search",
+                "text": "{\"pattern\":\"earlier synthetic history\"}",
+                "atMs": 1794010903000,
+                "error": null,
+                "complete": true
+              }
+            ],
+            "results": [
+              {
+                "id": "block-4",
+                "position": "4",
+                "role": "tool_result",
+                "name": "Search earlier messages",
+                "sourceRef": "demo-search",
+                "text": "No earlier synthetic records.",
+                "atMs": 1794010904000,
+                "error": false,
+                "complete": true,
+                "endAtMs": 1794010904000
+              }
+            ],
+            "partialBefore": false,
+            "partialAfter": false
+          },
+          {
+            "head": {
+              "id": "block-5",
+              "position": "5",
+              "role": "tool_result",
+              "name": "Inspect",
+              "sourceRef": "orphan",
+              "text": "Output with no retained call.",
+              "atMs": 1794010905000,
+              "error": null,
+              "complete": true
+            },
+            "calls": [],
+            "results": [],
+            "partialBefore": false,
+            "partialAfter": false
+          },
+          {
+            "head": {
+              "id": "block-6",
+              "position": "6",
+              "role": "assistant",
+              "name": null,
+              "sourceRef": null,
+              "text": "Synthetic result: the available execution history was reviewed.\nNo real service was contacted.",
+              "atMs": 1794010906000,
+              "error": null,
+              "complete": true
+            },
+            "calls": [],
+            "results": [],
+            "partialBefore": false,
+            "partialAfter": false
+          }
+        ],
+        "coverage": {
+          "scope": "retained",
+          "state": "complete",
+          "boundary": "run-transcript-6"
+        }
+      },
+      "initialTask": {
+        "state": "verified",
+        "content": {
+          "text": "Inspect the saved execution history. Identify missing records and explain what can be confirmed from the available evidence.",
+          "offsetBytes": 0,
+          "totalBytes": 124
+        },
+        "proof": {
+          "kind": "strict",
+          "root": {
+            "execution": "exec-old",
+            "sequence": 1,
+            "sha256": "e6fa9a6a6aec496e44de74edc08cb95533772ac8bf1534859765c178da3cfa78"
+          },
+          "storeFenced": true,
+          "activePin": true
+        }
+      },
+      "result": null,
+      "exports": {
+        "retained": {
+          "mode": "retained",
+          "content": {
+            "text": "user: Inspect the saved execution history. Identify missing records and explain what can be confirmed from the available evidence.\nassistant: I am checking the available records.\ntool_call: {\"pattern\":\"earlier synthetic history\"}\ntool_result: No earlier synthetic records.\ntool_result: Output with no retained call.\nassistant: Synthetic result: the available execution history was reviewed.\nNo real service was contacted.",
+            "offsetBytes": 0,
+            "totalBytes": 421
+          },
+          "boundary": "retained-end-6",
+          "coverage": {
+            "scope": "retained",
+            "state": "partial",
+            "reason": "Earlier entries may have been removed."
+          }
+        },
+        "exact": {
+          "mode": "exact",
+          "content": {
+            "text": "user: Inspect the saved execution history. Identify missing records and explain what can be confirmed from the available evidence.\nassistant: I am checking the available records.\ntool_call: {\"pattern\":\"earlier synthetic history\"}\ntool_result: No earlier synthetic records.\ntool_result: Output with no retained call.\nassistant: Synthetic result: the available execution history was reviewed.\nNo real service was contacted.",
+            "offsetBytes": 0,
+            "totalBytes": 421
+          },
+          "boundary": "exact-end-6",
+          "coverage": {
+            "scope": "execution",
+            "state": "complete"
+          },
+          "proof": {
+            "content": {
+              "execution": "exec-old",
+              "sequence": 1,
+              "sha256": "e6958dc4a8b5e5a5de996e77a4bccb7f1b4e676a5c3bb82175a8a5d565c2a3f3"
+            },
+            "storeFenced": true,
+            "activePin": true
+          }
+        }
+      }
+    }
+  ],
+  "pools": [
+    {
+      "detail": {
+        "pool": {
+          "id": "pool-chat-1",
+          "name": "Chat review pool",
+          "purposePreview": "Review the change together",
+          "leader": "pool-chat-v1-owner",
+          "state": "open",
+          "kind": "chat",
+          "revision": "9",
+          "record": {
+            "id": "agr-7",
+            "kind": "agreement"
+          }
+        },
+        "proposalId": "prop-3",
+        "coverage": {
+          "scope": "retained",
+          "state": "complete"
+        }
+      },
+      "sections": {
+        "members": [
+          {
+            "id": "m-seat-00",
+            "name": "implement",
+            "role": "implement",
+            "task": "Write the change",
+            "state": "active",
+            "runtime": "unknown",
+            "seat": {
+              "id": "m-seat-00",
+              "profile": "implement",
+              "admission": "admitted",
+              "joined": true
+            },
+            "session": {
+              "sessionId": "demo-inspect",
+              "execution": null,
+              "match": "unverified"
+            },
+            "lineage": null
+          },
+          {
+            "id": "m-seat-01",
+            "name": "review",
+            "role": "review",
+            "task": "Review the change",
+            "state": "pending",
+            "runtime": "unknown",
+            "seat": {
+              "id": "m-seat-01",
+              "profile": "review",
+              "admission": "pending",
+              "joined": false
+            },
+            "session": null,
+            "lineage": null
+          }
+        ],
+        "proposals": [
+          {
+            "id": "prop-3",
+            "title": "Ship the review",
+            "resultPreview": "Ship it.",
+            "state": "approved",
+            "rosterKey": "roster-abc",
+            "voters": [
+              "m-seat-00"
+            ],
+            "atMs": 1794011085000,
+            "criteriaText": "Review the available evidence.",
+            "snapshotBytes": 45
+          }
+        ],
+        "decisions": [
+          {
+            "id": "decision-1",
+            "proposalId": "prop-3",
+            "title": "Decision",
+            "text": "Keep the review open",
+            "state": "accepted",
+            "evidence": "Synthetic evidence",
+            "atMs": 1794011088000
+          }
+        ],
+        "criteria": [
+          {
+            "id": "criterion-1",
+            "proposalId": "prop-3",
+            "title": "Evidence",
+            "text": "Check the fixture evidence",
+            "state": "satisfied",
+            "evidence": "Synthetic evidence",
+            "atMs": 1794011088000
+          }
+        ],
+        "votes": [
+          {
+            "id": "vote-27",
+            "proposalId": "prop-3",
+            "memberId": "m-seat-00",
+            "choice": "ready",
+            "evidence": "Synthetic evidence",
+            "criteria": [
+              {
+                "id": "criterion-1",
+                "proposalId": "prop-3",
+                "title": "Evidence",
+                "text": "Check the fixture evidence",
+                "state": "satisfied",
+                "evidence": "Synthetic evidence",
+                "atMs": 1794011088000
+              }
+            ],
+            "atMs": 1794011089000,
+            "validity": "recorded",
+            "checksMet": true,
+            "checksReported": 1,
+            "checksComplete": true,
+            "voteEventId": "27"
+          }
+        ],
+        "deliveries": []
+      },
+      "history": {
+        "poolId": "pool-chat-1",
+        "format": "window",
+        "upperBound": "pool-journal-4",
+        "items": [
+          {
+            "id": "event-1",
+            "position": "1",
+            "revision": "9",
+            "kind": "message",
+            "authorKind": "member",
+            "authorId": "m-seat-00",
+            "recipientId": null,
+            "atMs": 1794011068500,
+            "parts": [
+              "Synthetic discussion."
+            ],
+            "complete": true,
+            "valid": true,
+            "proposalId": null
+          },
+          {
+            "id": "event-2",
+            "position": "2",
+            "revision": "9",
+            "kind": "message",
+            "authorKind": "member",
+            "authorId": "m-seat-00",
+            "recipientId": null,
+            "atMs": 1794011069000,
+            "parts": [
+              "Review the evidence in part one.",
+              "Continue the same message in part two."
+            ],
+            "complete": true,
+            "valid": true,
+            "proposalId": null,
+            "partRange": {
+              "first": 1,
+              "last": 2,
+              "expected": 2
+            }
+          },
+          {
+            "id": "event-3",
+            "position": "3",
+            "revision": "9",
+            "kind": "vote",
+            "authorKind": "member",
+            "authorId": "m-seat-00",
+            "recipientId": null,
+            "atMs": 1794011069500,
+            "parts": [
+              "Ready to proceed."
+            ],
+            "complete": true,
+            "valid": true,
+            "proposalId": "prop-3"
+          },
+          {
+            "id": "event-4",
+            "position": "4",
+            "revision": "9",
+            "kind": "message",
+            "authorKind": "member",
+            "authorId": "m-seat-00",
+            "recipientId": null,
+            "atMs": 1794011070000,
+            "parts": [
+              "A longer retained chat note. This text wraps in narrow viewports. This text wraps in narrow viewports. This text wraps in narrow viewports. This text wraps in narrow viewports. This text wraps in narrow viewports. This text wraps in narrow viewports. This text wraps in narrow viewports. This text wraps in narrow viewports. This text wraps in narrow viewports. This text wraps in narrow viewports. This text wraps in narrow viewports. This text wraps in narrow viewports. This text wraps in narrow viewports. This text wraps in narrow viewports. This text wraps in narrow viewports. This text wraps in narrow viewports. This text wraps in narrow viewports. This text wraps in narrow viewports. This text wraps in narrow viewports. This text wraps in narrow viewports. This text wraps in narrow viewports. This text wraps in narrow viewports. This text wraps in narrow viewports. This text wraps in narrow viewports. This text wraps in narrow viewports. This text wraps in narrow viewports. This text wraps in narrow viewports. This text wraps in narrow viewports. This text wraps in narrow viewports. This text wraps in narrow viewports. "
+            ],
+            "complete": true,
+            "valid": true,
+            "proposalId": null
+          }
+        ],
+        "coverage": {
+          "scope": "retained",
+          "state": "complete"
+        }
+      },
+      "content": [
+        {
+          "poolId": "pool-chat-1",
+          "field": "purpose",
+          "proposalId": null,
+          "revision": "9",
+          "content": {
+            "text": "Review the change together",
+            "offsetBytes": 0,
+            "totalBytes": 26
+          }
+        },
+        {
+          "poolId": "pool-chat-1",
+          "field": "snapshot",
+          "proposalId": "prop-3",
+          "revision": "9",
+          "content": {
+            "text": "Frozen candidate snapshot for the discussion.",
+            "offsetBytes": 0,
+            "totalBytes": 45
+          }
+        }
+      ],
+      "records": [
+        {
+          "kind": "agreement",
+          "id": "agr-7",
+          "poolId": "pool-chat-1",
+          "revision": "12",
+          "eventId": "31",
+          "proposalId": "prop-3",
+          "rosterKey": "roster-abc",
+          "result": {
+            "text": "Ship it.\nAll checks pass.",
+            "offsetBytes": 0,
+            "totalBytes": 25
+          },
+          "ballots": [
+            {
+              "seatId": "m-seat-00",
+              "session": {
+                "sessionId": "demo-inspect",
+                "execution": null,
+                "match": "unverified"
+              },
+              "voteEventId": "27"
+            },
+            {
+              "seatId": "m-seat-01",
+              "session": {
+                "sessionId": "demo-index",
+                "execution": null,
+                "match": "unverified"
+              },
+              "voteEventId": "30"
+            }
+          ],
+          "recordedAtMs": 1794011091000
+        }
+      ]
+    },
+    {
+      "detail": {
+        "pool": {
+          "id": "pool-managed-1",
+          "name": "Legacy managed pool",
+          "purposePreview": "Managed work",
+          "leader": "leader-managed",
+          "state": "closed",
+          "kind": "managed",
+          "revision": "4",
+          "record": {
+            "id": "completion-demo",
+            "kind": "completion"
+          }
+        },
+        "proposalId": null,
+        "coverage": {
+          "scope": "retained",
+          "state": "complete"
+        }
+      },
+      "sections": {
+        "members": [
+          {
+            "id": "m-managed",
+            "name": "Example reviewer",
+            "role": "reviewer",
+            "task": "Review the evidence",
+            "state": "active",
+            "runtime": "running",
+            "seat": null,
+            "session": {
+              "sessionId": "demo-historical",
+              "execution": "exec-old",
+              "match": "verified"
+            },
+            "lineage": {
+              "storeFenced": true,
+              "match": {
+                "sessionId": "demo-historical",
+                "execution": "exec-old",
+                "match": "verified"
+              },
+              "pinState": "active",
+              "selected": {
+                "sequence": 1,
+                "executionRef": "ex1_e39c4259e095240153791a611a7fba019a83a30d109ce4ac36fd40d4b263d6f4",
+                "rawStatus": "succeeded"
+              },
+              "retainedLatest": {
+                "sequence": 2,
+                "executionRef": "ex1_f1816b6c97480f6d7f6fc5e7a9392b42dfce428bea2ecf596e965be53b21a662",
+                "rawStatus": "running"
+              },
+              "coverage": {
+                "scope": "lineage",
+                "state": "complete"
+              },
+              "restartResume": "none",
+              "lineageTerminal": false,
+              "terminalOutcome": null,
+              "successCommit": "unknown",
+              "cleanup": "pending",
+              "poolObservedAtMs": 1794011097000,
+              "statusObservedAtMs": 1794011098000,
+              "sampledAtMs": 1794011099000
+            }
+          }
+        ],
+        "proposals": [],
+        "decisions": [],
+        "criteria": [],
+        "votes": [],
+        "deliveries": [
+          {
+            "id": "delivery-1",
+            "memberId": "m-managed",
+            "state": "accepted",
+            "kind": "replacement",
+            "text": "A replacement was recorded.",
+            "atMs": 1794011090000,
+            "formerMemberId": "m-former",
+            "formerSession": {
+              "sessionId": "demo-historical",
+              "execution": "exec-old",
+              "match": "verified"
+            },
+            "formerLineage": {
+              "storeFenced": true,
+              "match": {
+                "sessionId": "demo-historical",
+                "execution": "exec-old",
+                "match": "verified"
+              },
+              "pinState": "active",
+              "selected": {
+                "sequence": 1,
+                "executionRef": "ex1_e39c4259e095240153791a611a7fba019a83a30d109ce4ac36fd40d4b263d6f4",
+                "rawStatus": "succeeded"
+              },
+              "retainedLatest": {
+                "sequence": 2,
+                "executionRef": "ex1_f1816b6c97480f6d7f6fc5e7a9392b42dfce428bea2ecf596e965be53b21a662",
+                "rawStatus": "running"
+              },
+              "coverage": {
+                "scope": "lineage",
+                "state": "complete"
+              },
+              "restartResume": "none",
+              "lineageTerminal": false,
+              "terminalOutcome": null,
+              "successCommit": "unknown",
+              "cleanup": "pending",
+              "poolObservedAtMs": 1794011097000,
+              "statusObservedAtMs": 1794011098000,
+              "sampledAtMs": 1794011099000
+            }
+          }
+        ]
+      },
+      "history": {
+        "poolId": "pool-managed-1",
+        "format": "window",
+        "upperBound": "pool-journal-4",
+        "items": [
+          {
+            "id": "event-1",
+            "position": "1",
+            "revision": "9",
+            "kind": "message",
+            "authorKind": "member",
+            "authorId": "m-seat-00",
+            "recipientId": null,
+            "atMs": 1794011068500,
+            "parts": [
+              "Synthetic discussion."
+            ],
+            "complete": true,
+            "valid": true,
+            "proposalId": null
+          }
+        ],
+        "coverage": {
+          "scope": "retained",
+          "state": "complete"
+        }
+      },
+      "content": [
+        {
+          "poolId": "pool-managed-1",
+          "field": "purpose",
+          "proposalId": null,
+          "revision": "4",
+          "content": {
+            "text": "Managed work",
+            "offsetBytes": 0,
+            "totalBytes": 12
+          }
+        }
+      ],
+      "records": [
+        {
+          "kind": "completion",
+          "id": "completion-demo",
+          "poolId": "pool-managed-1",
+          "revision": "4",
+          "recordDigest": "832c47aa137c1865097fbfb06b5b2b88ef55dd329a691a51f48c8b7ba36db5b1",
+          "content": [
+            {
+              "field": "goal",
+              "content": {
+                "text": "Review bounded evidence.",
+                "offsetBytes": 0,
+                "totalBytes": 24
+              },
+              "sha256": "1f07aac8a102a085e5e58fe697cad8682e0476a8f9e4982ff86968d653e8ced2"
+            },
+            {
+              "field": "criteria",
+              "content": {
+                "text": "Verify the synthetic checks.",
+                "offsetBytes": 0,
+                "totalBytes": 28
+              },
+              "sha256": "4ae76dac06047aaa787e1b9c2a3b953fe3e600ec3562e508daee1dab91a80dcc"
+            },
+            {
+              "field": "result",
+              "content": {
+                "text": "Review recorded.",
+                "offsetBytes": 0,
+                "totalBytes": 16
+              },
+              "sha256": "fa83ffaad84134de4dcd290ba0d66b1337bcdf913e3a3029cbc6d7204cf3131a"
+            }
+          ],
+          "roster": [
+            {
+              "id": "m-managed",
+              "name": "Example reviewer",
+              "role": "reviewer",
+              "task": "Review the evidence",
+              "state": "active",
+              "runtime": "running",
+              "seat": null,
+              "session": {
+                "sessionId": "demo-historical",
+                "execution": "exec-old",
+                "match": "verified"
+              },
+              "lineage": {
+                "storeFenced": true,
+                "match": {
+                  "sessionId": "demo-historical",
+                  "execution": "exec-old",
+                  "match": "verified"
+                },
+                "pinState": "active",
+                "selected": {
+                  "sequence": 1,
+                  "executionRef": "ex1_e39c4259e095240153791a611a7fba019a83a30d109ce4ac36fd40d4b263d6f4",
+                  "rawStatus": "succeeded"
+                },
+                "retainedLatest": {
+                  "sequence": 2,
+                  "executionRef": "ex1_f1816b6c97480f6d7f6fc5e7a9392b42dfce428bea2ecf596e965be53b21a662",
+                  "rawStatus": "running"
+                },
+                "coverage": {
+                  "scope": "lineage",
+                  "state": "complete"
+                },
+                "restartResume": "none",
+                "lineageTerminal": false,
+                "terminalOutcome": null,
+                "successCommit": "unknown",
+                "cleanup": "pending",
+                "poolObservedAtMs": 1794011097000,
+                "statusObservedAtMs": 1794011098000,
+                "sampledAtMs": 1794011099000
+              }
+            }
+          ],
+          "ballots": [],
+          "runFacts": [
+            {
+              "storeFenced": true,
+              "match": {
+                "sessionId": "demo-historical",
+                "execution": "exec-old",
+                "match": "verified"
+              },
+              "pinState": "active",
+              "selected": {
+                "sequence": 1,
+                "executionRef": "ex1_e39c4259e095240153791a611a7fba019a83a30d109ce4ac36fd40d4b263d6f4",
+                "rawStatus": "succeeded"
+              },
+              "retainedLatest": {
+                "sequence": 2,
+                "executionRef": "ex1_f1816b6c97480f6d7f6fc5e7a9392b42dfce428bea2ecf596e965be53b21a662",
+                "rawStatus": "running"
+              },
+              "coverage": {
+                "scope": "lineage",
+                "state": "complete"
+              },
+              "restartResume": "none",
+              "lineageTerminal": false,
+              "terminalOutcome": null,
+              "successCommit": "unknown",
+              "cleanup": "pending",
+              "poolObservedAtMs": 1794011097000,
+              "statusObservedAtMs": 1794011098000,
+              "sampledAtMs": 1794011099000
+            }
+          ],
+          "notice": "Synthetic record from the completion-page test shape.",
+          "completedAtMs": 1794011095000,
+          "header": {
+            "version": 1,
+            "algorithm": "sha256",
+            "commitPosition": "1",
+            "proposalId": null,
+            "leader": "leader-managed",
+            "rosterCount": 1,
+            "ballotCount": 0,
+            "absentFields": [
+              "snapshot"
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "poolTotals": {
+    "revision": "42",
+    "retained": "2",
+    "closed": "1",
+    "unknown": "2",
+    "open": null,
+    "completed": null
+  },
+  "quota": {
+    "status": {
+      "status": "ready",
+      "startedAtMs": 1794009900000,
+      "sourceCount": 1,
+      "lastCollectionAtMs": 1794010900000,
+      "lastCollectionOk": true,
+      "external": []
+    },
+    "snapshot": {
+      "revision": 2,
+      "evaluatedAtMs": 1794010900000,
+      "configRevision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "coverage": {
+        "state": "complete",
+        "unobserved": [],
+        "lastCollectionAtMs": 1794010900000,
+        "lastCollectionOk": true,
+        "sources": [
+          {
+            "account": "acct-test",
+            "provider": "codex",
+            "source": "fixture-source",
+            "status": "collected",
+            "windows": 1,
+            "issues": []
+          }
+        ]
+      },
+      "accounts": [
+        {
+          "account": "acct-test",
+          "models": [
+            {
+              "provider": "codex",
+              "model": "model-a",
+              "nativeModel": "model-a",
+              "state": "known",
+              "validity": {
+                "kind": "until",
+                "atMs": 1794011800000
+              },
+              "score": 1.6,
+              "window": {
+                "pool": "acct-test::primary",
+                "source": "fixture-source",
+                "window": "five_hour"
+              },
+              "remaining": 80.0,
+              "burn": null,
+              "resetAtMs": 1794020900000,
+              "risk": "low",
+              "evidence": "fresh",
+              "newestObservedAtMs": 1794010900000,
+              "exhaustedUntilMs": null,
+              "pools": [
+                "acct-test::primary"
+              ]
+            }
+          ],
+          "windows": [
+            {
+              "pool": "acct-test::primary",
+              "source": "fixture-source",
+              "window": "five_hour",
+              "lane": "primary",
+              "runtime": "codex",
+              "models": [
+                "model-a"
+              ],
+              "observedAtMs": 1794010900000,
+              "validUntilMs": 1794011800000,
+              "lastRemaining": 80.0,
+              "lastResetAtMs": 1794020900000,
+              "forecastKnown": true,
+              "risk": "low",
+              "marker": "warmup",
+              "projected": null,
+              "sustainable": 28.8,
+              "burn": null
+            }
+          ],
+          "latches": [],
+          "advice": []
+        },
+        {
+          "account": "acct-exhausted",
+          "models": [
+            {
+              "provider": "codex",
+              "model": "model-exhausted",
+              "nativeModel": "model-a",
+              "state": "exhausted",
+              "validity": {
+                "kind": "until",
+                "atMs": 1794020900000
+              },
+              "score": null,
+              "window": {
+                "pool": "acct-test::primary",
+                "source": "fixture-source",
+                "window": "five_hour"
+              },
+              "remaining": 0.0,
+              "burn": 288000.0,
+              "resetAtMs": 1794020900000,
+              "risk": "high",
+              "evidence": "fresh",
+              "newestObservedAtMs": 1794010901000,
+              "exhaustedUntilMs": 1794020900000,
+              "pools": [
+                "acct-test::primary"
+              ]
+            }
+          ],
+          "windows": [
+            {
+              "pool": "acct-test::primary",
+              "source": "fixture-source",
+              "window": "five_hour",
+              "lane": "primary",
+              "runtime": "codex",
+              "models": [
+                "model-a"
+              ],
+              "observedAtMs": 1794010901000,
+              "validUntilMs": 1794011801000,
+              "lastRemaining": 0.0,
+              "lastResetAtMs": 1794020900000,
+              "forecastKnown": true,
+              "risk": "high",
+              "marker": "thin_evidence",
+              "projected": null,
+              "sustainable": 0.0,
+              "burn": 288000.0
+            }
+          ],
+          "latches": [
+            {
+              "pool": "acct-test::primary",
+              "source": "fixture-source",
+              "window": "five_hour",
+              "active": true,
+              "observedAtMs": 1794010901000,
+              "resetAtMs": 1794020900000,
+              "models": [
+                "model-a"
+              ]
+            }
+          ],
+          "advice": [
+            "acct-test/primary five_hour source=fixture-source is near exhaustion; avoid starting new primary work before reset."
+          ]
+        }
+      ]
+    }
+  },
+  "projects": [
+    {
+      "id": "hub",
+      "name": "Agent Hub",
+      "path": "/demo/agent-hub",
+      "coverage": {
+        "scope": "listed_inventory",
+        "state": "complete"
+      }
+    }
+  ],
+  "worktrees": [
+    {
+      "worktree": {
+        "id": "wt-main",
+        "projectId": "hub",
+        "class": "main",
+        "path": "/demo/agent-hub",
+        "branch": "main",
+        "detached": false,
+        "head": "1234abcd",
+        "activity": "recent",
+        "mtimeBased": true,
+        "integration": "merged",
+        "removalStarted": false,
+        "creator": null,
+        "facts": {
+          "observedAtMs": 1794011097000,
+          "expiresAtMs": 1794011697000,
+          "status": {
+            "state": "known",
+            "value": {
+              "staged": 1,
+              "unstaged": 2,
+              "untracked": 3,
+              "conflicts": 0
+            },
+            "lowerBound": false
+          },
+          "size": {
+            "state": "known",
+            "value": 1288490189,
+            "lowerBound": false
+          }
+        },
+        "sessions": [
+          {
+            "sessionId": "demo-inspect",
+            "execution": "exec-inspect",
+            "match": "unverified"
+          }
+        ]
+      },
+      "coverage": {
+        "scope": "listed_inventory",
+        "state": "complete"
+      },
+      "warnings": [],
+      "probes": [
+        {
+          "name": "status",
+          "state": "known",
+          "code": null,
+          "detail": null
+        },
+        {
+          "name": "size",
+          "state": "known",
+          "code": null,
+          "detail": null
+        }
+      ],
+      "inspectedAtMs": 1794011097000,
+      "repositoryPath": "/demo/agent-hub/.git",
+      "activitySignals": {
+        "headMtimeMs": 1794011090000,
+        "indexMtimeMs": 1794011085000,
+        "reflogAtMs": null
+      },
+      "hygiene": [
+        {
+          "key": "integration",
+          "value": "merged"
+        }
+      ],
+      "managedRecord": null
+    },
+    {
+      "worktree": {
+        "id": "wt-review",
+        "projectId": "hub",
+        "class": "managed",
+        "path": "/demo/agent-hub/.worktrees/review",
+        "branch": "feat/review",
+        "detached": false,
+        "head": "1234abcd",
+        "activity": "recent",
+        "mtimeBased": true,
+        "integration": "unmerged",
+        "removalStarted": false,
+        "creator": null,
+        "facts": {
+          "observedAtMs": 1794011097000,
+          "expiresAtMs": 1794011697000,
+          "status": {
+            "state": "known",
+            "value": {
+              "staged": 1,
+              "unstaged": 2,
+              "untracked": 3,
+              "conflicts": 0
+            },
+            "lowerBound": false
+          },
+          "size": {
+            "state": "known",
+            "value": 1288490189,
+            "lowerBound": true
+          }
+        },
+        "sessions": [
+          {
+            "sessionId": "demo-finished",
+            "execution": "exec-finished",
+            "match": "unverified"
+          }
+        ]
+      },
+      "coverage": {
+        "scope": "listed_inventory",
+        "state": "partial"
+      },
+      "warnings": [
+        {
+          "code": "unmerged"
+        }
+      ],
+      "probes": [
+        {
+          "name": "status",
+          "state": "known",
+          "code": null,
+          "detail": null
+        },
+        {
+          "name": "size",
+          "state": "incomplete",
+          "code": null,
+          "detail": null
+        }
+      ],
+      "inspectedAtMs": 1794011097000,
+      "repositoryPath": "/demo/agent-hub/.git",
+      "activitySignals": {
+        "headMtimeMs": 1794011090000,
+        "indexMtimeMs": 1794011085000,
+        "reflogAtMs": null
+      },
+      "hygiene": [
+        {
+          "key": "integration",
+          "value": "unmerged"
+        }
+      ],
+      "managedRecord": [
+        {
+          "key": "state",
+          "value": "registered"
+        }
+      ]
+    }
+  ],
+  "incidents": [
+    {
+      "id": "1",
+      "publisher": "synthetic",
+      "eventId": "demo-incident-1",
+      "state": "open",
+      "closed": false,
+      "createdAtMs": 1794009301000,
+      "updatedAtMs": 1794009400000,
+      "detail": "Synthetic retained incident evidence."
+    },
+    {
+      "id": "2",
+      "publisher": "synthetic",
+      "eventId": "demo-incident-2",
+      "state": "closed",
+      "closed": true,
+      "createdAtMs": 1794009302000,
+      "updatedAtMs": 1794009400000,
+      "detail": "Synthetic retained incident evidence."
+    }
+  ],
+  "bridgeAcceptedAtMs": [
+    1794007500000,
+    1794010980000
+  ]
+}

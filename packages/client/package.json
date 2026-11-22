@@ -1,0 +1,11 @@
+{
+  "name": "@agent-hub/client",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./fixtures": "./fixtures/index.ts"
+  },
+  "dependencies": {
+    "@agent-hub/domain": "*"
+  }
+}

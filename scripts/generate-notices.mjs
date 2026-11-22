@@ -3,7 +3,7 @@
  * Generates THIRD_PARTY_NOTICES.md reproducibly for the standalone Linux x86-64 terminal executable.
  *
  * Inputs (no network is used for npm and Rust, only for the pinned Bun license unless --bun-license is given):
- *   - terminal/package-lock.json and the packages installed by `npm ci --ignore-scripts` in terminal/
+ *   - package-lock.json and the terminal runtime packages installed by `npm ci --ignore-scripts` at the root
  *   - terminal/observer/Cargo.lock through `cargo metadata --locked --filter-platform x86_64-unknown-linux-gnu`
  *     and the `.crate` archives in the Cargo registry cache (run `cargo fetch --locked` first)
  *   - the upstream Bun `LICENSE.md` at the pinned tag
@@ -90,7 +90,7 @@ async function bunLicense(file) {
 
 /** Reads the manifest of an installed npm package directory, which must match the expected version. */
 function installedManifest(directory, name, version) {
-  if (!existsSync(join(directory, 'package.json'))) fail(`${name} is not installed; run npm ci --ignore-scripts in terminal/.`);
+  if (!existsSync(join(directory, 'package.json'))) fail(`${name} is not installed; run npm ci --ignore-scripts from the repository root.`);
   const manifest = JSON.parse(readFileSync(join(directory, 'package.json'), 'utf8'));
   if (manifest.version !== version) fail(`${name}: installed ${manifest.version} differs from the lock ${version}.`);
   return manifest;
@@ -101,10 +101,43 @@ function noticeFiles(directory) {
   return readdirSync(directory, { withFileTypes: true }).filter((entry) => entry.isFile() && NOTICE_FILE.test(entry.name)).map((entry) => entry.name).sort(compare);
 }
 
+/** Finds the nearest installed dependency of a workspace or package in the root lock. */
+function lockedDependency(lock, owner, name) {
+  for (let directory = owner; directory !== '.'; directory = dirname(directory)) {
+    const path = `${directory}/node_modules/${name}`;
+    if (lock.packages[path]) return path;
+  }
+  return lock.packages[`node_modules/${name}`] ? `node_modules/${name}` : null;
+}
+
+/** Walks runtime and required peer edges reachable from Terminal, excluding platform optionals. */
+function terminalRuntimePackages(lock) {
+  const packages = new Map();
+
+  /** Visits one package by its install location to preserve separately pinned nested dependencies. */
+  function visit(owner, name) {
+    const path = lockedDependency(lock, owner, name);
+    if (!path) fail(`Missing locked terminal dependency: ${name} from ${owner}.`);
+    if (packages.has(path)) return;
+    const entry = lock.packages[path];
+    packages.set(path, { name: path.replace(/^node_modules\//, '').replaceAll('/node_modules/', '/'), path, version: entry.version, license: entry.license });
+    for (const child of Object.keys(entry.dependencies ?? {})) visit(path, child);
+    for (const peer of Object.keys(entry.peerDependencies ?? {})) {
+      if (!entry.peerDependenciesMeta?.[peer]?.optional) visit(path, peer);
+    }
+  }
+
+  for (const name of Object.keys(lock.packages.terminal.dependencies)) visit('terminal', name);
+  return [...packages.values()];
+}
+
 /** Renders section 2: the OpenTUI packages with every notice file reproduced verbatim. */
 function openTuiSection(lock) {
-  const version = lock.packages[`node_modules/${OPENTUI_CORE}`].version;
-  if (lock.packages[`node_modules/${OPENTUI_NATIVE}`].version !== version) fail('OpenTUI core and native package versions differ.');
+  const core = lockedDependency(lock, 'terminal', OPENTUI_CORE);
+  const native = core && lockedDependency(lock, core, OPENTUI_NATIVE);
+  if (!core || !native) fail('OpenTUI core and Linux native package must be in the root lock.');
+  const version = lock.packages[core].version;
+  if (lock.packages[native].version !== version) fail('OpenTUI core and native package versions differ.');
   const lines = [
     `## 2. OpenTUI ${version}`,
     '',
@@ -112,7 +145,7 @@ function openTuiSection(lock) {
     '',
   ];
   for (const [name, files] of OPENTUI_FILES) {
-    const directory = join(terminal, 'node_modules', name);
+    const directory = join(root, name === OPENTUI_CORE ? core : native);
     installedManifest(directory, name, version);
     const unlisted = noticeFiles(directory).filter((file) => !files.includes(file));
     if (unlisted.length > 0) fail(`${name}@${version} has unlisted notice files: ${unlisted.join(', ')}. Review them and update OPENTUI_FILES.`);
@@ -125,17 +158,12 @@ function openTuiSection(lock) {
 
 /** Renders section 3: runtime npm packages other than OpenTUI, from the lockfile. */
 function npmSection(lock) {
-  const packages = [];
-  for (const [path, entry] of Object.entries(lock.packages)) {
-    const name = path.replace(/^node_modules\//, '').replaceAll('/node_modules/', '/');
-    if (path === '' || entry.dev || entry.optional || name === OPENTUI_CORE) continue;
-    packages.push({ name, path, version: entry.version, license: entry.license });
-  }
+  const packages = terminalRuntimePackages(lock).filter(entry => entry.path !== lockedDependency(lock, 'terminal', OPENTUI_CORE));
   packages.sort((left, right) => compare(left.name, right.name));
   const lines = [
     '## 3. Other npm runtime packages',
     '',
-    'Runtime (non-dev) packages from `terminal/package-lock.json` installed for linux-x64, excluding the OpenTUI packages above.',
+    'Terminal runtime packages from the root `package-lock.json` installed for linux-x64, excluding the OpenTUI packages above.',
     '',
     '| Package | Version | License |',
     '|---|---|---|',
@@ -143,7 +171,7 @@ function npmSection(lock) {
     '',
   ];
   for (const entry of packages) {
-    const directory = join(terminal, entry.path);
+    const directory = join(root, entry.path);
     installedManifest(directory, entry.name, entry.version);
     const files = noticeFiles(directory);
     if (files.length !== 1) fail(`${entry.name}@${entry.version}: expected exactly one license file, found [${files.join(', ')}].`);
@@ -221,14 +249,14 @@ function rustSection() {
 
 /** Builds the complete notices document. */
 async function generate(options) {
-  const lock = JSON.parse(readFileSync(join(terminal, 'package-lock.json'), 'utf8'));
+  const lock = JSON.parse(readFileSync(join(root, 'package-lock.json'), 'utf8'));
   const bun = await bunLicense(options.bunLicense);
   const lines = [
     '# Third-party notices',
     '',
     'Agent Hub itself is MIT-licensed (see `LICENSE`). The standalone Linux x86-64 executable (`agent-hub`) additionally embeds or ships the third-party components listed below. Each component remains under its own license; license texts are reproduced verbatim from the upstream packages or releases at the pinned versions.',
     '',
-    `This file is generated by \`node scripts/generate-notices.mjs\` from \`terminal/package-lock.json\`, the installed npm packages, \`terminal/observer/Cargo.lock\` (via \`cargo metadata --locked --filter-platform ${RUST_TARGET}\`) and the upstream Bun v${BUN_VERSION} \`LICENSE.md\`. Regenerate it whenever a lockfile or the pinned Bun version changes; \`--check\` verifies that it is current.`,
+    `This file is generated by \`node scripts/generate-notices.mjs\` from \`package-lock.json\`, the installed npm packages, \`terminal/observer/Cargo.lock\` (via \`cargo metadata --locked --filter-platform ${RUST_TARGET}\`) and the upstream Bun v${BUN_VERSION} \`LICENSE.md\`. Regenerate it whenever a lockfile or the pinned Bun version changes; \`--check\` verifies that it is current.`,
     '',
     'Contents: 1. Bun runtime, 2. OpenTUI, 3. other npm runtime packages, 4. Rust observer crates.',
     '',

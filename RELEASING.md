@@ -16,12 +16,12 @@ A release is the Linux x86-64 (glibc) terminal Hub, published by `.github/workfl
 1. Start from an up-to-date `main` on a release branch: `git switch -c release/vX.Y.Z origin/main`.
 2. `node scripts/release.mjs prepare X.Y.Z` bumps every version field (root and terminal `package.json`/lockfiles, observer and Tauri `Cargo.toml`/`Cargo.lock`, `tauri.conf.json`) with minimal in-place edits.
 3. Add `## [X.Y.Z] - YYYY-MM-DD` and its `[X.Y.Z]: https://github.com/DKotsyuba/agent-hub/releases/tag/vX.Y.Z` link to `CHANGELOG.md`; the section becomes the release notes.
-4. If `terminal/package-lock.json`, `terminal/observer/Cargo.lock` or the Bun pin changed, regenerate the notices (below).
+4. If `package-lock.json`, `terminal/observer/Cargo.lock` or the Bun pin changed, regenerate the notices (below).
 5. `node scripts/release.mjs check X.Y.Z` must pass; open a pull request and merge it into `main` after Linux CI passes.
 
 ## Third-party notices
 
-`node scripts/generate-notices.mjs` rewrites `THIRD_PARTY_NOTICES.md` and `--check` verifies it is current (CI and the release gate run the check). It needs `npm ci --ignore-scripts` in `terminal/`, `cargo fetch --locked --manifest-path terminal/observer/Cargo.toml` and network access for the pinned Bun `LICENSE.md` (or `--bun-license FILE`). The output depends only on those inputs: no timestamps or local paths. A new, unlisted notice file in an OpenTUI package, or a dependency without a license file, fails generation so that it is reviewed. `BUN_VERSION` in the script must equal the Bun pin in the workflows and `terminal/package.json`.
+`node scripts/generate-notices.mjs` rewrites `THIRD_PARTY_NOTICES.md` and `--check` verifies it is current (CI and the release gate run the check). It needs `npm ci --ignore-scripts --workspace agent-hub-terminal` at the root, `cargo fetch --locked --manifest-path terminal/observer/Cargo.toml` and network access for the pinned Bun `LICENSE.md` (or `--bun-license FILE`). The output depends only on those inputs: no timestamps or local paths. A new, unlisted notice file in an OpenTUI package, or a dependency without a license file, fails generation so that it is reviewed. `BUN_VERSION` in the script must equal the Bun pin in the workflows and `terminal/package.json`.
 
 ## Publish
 

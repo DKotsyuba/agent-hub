@@ -1,0 +1,87 @@
+{
+  "clockMs": 1794011100000,
+  "observations": {
+    "run": {
+      "source": "run",
+      "outcome": "incompatible",
+      "producerAtMs": null,
+      "observedAtMs": 1794011100000,
+      "coverage": {
+        "scope": "retained",
+        "state": "unknown"
+      },
+      "issue": {
+        "code": "unsupported_producer"
+      }
+    },
+    "pool": {
+      "source": "pool",
+      "outcome": "incompatible",
+      "producerAtMs": null,
+      "observedAtMs": 1794011100000,
+      "coverage": {
+        "scope": "retained",
+        "state": "unknown"
+      },
+      "issue": {
+        "code": "unsupported_producer"
+      }
+    },
+    "quota": {
+      "source": "quota",
+      "outcome": "incompatible",
+      "producerAtMs": null,
+      "observedAtMs": 1794011100000,
+      "coverage": {
+        "scope": "retained",
+        "state": "unknown"
+      },
+      "issue": {
+        "code": "unsupported_producer"
+      }
+    },
+    "worktree": {
+      "source": "worktree",
+      "outcome": "incompatible",
+      "producerAtMs": null,
+      "observedAtMs": 1794011100000,
+      "coverage": {
+        "scope": "retained",
+        "state": "unknown"
+      },
+      "issue": {
+        "code": "unsupported_producer"
+      }
+    },
+    "bridge": {
+      "source": "bridge",
+      "outcome": "incompatible",
+      "producerAtMs": null,
+      "observedAtMs": 1794011100000,
+      "coverage": {
+        "scope": "retained",
+        "state": "unknown"
+      },
+      "issue": {
+        "code": "unsupported_producer"
+      }
+    }
+  },
+  "capabilities": {},
+  "overview": {
+    "run": null,
+    "bridge": null,
+    "quota": null
+  },
+  "sessions": [],
+  "pools": [],
+  "poolTotals": null,
+  "quota": {
+    "status": null,
+    "snapshot": null
+  },
+  "projects": [],
+  "worktrees": [],
+  "incidents": [],
+  "bridgeAcceptedAtMs": []
+}

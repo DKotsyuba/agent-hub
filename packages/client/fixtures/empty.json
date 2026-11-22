@@ -1,0 +1,160 @@
+{
+  "clockMs": 1794011100000,
+  "observations": {
+    "run": {
+      "source": "run",
+      "outcome": "ok",
+      "producerAtMs": 1794011099000,
+      "observedAtMs": 1794011100000,
+      "coverage": {
+        "scope": "retained",
+        "state": "complete"
+      }
+    },
+    "pool": {
+      "source": "pool",
+      "outcome": "ok",
+      "producerAtMs": 1794011099000,
+      "observedAtMs": 1794011100000,
+      "coverage": {
+        "scope": "retained",
+        "state": "complete"
+      }
+    },
+    "quota": {
+      "source": "quota",
+      "outcome": "ok",
+      "producerAtMs": 1794011099000,
+      "observedAtMs": 1794011100000,
+      "coverage": {
+        "scope": "retained",
+        "state": "complete"
+      }
+    },
+    "worktree": {
+      "source": "worktree",
+      "outcome": "ok",
+      "producerAtMs": 1794011099000,
+      "observedAtMs": 1794011100000,
+      "coverage": {
+        "scope": "retained",
+        "state": "complete"
+      }
+    },
+    "bridge": {
+      "source": "bridge",
+      "outcome": "ok",
+      "producerAtMs": 1794011099000,
+      "observedAtMs": 1794011100000,
+      "coverage": {
+        "scope": "retained",
+        "state": "complete"
+      }
+    }
+  },
+  "capabilities": {
+    "run": {
+      "groupedHistory": "supported",
+      "bidirectionalHistory": "supported",
+      "initialTaskCurrent": "supported",
+      "initialTaskStrict": "supported",
+      "verifiedResult": "supported",
+      "exactExport": "supported"
+    },
+    "pool": {
+      "bidirectionalHistory": "supported",
+      "runBindings": "supported",
+      "runProofs": "supported",
+      "poolKind": "supported",
+      "inventorySnapshot": "supported",
+      "completionTotals": "unsupported",
+      "completionRecord": "supported",
+      "agreementRecord": "supported",
+      "formerMember": "supported"
+    },
+    "worktree": {
+      "worktreeInspect": "supported"
+    },
+    "bridge": {
+      "bridgeIncidents": "supported"
+    },
+    "quota": {}
+  },
+  "overview": {
+    "run": {
+      "active": {
+        "value": 0,
+        "kind": "exact"
+      },
+      "started": {
+        "value": 0,
+        "kind": "exact"
+      },
+      "succeeded": {
+        "value": 0,
+        "kind": "exact"
+      },
+      "failed": {
+        "value": 0,
+        "kind": "exact"
+      },
+      "finished": {
+        "value": 0,
+        "kind": "exact"
+      },
+      "current": []
+    },
+    "bridge": {
+      "accepted": {
+        "value": 0,
+        "kind": "exact"
+      },
+      "pending": {
+        "value": null,
+        "kind": "unknown"
+      },
+      "incidents": {
+        "value": 0,
+        "kind": "exact"
+      }
+    },
+    "quota": {
+      "accounts": 0,
+      "known": 0,
+      "unknown": 0,
+      "exhausted": 0,
+      "stale": 0,
+      "lowest": null
+    }
+  },
+  "sessions": [],
+  "pools": [],
+  "poolTotals": null,
+  "quota": {
+    "status": {
+      "status": "ready",
+      "startedAtMs": 1794009900000,
+      "sourceCount": 0,
+      "lastCollectionAtMs": 1794010900000,
+      "lastCollectionOk": true,
+      "external": []
+    },
+    "snapshot": {
+      "revision": 2,
+      "evaluatedAtMs": 1794010900000,
+      "configRevision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "coverage": {
+        "state": "complete",
+        "unobserved": [],
+        "lastCollectionAtMs": 1794010900000,
+        "lastCollectionOk": true,
+        "sources": []
+      },
+      "accounts": []
+    }
+  },
+  "projects": [],
+  "worktrees": [],
+  "incidents": [],
+  "bridgeAcceptedAtMs": []
+}

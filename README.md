@@ -24,11 +24,11 @@ The UIDs are specific to Dobi; on any other host set the real sockets and server
 
 ## Terminal interface
 
-Use Bun 1.4.4 or newer and the pinned Rust toolchain. Node 26.4 or newer remains available for the existing Node compatibility checks. Install the terminal project's locked dependencies with scripts disabled, then build its local read-only observer:
+Use Bun 1.4.4 or newer and the pinned Rust toolchain. Node 26.4 or newer remains available for the existing Node compatibility checks. Install the workspace dependencies with scripts disabled, then build the Terminal's local read-only observer.
 
 ```sh
-cd terminal
 npm ci --ignore-scripts
+cd terminal
 npm run build:observer
 npm start -- --demo
 npm start -- --live

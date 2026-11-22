@@ -331,6 +331,9 @@ Replace the standalone bare executable download with the archive.
 
 ## Delivery and acceptance
 
+The [v1 contract and fixture handoff](hub-v1-contract.md) and [TUI parity
+checklist](hub-v1-parity.md) define the package A integration surface.
+
 | Package | Ownership and dependency | Owner-checkable acceptance |
 | --- | --- | --- |
 | A. API and fixtures | Root owns manifests/lock/build configuration. Freeze endpoint DTOs, coverage, fixture scenarios and parity checklist. | Read v1 examples covering populated, empty, partial/stale, incompatible and unavailable data. Confirm all TUI views and evidentiary labels have an API mapping. |
