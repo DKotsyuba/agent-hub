@@ -1495,7 +1495,35 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
       }
     }
     if (route === 'quota') void observe(quotaService, 'quota.status', {}, value => client.http ? projectQuotaStatus(value as NonNullable<ApiResponse<'quota'>['data']['status']>) : quotaStatus(value));
-    if (route === 'incidents') { const key = JSON.stringify([bridgeAfter, bridgeThrough, bridgePeriod]); if (incidentRequestKey !== key) { reset(incidents); incidentRequestKey = key; } void observe(incidents, 'bridge.incidents', { limit: 100, after_seq: bridgeAfter, include_closed: true, ...(bridgePeriod ? { from: bridgePeriod[0], to: bridgePeriod[1] } : {}), ...(bridgeThrough === null ? {} : { through_seq: bridgeThrough }) }, value => bridgeData(value, 'incident_page')); }
+    if (route === 'incidents') void refreshIncidents();
+
+  }
+  /** Rewinds an expired incident page without dropping its last usable receipt. */
+  async function refreshIncidents(): Promise<void> {
+    const key = JSON.stringify([bridgeAfter, bridgeThrough, bridgePeriod]);
+    if (incidentRequestKey !== key) {
+      if (bridgeAfter === 0) reset(incidents);
+      incidentRequestKey = key;
+    }
+    if (incidents.busy) return;
+    await observe(incidents, 'bridge.incidents', { limit: 100, after_seq: bridgeAfter, include_closed: true,
+      ...(bridgePeriod ? { from: bridgePeriod[0], to: bridgePeriod[1] } : {}),
+      ...(bridgeThrough === null ? {} : { through_seq: bridgeThrough }) }, value => bridgeData(value, 'incident_page'));
+    if (client.http && route === 'incidents' && incidentRequestKey === key && bridgeAfter !== 0 && incidents.response?.error?.code === 'stale_boundary') {
+      bridgeAfter = 0; bridgeThrough = null; incidentScroll = 0;
+      incidentRequestKey = JSON.stringify([bridgeAfter, bridgeThrough, bridgePeriod]);
+      await refreshIncidents();
+    }
+  }
+  /** Discards only failed content cache entries when a new Hub stream is ready. */
+  function retryHttpContent(): void {
+    const agent = route === 'sessions' ? selectedAgent() : null;
+    if (!agent) return;
+    const execution = executionKey(agent), answerKey = JSON.stringify([execution, agent.answerSha]);
+    const task = initialTasks.get(execution), answer = answers.get(answerKey);
+    if (task && !task.busy && task.result?.state === 'unverified') initialTasks.delete(execution);
+    if (answer && !answer.busy && answer.issue !== null && answer.content === null) answers.delete(answerKey);
+    void loadInitialTask();
   }
   /** Pushes selectors understood by v1 into the inventory query. Literal folders still filter paths locally. */
   function sessionInventoryQuery() {
@@ -1532,7 +1560,8 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
     const controller = new AbortController(); eventController = controller;
     let queued = false;
     void client.http.watch(topics, interval, {
-      event: () => {
+      event: event => {
+        if (event.type === 'ready') retryHttpContent();
         if (queued) return;
         queued = true;
         queueMicrotask(() => {
@@ -2861,13 +2890,13 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
     const data = incidents.value, rows = data && Array.isArray(data.incidents) ? data.incidents : [];
     for (const value of rows) { const row = object(value); addWrapped(lines, `#${shown(row.incident_id ?? row.incident_seq)} · ${shown(row.publisher)} · ${shown(row.event_id)} · ${shown(row.state)}`, width, { bold: true }); addWrapped(lines, `Created: ${typeof row.created_ms === 'number' ? stamp(row.created_ms / 1000) : 'Not reported'} · metadata: ${shown(row)}`, width, { color: C.muted }); lines.push({ text: '' }); }
     if (!rows.length) lines.push({ text: data ? 'No incidents in this retained page.' : 'Loading or unavailable.', color: C.muted });
-    if (typeof data?.next_after_seq === 'number') lines.push({ text: '[n] Load next retained page', color: C.accent, action: nextIncidents });
+    if (incidents.response === incidents.good && typeof data?.next_after_seq === 'number') lines.push({ text: '[n] Load next retained page', color: C.accent, action: nextIncidents });
     incidentScroll = Math.max(0, Math.min(incidentScroll, Math.max(0, lines.length - height)));
     lineViewport(parent, 2, 5, width, height, lines, incidentScroll, delta => { incidentScroll = Math.max(0, Math.min(Math.max(0, lines.length - height), incidentScroll + delta)); render(); });
   }
   /** Continues the retained scan under the source's original high-water mark. */
   function nextIncidents(): void {
-    const data = incidents.value; if (!data || typeof data.next_after_seq !== 'number' || typeof data.through_seq !== 'number' || data.next_after_seq <= bridgeAfter || data.next_after_seq >= data.through_seq) return;
+    const data = incidents.value; if (incidents.response !== incidents.good || !data || typeof data.next_after_seq !== 'number' || typeof data.through_seq !== 'number' || data.next_after_seq <= bridgeAfter || data.next_after_seq >= data.through_seq) return;
     bridgeAfter = data.next_after_seq; bridgeThrough = data.through_seq; incidentScroll = 0; refresh();
   }
   /** Returns the currently available commands for the help/palette overlay. */

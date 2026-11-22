@@ -1,5 +1,5 @@
 /** Shared browser read lifecycle and SSE invalidation for the visible route. */
-import { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import type { HubEvent, Observation, Topic } from '@agent-hub/domain';
 import { createHubClient, HubHttpError } from './client';
 
@@ -101,4 +101,19 @@ export function useRead<T>(key: string, load: (signal: AbortSignal) => Promise<T
     // The key encodes all resource/filter inputs; the inline reader need not be memoized.
   }, [key, visible, matched, refresh]);
   return state.key === key ? state : { value: null, error: null, loading: true };
+}
+
+/** Recovers an expired continuation at the first page while retaining the same read slot. */
+export function usePagedRead<T>(scope: unknown, cursor: string | null, load: (cursor: string | null, signal: AbortSignal) => Promise<T>, topic: Topic) {
+  const key = JSON.stringify([scope, cursor]);
+  const expired = useRef<string | null>(null);
+  return useRead(key, async signal => {
+    const selected = expired.current === key ? null : cursor;
+    try { return await load(selected, signal); }
+    catch (error) {
+      if (!selected || signal.aborted || errorCode(error) !== 'stale_boundary') throw error;
+      expired.current = key;
+      return load(null, signal);
+    }
+  }, topic);
 }

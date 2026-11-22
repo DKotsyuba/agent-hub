@@ -26,9 +26,12 @@ try {
       await browser.waitUntil(() => browser.execute(selector => document.activeElement?.matches(selector), fixture));
     }
   }
+  // A syntactically valid cursor from a different Hub lifetime must recover at the first page.
+  await browser.url(origin + 'sessions?cursor=' + 'A'.repeat(11) + '.e30.' + 'A'.repeat(43));
+  await browser.$(fixture).waitForDisplayed();
   await browser.url(origin + 'sessions?q=no-matching-fixture');
   await browser.waitUntil(async () => (await browser.$('main').getText()).includes('No records'));
-  console.log('Browser smoke passed for both themes, three viewports, keyboard entry and Back focus, SSE and empty search.');
+  console.log('Browser smoke passed for both themes, three viewports, keyboard entry and Back focus, SSE, stale-cursor recovery and empty search.');
 } finally {
   await browser.deleteSession();
 }

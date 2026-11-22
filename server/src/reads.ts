@@ -15,10 +15,12 @@ export function shareReads(native: ObservationClient): ObservationClient {
   const flights = new Map<string, Flight>();
   const active = new Map<string, number>();
   let closed = false;
+  let subscribers = 0;
 
   /** Subscribes to an existing read or admits a bounded new native operation. */
   function read(resource: Resource, params: Record<string, unknown> = {}, signal?: AbortSignal): Promise<ReadResponse> {
     if (closed || signal?.aborted) return Promise.reject(new HubError('source_unavailable'));
+    if (subscribers >= 128) return Promise.reject(new HubError('saturated'));
     const key = JSON.stringify([resource, Object.entries(params).sort(([a], [b]) => a.localeCompare(b))]);
     const source = resource.split('.')[0];
     let entry = flights.get(key);
@@ -47,10 +49,12 @@ export function shareReads(native: ObservationClient): ObservationClient {
     }
     const flight = entry;
     flight.consumers++;
+    subscribers++;
     return new Promise((resolve, reject) => {
       /** Detaches exactly once and cancels the underlying read after the last departure. */
       function leave(): void {
         signal?.removeEventListener('abort', abort);
+        subscribers--;
         if (--flight.consumers === 0) flight.controller.abort();
       }
       let finished = false;

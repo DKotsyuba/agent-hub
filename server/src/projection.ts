@@ -73,6 +73,9 @@ export function requireData(result: ReadResponse): unknown {
 
 /** Owns the observer subscriber and cursor scope for one request. */
 export class ReadContext {
+  private remainingReads = 1024;
+  private remainingBytes = 48 * 1024 * 1024;
+
   /** Keeps all native calls tied to the same HTTP deadline and abort signal. */
   constructor(
     readonly client: ObservationClient,
@@ -82,8 +85,13 @@ export class ReadContext {
   ) {}
 
   /** Sends closed resource and server-constructed parameters only. */
-  async read(resource: Resource, params: Record<string, unknown> = {}): Promise<ReadResponse> {
-    return this.client.read(resource, params, this.signal);
+  async read(resource: Resource, params: Record<string, unknown> = {}, caller?: AbortSignal): Promise<ReadResponse> {
+    if (--this.remainingReads < 0 || this.remainingBytes < 0) throw new HubError('invalid_projection');
+    const signal = caller ? AbortSignal.any([this.signal, caller]) : this.signal;
+    const response = await this.client.read(resource, params, signal);
+    this.remainingBytes -= Buffer.byteLength(JSON.stringify(response.data));
+    if (this.remainingBytes < 0) throw new HubError('invalid_projection');
+    return response;
   }
 
   /** Returns a UTF-8-safe slice only after callers verify the full content or revision. */

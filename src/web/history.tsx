@@ -6,6 +6,7 @@ import { Button } from '../components/ui/button';
 import { client, errorCode, useReadSignal } from './data';
 import { CoverageLine, EmptyRows, Expand, Sources, Text, useWebText } from './ui';
 import { mergeChat, mergeTranscript } from './model';
+import { appendHistoryWindow, readHistoryBoundary, retainPausedHistory } from './history-window';
 
 /** A validated history page projected into a common anchored window. */
 type WindowPage<T> = { items: T[]; page: Page; coverage: Coverage; observations: Observation[]; format: string; attribution?: string };
@@ -17,10 +18,10 @@ type Position = { edge: 'start' | 'tail'; cursor?: string | null; direction?: 'o
 type Command = 'start' | 'tail' | 'older' | 'newer';
 
 /** Maintains separate live and older cursors and never moves a paused reader during catch-up. */
-function History<T>({ topic, initial, load, merge, render, identity }: {
+function History<T>({ topic, initial, load, merge, render, identity, size }: {
   topic: Topic; initial: Position['edge']; load: (position: Position, signal: AbortSignal) => Promise<WindowPage<T>>;
   merge: (previous: T[], incoming: T[], older: boolean) => T[]; render: (item: T) => ReactNode;
-  identity: (item: T) => string;
+  identity: (item: T) => string; size: (item: T) => number;
 }) {
   const { label } = useWebText();
   const { visible, matched, refresh } = useReadSignal(topic);
@@ -30,7 +31,8 @@ function History<T>({ topic, initial, load, merge, render, identity }: {
   const [error, setError] = useState<string | null>(null);
   const [command, setCommand] = useState<{ action: Command } | null>(null);
   const consumed = useRef<typeof command>(null);
-  const applied = useRef<{ value: WindowPage<T>; edge: Position['edge'] } | null>(null);
+  const applied = useRef<{ value: WindowPage<T>; edge: Position['edge']; live: string | null } | null>(null);
+  const recovered = useRef<{ value: WindowPage<T>; edge: Position['edge'] } | null>(null);
   const viewport = useRef<HTMLDivElement>(null);
   const adjustment = useRef<{ anchor?: HTMLElement; top?: number; tail?: boolean; start?: boolean } | null>(null);
   useLayoutEffect(() => {
@@ -50,61 +52,73 @@ function History<T>({ topic, initial, load, merge, render, identity }: {
     const edge = action === 'start' || action === 'tail' ? action : saved?.edge ?? initial;
     const direction = action === 'older' ? 'older' : 'newer';
     const replacing = !saved || action === 'start' || action === 'tail';
+    const paused = !action && !!saved && (!following || !!viewport.current && viewport.current.scrollHeight - viewport.current.clientHeight - viewport.current.scrollTop >= 26);
     const cursor = replacing ? null : action === 'older' ? saved.value.page.previous
-      : action === 'newer' ? saved.value.page.next : saved.value.page.resume;
+      : action === 'newer' ? saved.value.page.next ?? saved.value.page.resume : paused ? saved.live : saved.value.page.resume;
     const run = async () => {
-      let page: WindowPage<T>;
-      let reset = replacing;
       const area = viewport.current;
-      const atTail = !!area && area.scrollHeight - area.clientHeight - area.scrollTop < 26;
-      try { page = await load({ edge, cursor, direction: cursor ? direction : undefined }, controller.signal); }
-      catch (failure) {
-        if (controller.signal.aborted) return;
-        if (errorCode(failure) !== 'stale_boundary' || (!action && saved && (!following || !atTail))) throw failure;
-        // Revalidate a new boundary while keeping the rendered anchor until the read succeeds.
-        page = await load({ edge }, controller.signal);
-        reset = true;
-      }
-      // On a live catch-up, drain bounded continuations without consuming the older anchor.
-      if (!action && saved && !reset) {
+      const pending = action === 'newer' || !action && !paused ? recovered.current : null;
+      const recoveryEdge = saved?.value.format === 'legacy_raw' || saved?.value.format === 'legacy_forward' ? 'start' : paused ? 'tail' : edge;
+      const result = pending ? { value: pending.value, reset: true }
+        : await readHistoryBoundary(cursor, token => load({ edge: token ? edge : recoveryEdge, cursor: token, direction: token ? direction : undefined }, controller.signal), controller.signal);
+      if (controller.signal.aborted) return;
+      let page = result.value;
+      const resolvedEdge = pending?.edge ?? (result.reset ? recoveryEdge : edge);
+      let reset = replacing || result.reset;
+      // Drain a limited burst while keeping a bounded buffer and its real page boundaries.
+      if (!action && saved && !result.reset) {
         const seen = new Set<string>();
         while (page.page.next && seen.size < 16) {
           const next = page.page.next;
           if (seen.has(next)) throw new Error('invalid_projection');
           seen.add(next);
           const more = await load({ edge, cursor: next, direction: 'newer' }, controller.signal);
-          page = { ...more, items: merge(page.items, more.items, false) };
+          const joined = appendHistoryWindow(page, more, merge, size, false);
+          reset ||= joined.moved;
+          page = { ...more, items: joined.items, page: joined.page };
         }
       }
       if (controller.signal.aborted) return;
+      const fresh = page.page.next ?? page.page.resume;
+      if (paused && saved) {
+        if (result.reset) {
+          // Keep the paused viewport and receipt clocks. The renewed page is available via Newer.
+          recovered.current = { value: page, edge: resolvedEdge };
+          const value = retainPausedHistory(saved.value);
+          applied.current = { value, edge: resolvedEdge, live: fresh };
+          setCurrent(value);
+        } else {
+          applied.current = { ...saved, live: fresh ?? saved.live };
+        }
+        const ids = new Set(saved.value.items.map(identity));
+        const added = page.items.filter(item => !ids.has(identity(item))).length;
+        if (added || result.reset) setUnread(value => result.reset ? Math.max(1, added) : Math.min(999, value + added));
+        setError(null);
+        return;
+      }
+      recovered.current = null;
+      const joined = reset ? { ...page, moved: true } : appendHistoryWindow(saved!.value, page, merge, size, action === 'older');
       const stillAtTail = !!area && area.scrollHeight - area.clientHeight - area.scrollTop < 26;
       const anchor = Array.from(area?.children ?? []).find(item => item.getBoundingClientRect().bottom > area!.getBoundingClientRect().top) as HTMLElement | undefined;
       adjustment.current = { anchor, top: anchor?.getBoundingClientRect().top,
-        tail: action === 'tail' || (!saved && edge === 'tail') || (following && stillAtTail && action !== 'older'), start: action === 'start' };
-      const items = reset ? page.items : merge(saved!.value.items, page.items, action === 'older');
-      const next = { ...page, items, page: reset ? page.page : action === 'older'
-        ? { ...saved!.value.page, previous: page.page.previous }
-        : { ...page.page, previous: saved!.value.page.previous } };
-      if (!action && saved && (!following || !stillAtTail)) {
-        const oldIds = new Set(saved.value.items.map(identity));
-        const added = items.filter(item => !oldIds.has(identity(item))).length;
-        if (added) setUnread(value => value + added);
-      }
-      if (action === 'tail') setUnread(0);
+        tail: action === 'tail' || (!saved && edge === 'tail') || (following && stillAtTail && action !== 'older'),
+        start: action === 'start' || (joined.moved && action === 'newer') };
+      const next = { ...page, items: joined.items, page: joined.page };
+      if (action === 'tail' || action === 'newer') setUnread(0);
       consumed.current = command;
-      applied.current = { value: next, edge };
+      applied.current = { value: next, edge: resolvedEdge, live: action === 'older' && !result.reset ? saved?.live ?? null : fresh };
       setCurrent(next);
       setError(null);
     };
     void run().catch(failure => { if (!controller.signal.aborted) setError(errorCode(failure)); });
     return () => controller.abort();
-  }, [visible, matched, refresh, command]);
+  }, [visible, matched, refresh, command, following]);
   const legacy = current?.format === 'legacy_raw' || current?.format === 'legacy_forward';
   return <section className="web-history">
     <div className="web-controls">
       <Button variant="outline" onClick={() => { setFollowing(false); setCommand({ action: 'start' }); }}>{label('Beginning')}</Button>
       <Button variant="outline" disabled={!current?.page.previous} onClick={() => { setFollowing(false); setCommand({ action: 'older' }); }}>{label('Older')}</Button>
-      <Button variant="outline" disabled={!current?.page.next} onClick={() => setCommand({ action: 'newer' })}>{label('Newer')}</Button>
+      <Button variant="outline" disabled={!current?.page.next && (!unread || !current?.page.resume && !recovered.current)} onClick={() => setCommand({ action: 'newer' })}>{label('Newer')}</Button>
       <Button variant="outline" disabled={!current || legacy} onClick={() => { setFollowing(true); setCommand({ action: 'tail' }); }}>{label('Jump to latest')}{unread > 0 && ' (' + unread + ')'}</Button>
       <Button variant={following ? 'secondary' : 'outline'} aria-pressed={following} onClick={() => setFollowing(value => !value)}>{label(following ? 'Pause follow' : 'Follow')}</Button>
       <span className="web-muted" role="status">{legacy ? label('Forward-only history') : unread > 0 ? label('Unread') + ' ' + unread : null}</span>
@@ -127,11 +141,17 @@ function Fragment({ value }: { value: SessionHistory['entries'][number]['head'] 
     <Text>{value.text}</Text></>;
 }
 
+const encoder = new TextEncoder();
+/** Measures retained text with the same UTF-8 encoding used by the wire protocol. */
+function textBytes(parts: string[]): number {
+  return parts.reduce((size, part) => size + encoder.encode(part).byteLength, 0);
+}
+
 /** Session history opens at the retained start and discloses unmatched results. */
 export function Transcript({ id, execution }: { id: string; execution?: string | null }) {
   const { label } = useWebText();
   return <History<SessionHistory['entries'][number]> topic={`session:${id}:history`} initial="start" identity={item => item.head.position}
-    merge={mergeTranscript} load={async (position, signal) => {
+    merge={mergeTranscript} size={item => textBytes([item.head, ...item.calls, ...item.results].map(part => part.text))} load={async (position, signal) => {
       const { data, page, observations } = await client.get('sessionHistory', { params: { id }, query: { execution, ...position, limit: 6 }, signal });
       return { items: data.entries, page, observations, coverage: data.coverage, format: data.format, attribution: data.attribution };
     }} render={item => <article className="web-message">
@@ -148,7 +168,7 @@ export function Transcript({ id, execution }: { id: string; execution?: string |
 export function Discussion({ id, bidirectional }: { id: string; bidirectional: boolean }) {
   const { label, clock } = useWebText();
   return <History<PoolHistory['items'][number]> topic={`pool:${id}:history`} initial={bidirectional ? 'tail' : 'start'}
-    identity={item => item.id + ':' + (item.partRange?.first ?? '')} merge={mergeChat} load={async (position, signal) => {
+    identity={item => item.id + ':' + (item.partRange?.first ?? '')} merge={mergeChat} size={item => textBytes(item.parts)} load={async (position, signal) => {
       const { data, page, observations } = await client.get('poolHistory', { params: { id }, query: { ...position, limit: 6 }, signal });
       return { items: data.items, page, observations, coverage: data.coverage, format: data.format };
     }} render={item => <article className="web-message">

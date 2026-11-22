@@ -41,7 +41,7 @@ pub(crate) fn command(program: &Path, args: &[String], source: &str) -> Result<C
 /// Typed error output is retained even when an early exit breaks stdin; the adapter
 /// never accepts data without full request delivery and a documented exit code.
 /// Concurrently writes input and drains output; the adapter rejects success/exit contradictions.
-/// Cancellation, deadline and overflow always kill and reap only this direct child.
+/// Cancellation, deadline and overflow terminate the owned helper group on Unix and reap its leader.
 pub(crate) async fn execute(
     mut command: Command,
     input: Vec<u8>,
@@ -50,6 +50,8 @@ pub(crate) async fn execute(
     if *cancel.borrow() {
         return Err(ReadError::unavailable("cancelled"));
     }
+    #[cfg(unix)]
+    command.process_group(0);
     let mut child = command.spawn().map_err(|error| {
         if error.kind() == std::io::ErrorKind::NotFound {
             ReadError::incompatible("executable_missing")
@@ -57,9 +59,16 @@ pub(crate) async fn execute(
             ReadError::unavailable("helper_spawn")
         }
     })?;
+    #[cfg(unix)]
+    let group = child
+        .id()
+        .and_then(|id| i32::try_from(id).ok())
+        .and_then(rustix::process::Pid::from_raw);
     let (mut stdin, stdout) = match (child.stdin.take(), child.stdout.take()) {
         (Some(stdin), Some(stdout)) => (stdin, stdout),
         _ => {
+            #[cfg(unix)]
+            kill_group(group);
             let _ = child.kill().await;
             let _ = child.wait().await;
             return Err(ReadError::unavailable("helper_pipes"));
@@ -109,6 +118,8 @@ pub(crate) async fn execute(
             result = tokio::time::timeout(READ_TIMEOUT, io) => result.unwrap_or_else(|_| Err(ReadError::unavailable("client_timeout"))),
         }
     };
+    #[cfg(unix)]
+    kill_group(group);
     if result.is_err() {
         // kill().await includes reaping; a child that already exited is still waited below.
         let kill = child.kill().await;
@@ -118,4 +129,12 @@ pub(crate) async fn execute(
         }
     }
     result
+}
+
+/// Stops all remaining processes spawned in this dedicated helper group.
+#[cfg(unix)]
+fn kill_group(group: Option<rustix::process::Pid>) {
+    if let Some(group) = group {
+        let _ = rustix::process::kill_process_group(group, rustix::process::Signal::KILL);
+    }
 }

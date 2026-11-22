@@ -145,3 +145,77 @@ test('HTTP adapter keeps empty, stale and unavailable observations independent',
     } finally { await terminal.close(); }
   }
 });
+
+test('terminal readiness retries failed content and rewinds a rejected incident continuation', async () => {
+  const { createFixtureFetch } = await import('../../packages/client/fixtures/index.ts');
+  const fixture = createFixtureFetch('populated');
+  const baseUrl = new URL('https://fixture.test');
+  const rejected = (code: string, status: number) => Response.json({ error: {
+    code, message: code, retryable: true, requestId: 'fixture-request',
+  } }, { status });
+  let resumed = false, resultReads = 0, taskReads = 0, staleIncidents = 0;
+  let incidentStarts = 0;
+  let ready = () => {};
+  const http = createHubClient({ baseUrl, async fetch(input, init) {
+    const url = new URL(String(input));
+    if (url.pathname.endsWith('/demo-finished/initial-task')) {
+      taskReads++;
+      if (!resumed) return rejected('source_unavailable', 503);
+    }
+    if (url.pathname.endsWith('/demo-finished/result')) {
+      resultReads++;
+      if (!resumed) return rejected('source_unavailable', 503);
+    }
+    if (url.pathname.endsWith('/incidents')) {
+      if (url.searchParams.has('cursor')) {
+        staleIncidents++;
+        return rejected('stale_boundary', 409);
+      }
+      incidentStarts++;
+      return Response.json({
+        data: { items: [{ id: 'incident-1', publisher: 'fixture', eventId: 'incident-test', state: 'open',
+          closed: false, createdAtMs: null, updatedAtMs: null, detail: 'isolated incident' }] },
+        page: { next: incidentStarts === 1 ? 'expired-incidents' : null, previous: null, resume: null },
+        observations: [{ source: 'bridge', resource: 'bridge.incidents', observedAtMs: incidentStarts, producerAtMs: null, outcome: 'ok' }],
+      });
+    }
+    return fixture(input, init);
+  } });
+  http.watch = async (topics, _interval, handlers, signal) => {
+    ready = () => {
+      if (signal.aborted) return;
+      handlers.connection?.('connected');
+      handlers.event({ type: 'ready', topics: [...topics], observedAtMs: Date.now() });
+    };
+    ready();
+    if (!signal.aborted) await new Promise<void>(resolve => signal.addEventListener('abort', () => resolve(), { once: true }));
+  };
+  const client = createHttpClient(baseUrl, http);
+  const setup = await createTestRenderer({ width: 140, height: 44 });
+  const dispose = mountHub(setup.renderer, client, 'live', () => {});
+  /** Click a label from a currently rendered frame. */
+  async function click(label: string) {
+    const frame = await setup.waitForFrame(value => value.includes(label));
+    const rows = frame.split('\n'), row = rows.findIndex(line => line.includes(label));
+    await setup.mockMouse.click(rows[row].indexOf(label) + 1, row);
+  }
+  try {
+    await click('View incidents');
+    await setup.waitForFrame(value => value.includes('Load next retained page'));
+    setup.mockInput.pressKey('n');
+    await setup.waitForFrame(() => incidentStarts >= 2);
+    assert.equal(staleIncidents, 1);
+    await setup.waitForFrame(value => value.includes('incident-1') && !value.includes('Load next retained page'));
+
+    setup.mockInput.pressKey('1');
+    setup.mockInput.pressKey('o');
+    await click('Review saved output');
+    await setup.waitForFrame(() => taskReads > 0);
+    await click('Result');
+    await setup.waitForFrame(value => resultReads > 0 && value.includes('source_unavailable'));
+    const failedAnswers = resultReads, failedTasks = taskReads;
+    resumed = true;
+    ready();
+    await setup.waitForFrame(() => resultReads > failedAnswers && taskReads > failedTasks);
+  } finally { dispose(); await client.close(); await setup.dispose(); }
+});

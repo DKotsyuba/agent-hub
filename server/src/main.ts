@@ -74,8 +74,7 @@ export async function listen(http: ReturnType<typeof createHttp>, transport: { u
       ...('unix' in transport ? transport : { hostname: '127.0.0.1' as const, port: transport.port }),
       idleTimeout: 35,
       fetch(request, server) {
-        if (new URL(request.url).pathname === '/api/v1/events') server.timeout(request, 0);
-        return http.fetch(request);
+        return http.fetch(request, () => server.timeout(request, 0));
       },
     });
   } finally {

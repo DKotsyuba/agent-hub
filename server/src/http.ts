@@ -13,6 +13,10 @@ import { ReadContext } from './projection.ts';
 import { initialTask, sessionDetail, sessionExport, sessionHistory, sessionResult, sessions } from './run.ts';
 import { shareReads } from './reads.ts';
 
+/** Bounds aggregate projection work and one serialized finite API body. */
+const FINITE_LIMIT = 24;
+const RESPONSE_LIMIT = 4 * 1024 * 1024;
+
 const ID = '[A-Za-z0-9][A-Za-z0-9._-]{0,199}';
 const SPA = new RegExp('^/(?:|incidents|quota|worktrees(?:/' + ID + ')?'
   + '|sessions(?:/' + ID + '(?:/(?:history|result|details))?)?'
@@ -71,10 +75,12 @@ export function createHttp(native: ObservationClient, options: HttpOptions) {
   const worktreeCache: WorktreeCache = new Map();
   const bindings = new Map<string, RunStatusRequest>();
   const shutdown = new AbortController();
+  let finite = 0;
   const publicHost = options.publicOrigin ? new URL(options.publicOrigin).host : null;
 
   /** Checks authority and input before any use of the observer. */
-  async function fetch(request: Request): Promise<Response> {
+  async function fetch(request: Request, admitStream?: () => void): Promise<Response> {
+    let admitted = false;
     try {
       const host = request.headers.get('host');
       const origin = request.headers.get('origin');
@@ -89,7 +95,16 @@ export function createHttp(native: ObservationClient, options: HttpOptions) {
       try { query = parseApiRequest(url); } catch { throw new HubError('invalid_request'); }
       if (!query) throw new HubError('not_found');
       if (shutdown.signal.aborted) throw new HubError('source_unavailable');
-      if (query.route === 'events') return events.open(query.topics, query.interval, request.signal);
+      if (query.route === 'events') {
+        const stream = events.open(query.topics, query.interval, request.signal);
+        admitStream?.();
+        return stream;
+      }
+      if (query.route !== 'health') {
+        if (finite >= FINITE_LIMIT) throw new HubError('saturated');
+        finite++;
+        admitted = true;
+      }
       const position = cursors.decode(query);
       const ctx = new ReadContext(client, cursors, AbortSignal.any([request.signal, shutdown.signal, AbortSignal.timeout(30_000)]), bindings);
       let result: unknown;
@@ -113,8 +128,12 @@ export function createHttp(native: ObservationClient, options: HttpOptions) {
         case 'worktree': result = await worktree(ctx, query, worktreeCache); break;
         case 'incidents': result = await incidents(ctx, query, position); break;
       }
-      return Response.json(API_RESPONSES[query.route](result), { headers: { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' } });
+      if (ctx.signal.aborted) throw new HubError('source_unavailable');
+      const body = JSON.stringify(API_RESPONSES[query.route](result));
+      if (Buffer.byteLength(body) > RESPONSE_LIMIT) throw new HubError('invalid_projection');
+      return new Response(body, { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' } });
     } catch (error) { return errorResponse(error); }
+    finally { if (admitted) finite--; }
   }
 
   /** Cancels streams and waits until the shared observer owner has reaped its children. */

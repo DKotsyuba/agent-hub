@@ -1,4 +1,4 @@
-/** Portable projections pending the shared view-model package. */
+/** Web history and presentation projections. */
 import type { PoolHistory, SessionHistory, Worktree } from '@agent-hub/domain';
 import type { QuotaAccount, QuotaSnapshot } from '../../packages/view-model/src/index';
 
@@ -24,42 +24,52 @@ function byPosition(a: { position: string }, b: { position: string }) {
   return a.position.length - b.position.length || a.position.localeCompare(b.position);
 }
 
-/** Joins reported multipart ranges by ordinal and preserves invalid or incomplete messages. */
+/** Joins adjacent multipart ranges only when grouping metadata and overlapping bytes agree. */
 export function mergeChat(previous: PoolHistory['items'], incoming: PoolHistory['items']) {
-  const messages = new Map<string, PoolHistory['items']>();
-  for (const item of [...previous, ...incoming]) {
-    const saved = messages.get(item.id) ?? [];
-    const first = item.partRange?.first;
-    if (item.complete || first == null) {
-      if (!saved[0]?.complete || item.complete) messages.set(item.id, [item]);
-    } else if (!saved[0]?.complete) {
-      const exact = saved.filter(part => part.partRange?.first !== first);
-      messages.set(item.id, [...exact, item]);
-    }
-  }
-  const joined = [...messages.values()].flatMap(parts => {
-    if (parts.length < 2) return parts;
-    const ordered = [...parts].sort((a, b) => a.partRange!.first! - b.partRange!.first!);
-    const merged: PoolHistory['items'] = [];
-    for (const part of ordered) {
-      const prior = merged.at(-1);
-      const start = prior?.partRange?.first;
-      const next = part.partRange!.first!;
-      if (!prior || start == null || next > start + prior.parts.length) {
-        merged.push(part);
-        continue;
+  type Item = PoolHistory['items'][number];
+  const metadata = (row: Item) => JSON.stringify([row.revision, row.authorKind, row.authorId, row.recipientId, row.partRange?.expected]);
+  const groups = new Map<string, string>(), conflicts = new Set<string>(), positions = new Map<string, Item>();
+  for (const row of [...previous, ...incoming]) {
+    const signature = metadata(row);
+    if (groups.has(row.id) && groups.get(row.id) !== signature) conflicts.add(row.id);
+    groups.set(row.id, signature);
+    const saved = positions.get(row.position);
+    if (saved) {
+      if (saved.id !== row.id || saved.partRange?.first !== row.partRange?.first ||
+          saved.parts.some((part, index) => index < row.parts.length && row.parts[index] !== part) ||
+          !saved.valid || !row.valid) {
+        conflicts.add(saved.id);
+        conflicts.add(row.id);
       }
-      const end = Math.max(start + prior.parts.length, next + part.parts.length);
-      const content = Array.from({ length: end - start }, (_, index) => part.parts[start + index - next] ?? prior.parts[index]);
-      const expected = part.partRange!.expected ?? prior.partRange!.expected;
-      const valid = prior.valid && part.valid && (prior.partRange!.expected == null || part.partRange!.expected == null || prior.partRange!.expected === part.partRange!.expected);
-      merged[merged.length - 1] = { ...part, parts: content, valid,
-        complete: valid && expected !== null && content.length === expected,
-        partRange: { first: start, last: end - 1, expected } };
+      if (saved.parts.length >= row.parts.length || conflicts.has(saved.id)) continue;
     }
-    return merged;
-  });
-  return joined.sort(byPosition);
+    positions.set(row.position, row);
+  }
+  const merged: Item[] = [];
+  for (const item of [...positions.values()].sort(byPosition)) {
+    const range = item.partRange;
+    const invalid = range && (range.first == null || range.last == null || range.expected == null ||
+      range.first < 1 || range.last > range.expected || range.expected > 64 || range.last - range.first + 1 !== item.parts.length);
+    const row = invalid || conflicts.has(item.id) ? { ...item, valid: false, complete: false } : item;
+    const prior = merged.at(-1), left = prior?.partRange, right = row.partRange;
+    if (!prior || prior.id !== row.id || !prior.valid || !row.valid || !left || !right ||
+        left.first == null || left.last == null || right.first == null || right.last == null ||
+        left.expected == null || right.first < left.first || right.first > left.last + 1) {
+      merged.push(row);
+      continue;
+    }
+    const offset = right.first - left.first;
+    if (row.parts.some((part, index) => offset + index < prior.parts.length && prior.parts[offset + index] !== part)) {
+      merged[merged.length - 1] = { ...prior, valid: false, complete: false };
+      merged.push({ ...row, valid: false, complete: false });
+      continue;
+    }
+    const parts = [...prior.parts, ...row.parts.slice(Math.max(0, prior.parts.length - offset))];
+    const last = Math.max(left.last, right.last);
+    merged[merged.length - 1] = { ...prior, parts, complete: left.first === 1 && last === left.expected,
+      partRange: { first: left.first, last, expected: left.expected } };
+  }
+  return merged;
 }
 
 /** Projects producer names for the Quota card while preserving the raw account ID. */

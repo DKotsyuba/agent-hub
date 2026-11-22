@@ -9,6 +9,9 @@ import runStatus from '../../terminal/test/fixtures/run-status-v1.json';
 import chat from '../../terminal/test/fixtures/pool-chat-v1.json';
 import { object, sha256 } from '../../src/live/protocol.ts';
 import { createHttp } from '../src/http.ts';
+import { createHubClient } from '../../packages/client/src/index.ts';
+import { loadHttpExport, loadHttpInitialTask, loadHttpPoolExport, loadHttpResult } from '../../terminal/src/http-content.ts';
+import { createHttpClient } from '../../terminal/src/client.ts';
 import type { NativeResponse, ObservationClient, ObserverResource } from '../src/observer.ts';
 
 const mount = '/api/v1';
@@ -84,6 +87,17 @@ function request(path: string, init?: RequestInit): Request {
 /** Creates an isolated HTTP handler without touching a live producer. */
 function handler(client: ObservationClient, webRoot = '/does-not-exist') {
   return createHttp(client, { localHost: 'localhost', publicOrigin: 'https://hub.example', release: 'test', webRoot });
+}
+
+/** Exercises the public client through the real HTTP handler and its native seam. */
+function transport(http: ReturnType<typeof handler>) {
+  return createHubClient({
+    baseUrl: 'http://localhost',
+    fetch(input, options) {
+      const url = new URL(String(input));
+      return http.fetch(request(url.pathname + url.search, options));
+    },
+  });
 }
 
 /** Decodes one successful response from the actual route. */
@@ -284,10 +298,13 @@ test('strict tasks and exact exports require a Pool-fenced historical execution'
     assert.equal(members.data.section, 'members');
     if (members.data.section !== 'members') return;
     const token = members.data.items[0].session?.execution;
-    assert.ok(token?.startsWith('bound-'));
+    assert.ok(token && token.startsWith('bound-'));
     const path = '/sessions/' + selector.agent_id;
     const initial = await get(http, 'initialTask', path + '/initial-task?execution=' + token);
     assert.equal(initial.data.state === 'verified' && initial.data.proof.kind, 'strict');
+    const hub = transport(http), signal = AbortSignal.timeout(5000);
+    assert.equal((await loadHttpInitialTask(hub, selector.agent_id, token, signal)).state, 'verified');
+    assert.match(await loadHttpExport(hub, selector.agent_id, token, 'exact', signal), /verified output/);
     const exportPath = path + '/export?mode=exact&execution=' + token;
     const exact = await get(http, 'sessionExport', exportPath);
     assert.equal(exact.data.mode, 'exact');
@@ -364,4 +381,164 @@ test('Worktree status and size are cached only after a listed, validated inspect
     assert.equal(after.data.items.find(item => item.id === row.id)?.facts.size.state, 'known');
     assert.equal(inspections, 1);
   } finally { await http.close(); }
+});
+
+test('terminal result, current task and retained export loaders accept real handler proofs', async () => {
+  const http = handler(await producer());
+  try {
+    const hub = transport(http), signal = AbortSignal.timeout(5000), id = 'demo-finished';
+    assert.ok((await loadHttpResult(hub, id, execution, 1, signal)).length);
+    const initial = await loadHttpInitialTask(hub, id, execution, signal);
+    assert.equal(initial.state === 'verified' && initial.text, task);
+    assert.match(await loadHttpExport(hub, id, execution, 'retained', signal), /Retained session lineage/);
+  } finally { await http.close(); }
+});
+
+test('inline result cannot be verified without matching native answer-chunk sequence', async () => {
+  const native = await producer();
+  let chunkCalls = 0;
+  const http = handler({ close: native.close, async read(resource, params, signal) {
+    const payload = await native.read(resource, params, signal);
+    if (resource !== 'run.answer_chunk') return payload;
+    chunkCalls++;
+    return { ...payload, data: { ...object(payload.data), sequence: Number(params?.sequence) + 1 } };
+  } });
+  try {
+    const response = await http.fetch(request(mount + '/sessions/demo-finished/result'));
+    assert.equal(response.status, 502);
+    assert.equal(apiError(await response.json()).error.code, 'invalid_projection');
+    assert.equal(chunkCalls, 1);
+  } finally { await http.close(); }
+});
+
+test('history signs only cursor progress supported by forward, empty and older blocks', async () => {
+  const native = await producer();
+  let bad: 'next' | 'resume' | 'empty' | 'older' | null = null;
+  const http = handler({ close: native.close, async read(resource, params, signal) {
+    const payload = await native.read(resource, params, signal);
+    if (resource !== 'run.transcript' || bad === null) return payload;
+    const page = object(payload.data);
+    return envelope(resource, { ...page, ...(bad === 'next' ? { next_cursor: 10 } : bad === 'resume' ? { resume_cursor: 10 }
+      : bad === 'empty' ? { complete: false, messages: [], next_cursor: 10, resume_cursor: null } : { previous_cursor: 10 }) });
+  } });
+  try {
+    const path = '/sessions/demo-finished/history?edge=start&limit=1';
+    for (bad of ['next', 'resume', 'empty'] as const) {
+      assert.equal((await http.fetch(request(mount + path))).status, 502, bad);
+    }
+    bad = null;
+    const tail = await get(http, 'sessionHistory', '/sessions/demo-finished/history?edge=tail&limit=1');
+    bad = 'older';
+    assert.equal((await http.fetch(request(mount + '/sessions/demo-finished/history?edge=tail&limit=1&direction=older&cursor=' + tail.page.previous))).status, 502);
+  } finally { await http.close(); }
+});
+
+test('terminal Pool export follows a frozen watermark through partial page coverage', async () => {
+  const native = await producer();
+  const all = Array.from({ length: 101 }, (_, index) => ({ event_id_exact: String(index + 1), kind: 'message', body: 'discussion-' + (index + 1), author: { kind: 'service' } }));
+  const http = handler({ close: native.close, async read(resource, params, signal) {
+    if (resource !== 'pool.get' || params?.section !== 'history') return native.read(resource, params, signal);
+    const events = all.filter(row => Number(row.event_id_exact) > Number(params.after ?? 0));
+    return envelope(resource, { schema_version: 1, kind: 'pool_detail', data: { source_timestamp: null,
+      section: 'history', history_watermark: '101', cursor: '101', has_more: false, returned: events.length,
+      view: { ...poolView, section: 'history', events } } });
+  } });
+  try {
+    const hub = transport(http), signal = AbortSignal.timeout(5000);
+    const first = await hub.get('poolHistory', { params: { id: 'demo-pool' }, query: { edge: 'start', limit: 100 }, signal });
+    assert.equal(first.data.coverage.state, 'partial');
+    const text = await loadHttpPoolExport(hub, 'demo-pool', signal);
+    assert.match(text, /coverage complete/);
+    assert.match(text, /discussion-101$/);
+  } finally { await http.close(); }
+});
+
+test('overview keeps partial later pages and missing Bridge clocks out of exact metrics', async () => {
+  const native = await producer();
+  const http = handler({ close: native.close, async read(resource, params, signal) {
+    const payload = await native.read(resource, params, signal);
+    if (resource === 'run.agents') {
+      const data = object(payload.data), items = data.items as unknown[];
+      const second = Number(params?.offset) !== 0;
+      return envelope(resource, { ...data, offset: second ? 1 : 0, limit: 200, items: second ? items.slice(1) : items.slice(0, 1),
+        next_offset: second ? null : 1, complete: second, total: items.length }, second ? 'partial' : 'ok');
+    }
+    if (resource === 'bridge.deliveries' || resource === 'bridge.incidents') {
+      const data = object(object(payload.data).data);
+      const field = resource === 'bridge.deliveries' ? 'deliveries' : 'incidents';
+      return envelope(resource, { ...object(payload.data), data: { ...data, scan_partial: field === 'deliveries',
+        ...(field === 'incidents' ? { incidents: (data.incidents as object[]).map(row => ({ ...row, created_ms: null })) }
+          : { deliveries: (data.deliveries as object[]).map(row => ({ ...row, accepted_at_ms: now - 1 })) }) } }, 'ok', '');
+    }
+    return payload;
+  } });
+  try {
+    const result = (await get(http, 'overview', '/overview')).data;
+    assert.equal(result.run?.active.kind, 'lower_bound');
+    assert.equal(result.run?.started.kind, 'lower_bound');
+    assert.equal(result.bridge?.accepted.kind, 'lower_bound');
+    assert.equal(result.bridge?.incidents.kind, 'unknown');
+  } finally { await http.close(); }
+});
+
+test('terminal Quota snapshot uses its own resource receipt when status is unavailable', async () => {
+  const native = await producer();
+  const http = handler({ close: native.close, async read(resource, params, signal) {
+    if (resource === 'quota.status') return envelope(resource, null, 'unavailable');
+    if (resource !== 'quota.snapshot') return native.read(resource, params, signal);
+    return { ...await native.read(resource, params, signal), observed_at_ms: now + 40 };
+  } });
+  const client = createHttpClient(undefined, transport(http));
+  try {
+    const snapshot = await client.read('quota.snapshot');
+    assert.ok(snapshot.data);
+    assert.equal(snapshot.observed_at_ms, now + 40);
+    const status = await client.read('quota.status');
+    assert.equal(status.outcome, 'unavailable');
+    assert.equal(status.observed_at_ms, now);
+  } finally { await client.close(); await http.close(); }
+});
+
+test('HTTP caps shared finite requests and response bodies while admitting only valid streams', async () => {
+  const source = await producer();
+  let release!: () => void;
+  const hold = new Promise<void>(resolve => { release = resolve; });
+  let holding = true, oversized = false, reads = 0;
+  const http = handler({ close: source.close, async read(resource, params, signal) {
+    if (resource === 'run.agents') {
+      reads++;
+      if (holding) await hold;
+    }
+    const value = await source.read(resource, params, signal);
+    if (oversized && resource === 'run.agents') {
+      const data = object(value.data);
+      const row = object((data.items as unknown[])[0]);
+      const items = Array.from({ length: 32 }, (_, index) => ({ ...row, agent_id: 'large-' + index, task_summary: 'w'.repeat(150_000) }));
+      return envelope(resource, { ...data, items, total: items.length });
+    }
+    return value;
+  } });
+  const pending = Array.from({ length: 24 }, () => http.fetch(request(mount + '/sessions')));
+  try {
+    let streams = 0;
+    const admitted = () => streams++;
+    assert.equal((await http.fetch(request(mount + '/sessions'))).status, 429);
+    assert.equal((await http.fetch(request(mount + '/events?topic=invalid'), admitted)).status, 400);
+    assert.equal((await http.fetch(request(mount + '/events?topic=sessions', { method: 'HEAD' }), admitted)).status, 405);
+    const stream = await http.fetch(request(mount + '/events?topic=sessions'), admitted);
+    assert.equal(stream.status, 200);
+    assert.equal(streams, 1);
+    await stream.body!.cancel();
+    await Promise.resolve();
+    assert.equal(reads, 1, 'identical native requests remain coalesced');
+    holding = false;
+    release();
+    assert.ok((await Promise.all(pending)).every(response => response.status === 200));
+    oversized = true;
+    assert.equal((await http.fetch(request(mount + '/sessions?limit=32'))).status, 502);
+  } finally {
+    release();
+    await Promise.allSettled(pending);
+    await http.close();
+  }
 });

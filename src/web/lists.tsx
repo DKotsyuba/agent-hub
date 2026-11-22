@@ -6,7 +6,7 @@ import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Choice } from '../components/hub-primitives';
-import { client, useRead } from './data';
+import { client, usePagedRead } from './data';
 import { worktreeMeasurements } from './model';
 import { branchLabel, formatBytes } from '../../packages/view-model/src/index';
 import { Next, period, Period } from './catalog';
@@ -42,8 +42,8 @@ export function InventoryList({ kind, query, id, update }: {
 }) {
   const { label, clock, duration, n } = useWebText();
   const [technical, setTechnical] = useState(false);
-  const request = filters(kind, query);
-  const read = useRead(JSON.stringify([kind, request]), signal => client.get(kind, { query: request, signal }), kind);
+  const { cursor, ...request } = filters(kind, query);
+  const read = usePagedRead([kind, request], cursor, (cursor, signal) => client.get(kind, { query: { ...request, cursor }, signal }), kind);
   const keys = kind === 'sessions' ? ['active', 'finished', 'failed', 'all'] : ['open', 'closed', 'all'];
   const groupKey = kind === 'pools' ? 'state' : 'status';
   const selected = query.get(groupKey) ?? keys[0];
@@ -73,6 +73,7 @@ export function InventoryList({ kind, query, id, update }: {
         </>}
       </>}
     </>}
+    {cursor && <Button variant="ghost" onClick={() => update({ cursor: null }, true)}>{label('Beginning')}</Button>}
     <ReadState read={read}>{response => {
       const { data, observations, page } = response;
       const shown = data.items.filter(row => !('workdir' in row) || !folder || row.workdir === folder);
@@ -103,7 +104,6 @@ export function InventoryList({ kind, query, id, update }: {
           </Row>;
         })}</div>
         <Next cursor={page.next} update={cursor => update({ cursor }, true)} />
-        {request.cursor && <Button variant="ghost" onClick={() => update({ cursor: null }, true)}>{label('Beginning')}</Button>}
         <Sources items={observations} />
       </>;
     }}</ReadState>

@@ -19,7 +19,7 @@
     "build:release": "node scripts/release.mjs build",
     "preview": "vite preview --configLoader native --host 127.0.0.1 --port 4173 --strictPort",
     "test:browser": "node scripts/browser-check.mjs",
-    "test:contract": "bun test --no-install packages/domain/test packages/client/test packages/view-model/test",
+    "test:contract": "bun test --no-install packages/domain/test packages/client/test packages/view-model/test src/web/test",
     "fixtures": "bun --no-install packages/client/fixtures/serve.mjs"
   },
   "dependencies": {

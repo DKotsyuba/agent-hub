@@ -62,6 +62,7 @@ async function bridgeScan(ctx: ReadContext, resource: 'bridge.incidents' | 'brid
   const items: Record<string, unknown>[] = [];
   let after = from, next: number | null = null;
   let observation: Observation | undefined;
+  let scanPartial = false;
   for (let index = 0; index < maxPages; index++) {
     const envelope = await ctx.read(resource, { limit, after_seq: after, ...(through === null ? {} : { through_seq: through }),
       ...(isIncident ? { include_closed: includeClosed } : {}) });
@@ -69,20 +70,21 @@ async function bridgeScan(ctx: ReadContext, resource: 'bridge.incidents' | 'brid
     const upper = integer(page.through_seq);
     if (through !== null && through !== upper) throw new HubError('stale_boundary');
     through = upper;
+    scanPartial ||= envelope.outcome !== 'ok' || page.scan_partial === true;
     observation ??= observed(envelope);
     let last = after;
     for (const row of records(page[field])) {
       const position = integer(row[seq]);
       if (position <= last || position > upper) throw new HubError('invalid_projection');
       last = position;
-      items.push(row);
+      items.push({ ...row, receiptAtMs: envelope.observed_at_ms });
     }
     next = page.next_after_seq === null ? null : integer(page.next_after_seq);
     if (next === null) break;
     if (next !== last || next <= after || next >= upper) throw new HubError('invalid_projection');
     after = next;
   }
-  const complete = next === null;
+  const complete = next === null && !scanPartial;
   const scope = coverage('retained', complete, 'snapshot');
   return { items, next, through: through!, observation: { ...observation!, coverage: scope, outcome: !complete && observation?.outcome === 'ok' ? 'partial' as const : observation!.outcome } };
 }
@@ -128,7 +130,7 @@ export async function overview(ctx: ReadContext, query: Input<'overview'>) {
     const exactStarted = exact && (!bounded || rows.every(item => item.createdAtMs !== null));
     const exactFinished = exact && (!bounded || rows.every(item => activeStatus(item.status) || item.finishedAtMs !== null));
     data.run = {
-      active: metric(currentRows.length, current?.observation.coverage?.state === 'complete' || exact), current: currentRows.slice(0, 50),
+      active: metric(currentRows.length, current ? current.observation.coverage?.state === 'complete' : exact), current: currentRows.slice(0, 50),
       started: history ? metric(rows.filter(item => inPeriod(query, item.createdAtMs)).length, exactStarted) : unknown,
       succeeded: history ? metric(inFinish.filter(item => item.status === 'succeeded').length, exactFinished) : unknown,
       failed: history ? metric(inFinish.filter(item => ['failed', 'lost', 'timed_out'].includes(item.status)).length, exactFinished) : unknown,
@@ -142,10 +144,22 @@ export async function overview(ctx: ReadContext, query: Input<'overview'>) {
     try { bridgeDataResult = bridgeData(bridge.value.data, 'bridge_overview'); }
     catch { bridgeObservation.outcome = 'invalid'; }
   }
+  /** Count only rows with producer clocks bounded by their own receipt. */
+  const bridgeMetric = (scan: Awaited<ReturnType<typeof bridgeScan>>, field: string) => {
+    let complete = scan.observation.coverage?.state === 'complete';
+    let count = 0;
+    for (const row of scan.items) {
+      const at = row[field];
+      if (typeof at !== 'number' || !Number.isSafeInteger(at) || at < 0 || at > Number(row.receiptAtMs)) complete = false;
+      else if (inPeriod(query, at)) count++;
+    }
+    if (query.to !== null && query.to <= Date.now() && scan.observation.observedAtMs < query.to) complete = false;
+    return !complete && count === 0 ? unknown : metric(count, complete);
+  };
   if (deliveries.status === 'fulfilled' || incidents.status === 'fulfilled' || bridgeDataResult) {
     data.bridge = {
-      accepted: deliveries.status === 'fulfilled' ? metric(deliveries.value.items.filter(item => inPeriod(query, Number(item.accepted_at_ms))).length, deliveries.value.observation.coverage?.state === 'complete') : unknown,
-      incidents: incidents.status === 'fulfilled' ? metric(incidents.value.items.filter(item => inPeriod(query, Number(item.created_ms))).length, incidents.value.observation.coverage?.state === 'complete') : unknown,
+      accepted: deliveries.status === 'fulfilled' ? bridgeMetric(deliveries.value, 'accepted_at_ms') : unknown,
+      incidents: incidents.status === 'fulfilled' ? bridgeMetric(incidents.value, 'created_ms') : unknown,
       pending: unknown,
     };
   }

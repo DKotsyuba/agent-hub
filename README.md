@@ -89,7 +89,7 @@ Official shadcn/ui components in src/components/ui are unmodified registry sourc
 
 ## Navigation and acceptance
 
-Object details replace the list at every window width. Back and browser Back/Forward retain context; related objects have their own detail screens. Agent rows use one consistent full-width hover/focus/click target.
+The web app shows the list beside the detail pane at widths of 1024 px and above. Details replace the list at narrower widths. Back and browser Back/Forward retain context; related objects have their own detail screens. Agent rows use one consistent full-width hover/focus/click target.
 
 Run npm run preview after building to serve the reviewed production bundle on http://127.0.0.1:4173. Browser regression is npm run test:browser using the prepared driver; see docs/verification.md for evidence and limits.
 

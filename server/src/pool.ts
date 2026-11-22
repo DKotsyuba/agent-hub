@@ -317,14 +317,14 @@ export async function poolHistory(ctx: ReadContext, query: Input<'poolHistory'>,
       parts: group.parts.map(part => text(part.body)), complete: group.complete, valid: group.valid, proposalId: text(head.proposal_id),
       partRange: head.part_count != null ? { first: head.part_index, last: group.parts.at(-1)?.part_index, expected: head.part_count } : undefined };
   });
-  const scope = coverage('retained', !more && groups.every(group => group.complete), windowed ? 'snapshot' : 'offset_unfenced');
+  const scope = coverage('retained', envelope.outcome === 'ok' && !more && groups.every(group => group.complete), windowed ? 'snapshot' : 'offset_unfenced');
   const resume = lastEvent ? lastPosition : older && !position ? watermark ?? '0' : next;
   const token = (at: string, direction: Position['direction'], through?: string) => ctx.cursors.encode(query, { at, direction, fence: format, through });
   return { data: { poolId: query.id, format, upperBound: watermark === null ? null : token('0', 'newer', watermark), items, coverage: scope },
     page: { next: (!older || !windowed) && more ? token(lastPosition, 'newer', watermark ?? undefined) : null,
       previous: windowed && (older ? more : at !== null && at !== '0') ? token(firstPosition, 'older', watermark ?? undefined) : null,
       resume: token(resume, 'newer') },
-    observations: [observed(envelope, null, scope)], capabilities: features.capabilities };
+    observations: [{ ...observed(envelope, null, scope), ...(envelope.outcome === 'partial' ? { issue: { code: 'source_partial' } } : {}) }], capabilities: features.capabilities };
 }
 
 /** Reassembles only contiguous bytes from the same Pool and revision. */

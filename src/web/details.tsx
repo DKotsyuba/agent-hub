@@ -4,7 +4,7 @@ import type { ReactNode } from 'react';
 import type { Capabilities, Pool, PoolMember, PoolSection, SessionDetail, Topic } from '@agent-hub/domain';
 import { Button } from '../components/ui/button';
 import { Choice } from '../components/hub-primitives';
-import { client, errorCode, LiveContext, useRead } from './data';
+import { client, errorCode, LiveContext, usePagedRead, useRead } from './data';
 import { readPoolContent, readPoolExport, readPoolRecord, readSessionText } from './content';
 import { Discussion, Transcript } from './history';
 import { mergeChat } from './model';
@@ -155,9 +155,11 @@ function PoolSectionView({ id, section, capabilities, proposal, select }: {
 }) {
   const { label, clock } = useWebText();
   const [cursor, setCursor] = useState<string | null>(null);
-  const query = { cursor, proposal: section === 'members' || section === 'deliveries' ? null : proposal };
-  const read = useRead(JSON.stringify([id, section, query]), signal => client.get('poolSection', { params: { id, section }, query, signal }), `pool:${id}:${section}`);
-  return <ReadState read={read}>{({ data, observations, page, capabilities: own }) => <>
+  const selection = section === 'members' || section === 'deliveries' ? null : proposal;
+  const read = usePagedRead([id, section, selection], cursor, (cursor, signal) => client.get('poolSection', { params: { id, section }, query: { cursor, proposal: selection }, signal }), `pool:${id}:${section}`);
+  return <>
+    {cursor && <Button variant="ghost" onClick={() => setCursor(null)}>{label('Beginning')}</Button>}
+    <ReadState read={read}>{({ data, observations, page, capabilities: own }) => <>
     <EmptyRows count={data.items.length} observations={observations} />
     {data.section === 'members' ? data.items.map(item => <Member key={item.id} item={item} caps={own ?? capabilities} />)
       : data.items.map(item => <article className="web-subcard" key={item.id}>
@@ -179,9 +181,8 @@ function PoolSectionView({ id, section, capabilities, proposal, select }: {
         </> : <><Facts rows={[[ 'Proposal', item.proposalId], ['State', item.state], ['Time', clock(item.atMs)], ['Evidence', item.evidence]]} /><Text>{item.text}</Text></>}
       </article>)}
     {page.next && <Button variant="outline" onClick={() => setCursor(page.next)}>{label('Next page')}</Button>}
-    {cursor && <Button variant="ghost" onClick={() => setCursor(null)}>{label('Beginning')}</Button>}
     <p className="web-muted">{label('Revision')} {data.revision ?? '—'}</p><Sources items={observations} />
-  </>}</ReadState>;
+  </>}</ReadState></>;
 }
 
 /** Reads complete revision-fenced Pool text only on explicit request. */

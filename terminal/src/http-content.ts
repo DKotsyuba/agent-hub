@@ -20,7 +20,7 @@ export async function loadHttpResult(http: Hub, id: string, execution: string | 
     const { proof, content } = response.data;
     if (response.capabilities?.verifiedResult !== 'supported' || proof.execution !== execution || proof.sequence !== sequence) throw new Error('result_execution_changed');
     digest = proof.sha256;
-    return { content, next: response.page.next, fence: digest };
+    return { content, next: response.page.next, fence: JSON.stringify(proof) };
   }, signal);
   return verifyText(text, digest);
 }
@@ -36,7 +36,9 @@ export async function loadHttpInitialTask(http: Hub, id: string, execution: stri
   const text = await assembleText(async cursor => {
     pages++;
     const response = cursor === null ? first : await http.get('initialTask', { params: { id }, query: { execution, cursor }, signal });
-    if (response.data.state !== 'verified' || response.capabilities?.[capability] !== 'supported') throw new Error('initial_task_unverified');
+    if (response.data.state !== 'verified' || response.capabilities?.[capability] !== 'supported' ||
+        response.data.proof.root.sequence !== 1 ||
+        proof.kind === 'current' && execution !== null && response.data.proof.root.execution !== execution) throw new Error('initial_task_unverified');
     return { ...response.data, next: response.page.next, fence: JSON.stringify(response.data.proof) };
   }, signal, 524_288);
   await verifyText(text, proof.root.sha256);
@@ -78,19 +80,21 @@ export async function loadHttpPoolExport(http: Hub, id: string, caller: AbortSig
   const signal = deadline(caller);
   const lines: string[] = [];
   const cursors = new Set<string>();
-  let cursor: string | null = null, boundary: string | undefined, coverage: string | undefined, previous = -1n, bytes = 0;
+  let cursor: string | null = null, boundary: string | undefined, coverage: string | undefined, previous = -1n, bytes = 0, partial = false;
   do {
     const response: ApiResponse<'poolHistory'> = await http.get('poolHistory', {
       params: { id }, query: { edge: 'start', direction: cursor ? 'newer' : null, cursor, limit: 100 }, signal,
     });
     const { data, page } = response;
     boundary ??= data.upperBound ?? undefined;
-    coverage ??= data.coverage.state;
-    if (data.poolId !== id || data.format !== 'window' || !boundary || data.upperBound !== boundary || data.coverage.state !== coverage) throw new Error('pool_export_boundary_changed');
+    if (data.poolId !== id || data.format !== 'window' || !boundary || data.upperBound !== boundary) throw new Error('pool_export_boundary_changed');
+    coverage = data.coverage.state;
+    partial ||= response.observations.some(observation => observation.resource === 'pool.get' && observation.issue?.code === 'source_partial');
     for (const row of data.items) {
       const position = BigInt(row.position);
       if (position <= previous) throw new Error('pool_export_order');
       previous = position;
+      partial ||= !row.complete || !row.valid;
       const line = `#${row.position} · ${row.authorId ?? row.authorKind ?? 'Unknown'} · ${row.kind}${row.complete ? '' : ' · incomplete'}${row.valid ? '' : ' · invalid'}\n${row.parts.join('')}`;
       bytes += new TextEncoder().encode(line).length;
       if (bytes > 16 * 1024 * 1024) throw new Error('pool_export_budget');
@@ -102,7 +106,7 @@ export async function loadHttpPoolExport(http: Hub, id: string, caller: AbortSig
       cursors.add(cursor);
     }
   } while (cursor !== null);
-  return `Pool ${id} · retained journal · coverage ${coverage ?? 'unknown'}\n\n${lines.join('\n\n')}`;
+  return `Pool ${id} · retained journal · coverage ${partial ? 'partial' : coverage ?? 'unknown'}\n\n${lines.join('\n\n')}`;
 }
 
 /** Assemble agreement text or every separately verified completion field. */

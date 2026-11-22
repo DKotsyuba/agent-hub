@@ -15,13 +15,16 @@ export async function runInventory(ctx: ReadContext, active = false) {
   const params = { limit: 200, ...(active ? { active: true } : {}) };
   const envelope = await ctx.read('run.agents', { ...params, offset: 0 });
   const first = runPage(requireData(envelope));
+  let complete = envelope.outcome === 'ok';
   const inventory = await collectPages(first, 5, async offset => {
-    const next = runPage(requireData(await ctx.read('run.agents', { ...params, offset })));
+    const receipt = await ctx.read('run.agents', { ...params, offset });
+    const next = runPage(requireData(receipt));
+    complete &&= receipt.outcome === 'ok';
     if (next.revision !== first.revision) throw new HubError('stale_boundary');
     return next;
   }, row => row.id, () => !ctx.signal.aborted);
   const items = [...inventory.items].sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
-  return { inventory, items, rows: items.map(sessionRow), observation: observed(envelope, ms(inventory.observed), coverage(active ? 'current' : 'retained', inventory.complete, 'revision_fenced')) };
+  return { inventory, items, rows: items.map(sessionRow), observation: observed(envelope, ms(inventory.observed), coverage(active ? 'current' : 'retained', complete && inventory.complete, 'revision_fenced')) };
 }
 
 /** Projects only Run fields understood by the API. */
@@ -172,11 +175,29 @@ export async function sessionHistory(ctx: ReadContext, query: Input<'sessionHist
   }
   const source = transcriptPage(requireData(envelope), query.id);
   if (!legacy && source.raw.view !== 'blocks' || (!older || legacy) && source.raw.cursor !== at) throw new HubError('invalid_projection');
-  let last = older && !legacy ? 0 : at;
+  const backward = older && !legacy;
+  const expectedDirection = backward ? 'backward' : 'forward';
+  if ((source.raw.direction != null && source.raw.direction !== expectedDirection) ||
+      (backward && source.raw.before_cursor != null && source.raw.before_cursor !== (position ? at : null))) throw new HubError('invalid_projection');
+  let last = backward ? 0 : at;
   for (const block of source.blocks) {
-    if (block.seq <= last || older && position && block.seq >= at) throw new HubError('stale_boundary');
+    const first = integer(block.raw.first_seq ?? block.seq);
+    if (first <= last || first > block.seq || integer(block.raw.last_seq ?? block.seq) !== block.seq ||
+        backward && position && block.seq >= at) throw new HubError('invalid_projection');
     last = block.seq;
   }
+  const first = source.blocks[0];
+  const next = source.raw.next_cursor ?? null;
+  const resume = source.raw.resume_cursor;
+  const expectedResume = first ? last : backward ? 0 : at;
+  if (backward) {
+    if (next !== null || (source.complete ? source.previous !== null : !first || source.previous !== (first.raw.first_seq ?? first.seq))) {
+      throw new HubError('invalid_projection');
+    }
+  } else if (source.previous !== null || (source.complete ? next !== null : !first || next !== last)) {
+    throw new HubError('invalid_projection');
+  }
+  if ((resume != null && resume !== expectedResume) || (!legacy && first && resume == null)) throw new HubError('invalid_projection');
   const after = await selected(ctx, query);
   if (digest([after.evidence?.storeId, after.execution, after.agent.sequence, after.agent.raw.created_at]) !== fence) throw new HubError('stale_boundary');
   const grouped = groupTranscript(source.blocks);
@@ -187,10 +208,11 @@ export async function sessionHistory(ctx: ReadContext, query: Input<'sessionHist
   }));
   const token = (offset: unknown, direction: Position['direction']) => offset == null ? null
     : ctx.cursors.encode(query, { at: integer(offset), fence, direction });
-  const scope = coverage('retained', source.complete);
+  const previous = backward ? source.previous : legacy || at === 0 || !first ? null : integer(first.raw.first_seq ?? first.seq);
+  const scope = coverage('retained', source.complete && envelope.outcome === 'ok');
   return { data: { sessionId: query.id, execution: result.execution, format: legacy ? 'legacy_raw' : 'grouped',
       attribution: 'retained_lineage', entries, coverage: scope } as SessionHistory,
-    page: { previous: token(source.previous, 'older'), next: token(source.raw.next_cursor, 'newer'), resume: token(source.resume ?? at, 'newer') },
+    page: { previous: token(previous, 'older'), next: token(next, 'newer'), resume: token(first || !backward || !position ? expectedResume : null, 'newer') },
     observations: [observed(envelope, null, scope)],
     capabilities: { groupedHistory: legacy ? 'unsupported' : 'supported', bidirectionalHistory: legacy ? 'unsupported' : 'supported' },
   };
@@ -214,7 +236,8 @@ export async function initialTask(ctx: ReadContext, query: Input<'initialTask'>,
   const root = { execution: task.executionRef, sequence: 1, sha256: task.sha256 };
   const proof = strict ? { kind: 'strict', root, storeFenced: true, activePin: true } : { kind: 'current', root };
   const slice = ctx.textPage(query, task.text, digest(proof), position);
-  return { data: { state: 'verified', content: slice.content, proof }, page: slice.page, observations };
+  return { data: { state: 'verified', content: slice.content, proof }, page: slice.page, observations,
+    capabilities: strict ? { initialTaskStrict: 'supported' } : { initialTaskCurrent: 'supported' } };
 }
 
 /** Recognizes chunk support only on a usable finite discovery payload. */
@@ -229,13 +252,13 @@ export async function sessionResult(ctx: ReadContext, query: Input<'sessionResul
   if (!execution || !agent.answerSha || agent.answerAvailable !== true) throw new HubError('not_found');
   const envelope = await ctx.read('run.answer', { agent_id: query.id });
   const content = await answerText(requireData(envelope), query.id, agent.sequence, agent.answerSha,
-    usableIdentity(discovery.identity.data), async params => requireData(await ctx.read('run.answer_chunk', params)), () => !ctx.signal.aborted);
+    usableIdentity(discovery.identity.data), async params => requireData(await ctx.read('run.answer_chunk', params)), () => !ctx.signal.aborted, true);
   if (content === null) throw new HubError('not_found');
   const after = await selected(ctx, query);
   if (after.execution !== execution || after.evidence?.storeId !== result.evidence?.storeId || after.agent.sequence !== agent.sequence || after.agent.answerSha !== agent.answerSha) throw new HubError('stale_boundary');
   const proof = { execution, sequence: agent.sequence, sha256: agent.answerSha };
   const slice = ctx.textPage(query, content, digest(proof), position);
-  return { data: { content: slice.content, proof }, page: slice.page, observations: [observed(envelope)] };
+  return { data: { content: slice.content, proof }, page: slice.page, observations: [observed(envelope)], capabilities: { verifiedResult: 'supported' } };
 }
 
 /** Exports retained content through a fixed upper sequence or verifies a pinned exact export. */
@@ -247,7 +270,7 @@ export async function sessionExport(ctx: ReadContext, query: Input<'sessionExpor
     const exported = await exportExactHistory({
       close: async () => {},
       read: async (resource, params, signal) => {
-        const envelope = await ctx.client.read(resource, { ...params, ...(upper === undefined ? {} : { upper_seq: upper }) }, signal);
+        const envelope = await ctx.read(resource, { ...params, ...(upper === undefined ? {} : { upper_seq: upper }) }, signal);
         if (envelope.outcome === 'ok') {
           const observedUpper = decimalValue(object(envelope.data).upper_seq);
           if (upper !== undefined && upper !== observedUpper) throw new HubError('stale_boundary');
@@ -261,7 +284,7 @@ export async function sessionExport(ctx: ReadContext, query: Input<'sessionExpor
     const value = 'Exact execution transcript for ' + query.id + exported.slice(headerEnd);
     const proof = { content: { execution: result.execution, sequence: result.agent.sequence, sha256: await sha256(value) }, storeFenced: true, activePin: true };
     const boundary = digest([proof, upper]), slice = ctx.textPage(query, value, boundary, position ?? { at: 0, fence: boundary, direction: 'newer', through: upper });
-    return { data: { mode: query.mode, content: slice.content, boundary, coverage: coverage('execution', true, 'snapshot'), proof }, page: slice.page, observations: [result.observation] };
+    return { data: { mode: query.mode, content: slice.content, boundary, coverage: coverage('execution', true, 'snapshot'), proof }, page: slice.page, observations: [result.observation], capabilities: { exactExport: 'supported' } };
   }
   const params = { agent_id: query.id };
   let upper = position?.through;

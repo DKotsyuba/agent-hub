@@ -23,7 +23,8 @@ function continuations() {
 /** Builds one terminal envelope while preserving the observed source outcome and clock. */
 function envelope(resource: Resource, info: readonly Observation[], data: unknown): ReadResponse {
   const source = resource === 'hub.repositories' ? 'worktree' : resource.split('.')[0];
-  const observed = info.find(item => item.source === source);
+  const observed = info.find(item => item.source === source && item.resource === resource)
+    ?? (source === 'quota' && info.some(item => item.source === source && item.resource) ? undefined : info.find(item => item.source === source));
   const outcome = observed?.outcome ?? 'unavailable';
   return {
     schema_version: 1, resource, source: resource.split('.')[0], observed_at_ms: observed?.observedAtMs ?? Date.now(),
@@ -183,8 +184,11 @@ export function createHttpClient(server?: URL, injected?: ReturnType<typeof crea
       if (resource === 'quota.status' || resource === 'quota.snapshot') {
         const response = await http.get('quota', { signal });
         const data = resource === 'quota.status' ? response.data.status : response.data.snapshot;
-        if (data === null) throw new HubHttpError('source_unavailable', 503);
-        return wrap(response, data);
+        const receipt = wrap(response, data);
+        if (data === null && (receipt.outcome === 'ok' || receipt.outcome === 'partial')) {
+          return { ...receipt, outcome: 'unavailable' };
+        }
+        return receipt;
       }
       if (resource === 'worktree.list' || resource === 'hub.repositories') {
         const project = projects.get(String(params.repo)) ?? null;

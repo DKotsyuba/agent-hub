@@ -7,7 +7,7 @@ import { Progress } from '../components/ui/progress';
 import { Separator } from '../components/ui/separator';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import { Panel } from '../components/hub-primitives';
-import { client, useRead } from './data';
+import { client, usePagedRead, useRead } from './data';
 import { quotaAccountTitle, worktreeMeasurements } from './model';
 import { branchLabel, formatBytes, projectQuotaSnapshot, projectQuotaStatus } from '../../packages/view-model/src/index';
 import { CoverageLine, EmptyRows, Expand, Facts, href, Link, ReadState, sessionHref, Sources, Text, useWebText } from './ui';
@@ -71,11 +71,14 @@ export function Next({ cursor, update }: { cursor?: string | null; update: (curs
 }
 
 /** Bridge retains producer detail and shows open and closed incidents independently. */
-export function Incidents({ query, next }: { query: URLSearchParams; next: (cursor: string) => void }) {
+export function Incidents({ query, next }: { query: URLSearchParams; next: (cursor: string | null) => void }) {
   const { label, clock } = useWebText();
-  const params = { ...period(query), cursor: query.get('cursor'), includeClosed: true };
-  const read = useRead(JSON.stringify(params), signal => client.get('incidents', { query: params, signal }), 'incidents');
-  return <ReadState read={read}>{({ data, observations, page }) => <>
+  const params = { ...period(query), includeClosed: true };
+  const cursor = query.get('cursor');
+  const read = usePagedRead(params, cursor, (cursor, signal) => client.get('incidents', { query: { ...params, cursor }, signal }), 'incidents');
+  return <>
+    {cursor && <Button variant="ghost" onClick={() => next(null)}>{label('Beginning')}</Button>}
+    <ReadState read={read}>{({ data, observations, page }) => <>
     <EmptyRows count={data.items.length} observations={observations} />
     {!!data.items.length && <div className="panel web-incidents">
       <Table aria-label={label('Bridge incidents')} className="web-incident-table">
@@ -89,7 +92,7 @@ export function Incidents({ query, next }: { query: URLSearchParams; next: (curs
       </Table>
     </div>}
     <Next cursor={page.next} update={next} /><Sources items={observations} />
-  </>}</ReadState>;
+  </>}</ReadState></>;
 }
 
 /** Known percentage labels preserve the producer value even if the bar must be clamped. */

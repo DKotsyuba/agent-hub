@@ -276,3 +276,42 @@ test('a FIFO config cannot keep the finite observer alive after its deadline', {
     await rm(directory, { recursive: true });
   }
 });
+
+test('cancelling the real observer stops a frontend descendant that holds stdout open', async () => {
+  const temp = process.env.TMPDIR;
+  assert.ok(temp && path.isAbsolute(temp));
+  const directory = await mkdtemp(path.join(temp, 'hub-child-'));
+  const helper = path.join(directory, 'frontend.cjs'), config = path.join(directory, 'connections.json'), marker = path.join(directory, 'child.pid');
+  const previous = process.env.AGENT_HUB_CONFIG;
+  const client = createNativeClient(binary);
+  let descendant: number | undefined;
+  try {
+    const childScript = `require('node:fs').writeFileSync(${JSON.stringify(marker)}, String(process.pid)); setInterval(() => {}, 1000)`;
+    await writeFile(helper, `#!/usr/bin/env node
+const {spawn} = require('node:child_process');
+process.stdin.resume();
+process.stdin.once('end', () => {
+  spawn(process.execPath, ['-e', ${JSON.stringify(childScript)}], {stdio: ['ignore', 'inherit', 'ignore']}).unref();
+  process.exit(0);
+});
+`, { mode: 0o700 });
+    await writeFile(config, JSON.stringify({ schema_version: 1, bridge: { program: helper } }));
+    process.env.AGENT_HUB_CONFIG = config;
+    const controller = new AbortController();
+    const result = client.read('bridge.overview', {}, controller.signal);
+    descendant = Number(await waitForFile(marker));
+    controller.abort();
+    assert.equal((await result).error?.code, 'cancelled');
+    /** A reparented zombie has exited but may await the container's init. */
+    const live = async (pid: number) => readFile('/proc/' + pid + '/status', 'utf8').then(
+      status => !/^State:\s+Z/m.test(status), error => { if (error.code === 'ENOENT') return false; throw error; });
+    for (let attempt = 0; attempt < 50 && await live(descendant); attempt++) await new Promise(resolve => setTimeout(resolve, 20));
+    assert.equal(await live(descendant), false, 'the frontend group has no running descendant');
+    descendant = undefined;
+  } finally {
+    if (descendant) { try { process.kill(descendant, 'SIGKILL'); } catch { /* Already stopped. */ } }
+    await client.close();
+    if (previous === undefined) delete process.env.AGENT_HUB_CONFIG; else process.env.AGENT_HUB_CONFIG = previous;
+    await rm(directory, { recursive: true });
+  }
+});
