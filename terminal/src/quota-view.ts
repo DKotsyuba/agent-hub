@@ -205,6 +205,17 @@ function windowOrder(a: QuotaWindow, b: QuotaWindow): number {
 /** Unique, order-preserving values. */
 function unique(values: string[]): string[] { return [...new Set(values)]; }
 
+/** Human names for known providers; the account id stays available in details. */
+const PROVIDER_NAMES: Record<string, string> = {
+  claude: 'Claude subscription', codex: 'Codex (ChatGPT)', glm: 'Z.AI GLM', 'opencode-go': 'OpenCode Go',
+  'opencode-zen': 'OpenCode Zen', 'codex-api': 'OpenAI API',
+};
+/** Readable account title: the provider's human name, else the raw account id. */
+export function accountTitle(account: string, providers: string[]): string {
+  const names = unique(providers.map(provider => PROVIDER_NAMES[provider]).filter((name): name is string => Boolean(name)));
+  return names.length ? names.join(' + ') : account;
+}
+
 /** Prepares one account: its windows, badge, freshness and warnings. */
 export function accountView(account: QuotaAccount, sources: QuotaSource[], now: number): AccountView {
   const own = sources.filter(source => source.account === account.account);
@@ -302,7 +313,7 @@ function accountRows(view: AccountView, width: number, now: number): Row[] {
   const updated = view.updatedAt === null ? 'not observed yet' : `updated ${span(Math.max(0, now - view.updatedAt))} ago${view.stale ? ' · stale' : ''}`;
   blank();
   tidy(leftRight(
-    [{ text: view.account, tone: 'accent', bold: true }, { text: `  ${view.provider}${view.sources.length ? ` · ${view.sources.join(', ')}` : ''}`, tone: 'muted' }],
+    [{ text: accountTitle(view.account, view.provider.split(', ')), tone: 'accent', bold: true }, { text: `  ${accountTitle(view.account, view.provider.split(', ')) === view.account ? view.provider : view.account}`, tone: 'muted' }],
     [{ text: updated, tone: view.stale ? 'error' : 'muted' }, { text: '  ', tone: 'text' }, { text: `[${view.badge}]`, tone: view.badgeTone, bold: true }], inner));
   if (!view.windows.length && !view.orphans.length) { blank(); card([{ text: 'No windows reported.', tone: 'muted' }]); }
   for (const window of view.windows) {
@@ -365,8 +376,8 @@ export function overviewRows(snapshot: QuotaSnapshot | null, now: number, barWid
   if (!snapshot) return [];
   return snapshot.accounts.map(account => {
     const view = accountView(account, snapshot.coverage.sources, now), window = view.constraining;
-    if (!window) return { account: view.account, badge: view.badge, badgeTone: view.badgeTone, bar: barLayout(barWidth, null, null), tone: 'muted' as Tone, text: 'Unknown', window: null };
+    if (!window) return { account: accountTitle(view.account, view.provider.split(', ')), badge: view.badge, badgeTone: view.badgeTone, bar: barLayout(barWidth, null, null), tone: 'muted' as Tone, text: 'Unknown', window: null };
     const reset = window.resetAt === null ? 'no reset clock' : window.resetAt <= now ? `reset passed ${span(now - window.resetAt)} ago` : `resets in ${span(window.resetAt - now)}`;
-    return { account: view.account, badge: view.badge, badgeTone: view.badgeTone, bar: barLayout(barWidth, window.remaining, window.pace), tone: window.tone, text: `${window.leftText} · ${reset}`, window: window.title };
+    return { account: accountTitle(view.account, view.provider.split(', ')), badge: view.badge, badgeTone: view.badgeTone, bar: barLayout(barWidth, window.remaining, window.pace), tone: window.tone, text: `${window.leftText} · ${reset}`, window: window.title };
   });
 }

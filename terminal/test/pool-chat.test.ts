@@ -33,8 +33,8 @@ test('pool facts are optional, closed, labeled and merged across the row and its
 test('pool list validates row facts and keeps closed pools out of the navigation order', () => {
   assert.throws(() => groupPools([{ ...fixture.pool_chat, kind: 'x' }], ''), /pool_kind/);
   const groups = groupPools([fixture.pool_chat, fixture.pool_managed], '', false);
-  assert.deepEqual(groups.items.map((row: Json) => row.pool.pool_id), ['pool-chat-1']);
-  assert.equal(groups.closed.loaded, 1);
+  assert.deepEqual(groups.items, []);
+  assert.equal(groups.finished.loaded, 2);
 });
 
 test('seat fields are all-or-nothing, typed and null only for an unadmitted agent', () => {
@@ -103,17 +103,22 @@ test('the agreement ID comes from the new completion event and the legacy wordin
 const agentIds = { chat: 'pool-chat-1', managed: 'pool-managed-1' };
 
 /** A demo client whose Pool answers with one open chat pool and one closed managed pool. */
-function chatClient(options: { withKind?: boolean; withSeats?: boolean; withCompletionId?: boolean; completionId?: string | null } = {}): { client: ObservationClient; completionRequests: Json[]; historyScans: Json[] } {
+function chatClient(options: { withKind?: boolean; withSeats?: boolean; withCompletionId?: boolean; completionId?: string | null; snapshot?: boolean } = {}): { client: ObservationClient; completionRequests: Json[]; historyScans: Json[] } {
   const withKind = options.withKind ?? true, withSeats = options.withSeats ?? true, withCompletionId = options.withCompletionId ?? true, demo = createDemoClient(), completionRequests: Json[] = [], historyScans: Json[] = [];
-  const pool = (row: Json): Json => { const copy = clone(row); if (!withKind) delete copy.kind; if (!withCompletionId) delete copy.completion_id; return copy; };
+  const pool = (row: Json): Json => { const copy = clone(row); if (!withKind) delete copy.kind; if (!withCompletionId) delete copy.completion_id; else if (copy.kind === 'chat' && options.completionId !== undefined) copy.completion_id = options.completionId; return copy; };
   const facts: Json = { ...(withKind ? { kind: 'chat' } : {}), ...(withCompletionId ? { completion_id: options.completionId === undefined ? 'agr-7' : options.completionId } : {}) };
   const completedEvent = { event_id: 2, event_id_exact: '2', revision: 12, kind: 'pool_completed', author: { kind: 'service' }, body: 'Agreement agr-7 committed for proposal prop-3.', recipient: null };
   const client: ObservationClient = {
     async read(resource, params = {}, signal) {
-      const base = await demo.read(resource === 'pool.completion_get' ? 'pool.identity' : resource, resource === 'pool.get' ? { ...params, pool_id: 'demo-pool' } : params, signal);
+      const base = await demo.read(resource === 'pool.completion_get' || resource === 'pool.inventory_snapshot' ? 'pool.identity' : resource, resource === 'pool.get' ? { ...params, pool_id: 'demo-pool' } : params, signal);
       const outer = base.data as Json;
-      if (resource === 'pool.identity') return { ...base, data: { ...outer, data: { ...outer.data, capabilities: ['identity', 'list', 'get', 'history_window_v1', 'completion_record_v1', 'observer_socket_v1'] } } };
+      if (resource === 'pool.identity') return { ...base, data: { ...outer, data: { ...outer.data, capabilities: ['identity', 'list', 'get', 'history_window_v1', 'completion_record_v1', 'observer_socket_v1', ...(options.snapshot ? ['inventory_snapshot_v1'] : [])] } } };
       if (resource === 'pool.list') { const rows = [pool(fixture.pool_chat), pool(fixture.pool_managed)]; return { ...base, data: { ...outer, data: { ...outer.data, pools: rows, cursor: 'pool-managed-1', returned: 2 } } }; }
+      if (resource === 'pool.inventory_snapshot') {
+        const pools = [{ ...pool(fixture.pool_chat), roster: clone(fixture.seats) }, { ...pool(fixture.pool_managed), roster: [] }];
+        pools[0].roster[0].notice_undeliverable = true;
+        return { ...base, resource, data: { schema_version: 1, kind: 'inventory_snapshot', data: { source: { store_id: 's', read_epoch: 'e', revision: '9' }, totals: { total: '2', closed: '1', unknown: '0', open: '2', completed: '0' }, coverage: 'fixture', pools, returned: 2, has_more: false, next_cursor: null, observed_at_unix_ms: 1 } } };
+      }
       if (resource === 'pool.completion_get') { completionRequests.push(params); return { ...base, resource, outcome: 'ok', data: clone(fixture.agreement), error: null } as ReadResponse; }
       if (resource === 'pool.get') {
         if (params.pool_id !== agentIds.chat) return { ...base, outcome: 'unavailable', data: null, error: { code: 'demo_pool_missing', message: 'x' } } as ReadResponse;
@@ -121,8 +126,9 @@ function chatClient(options: { withKind?: boolean; withSeats?: boolean; withComp
         const chat = fixture.pool_chat.pool;
         if (params.section === 'history' && params.direction === 'backward') {
           historyScans.push(params);
-          const events = [...view!.events, completedEvent];
-          return { ...base, data: { ...outer, data: { ...data, ...facts, history_watermark: '2', returned: events.length, view: { ...view, pool: chat, events } } } };
+          const events = options.completionId === null ? view!.events : [...view!.events, completedEvent];
+          const watermark = String(events.at(-1)?.event_id_exact ?? '0');
+          return { ...base, data: { ...outer, data: { ...data, ...facts, history_watermark: watermark, cursor: String(events[0]?.event_id_exact ?? '0'), returned: events.length, view: { ...view, pool: chat, events } } } };
         }
         if (view) {
           const seats = params.section === 'members' && withSeats ? clone(fixture.seats) : view.members;
@@ -141,14 +147,12 @@ test('pool list tags the kind and keeps closed pools collapsed', async () => {
   const unmount = mountHub(setup.renderer, client, 'demo', () => {});
   try {
     setup.mockInput.pressKey('2');
-    const frame = await setup.waitForFrame(value => value.includes('Chat review pool'));
-    assert.match(frame, /Open · chat pool · completed · pool-chat-1/);
-    assert.match(frame, /Closed · 1 loaded/);
-    assert.doesNotMatch(frame, /Legacy managed pool/);
+    const frame = await setup.waitForFrame(value => value.includes('▸ Finished  2'));
+    assert.doesNotMatch(frame, /Chat review pool|Legacy managed pool/);
     setup.mockInput.pressKey('o');
     const shown = await setup.waitForFrame(value => value.includes('Legacy managed pool'));
-    assert.match(shown, /Closed · managed pool \(legacy\) · pool-managed-1/);
-    assert.doesNotMatch(shown.split('\n').filter(line => line.includes('pool-managed-1')).join('\n'), /completed/);
+    assert.match(shown, /Completed · chat pool/);
+    assert.match(shown, /Closed · managed pool/);
   } finally { unmount(); await client.close(); await setup.dispose(); }
 });
 
@@ -218,5 +222,23 @@ test('an explicit null completion_id reports no record and reads nothing', async
     const frame = await setup.waitForFrame(value => value.includes('no completion or agreement record yet'));
     assert.match(frame, /no completion or agreement record yet/);
     assert.equal(completionRequests.length, 0);
+  } finally { unmount(); await client.close(); await setup.dispose(); }
+});
+
+test('a live chat spins, opens its history within the split and labels Run membership from inventory', async () => {
+  const { client } = chatClient({ completionId: null, snapshot: true }), setup = await createTestRenderer({ width: 160, height: 40 });
+  const unmount = mountHub(setup.renderer, client, 'demo', () => {});
+  try {
+    setup.mockInput.pressKey('2');
+    const list = await setup.waitForFrame(frame => frame.includes('Chat review pool') && frame.includes('notice undeliverable'));
+    assert.match(list, /[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] Chat review pool/);
+    assert.match(list, /chat pool · 2 seats/);
+    assert.doesNotMatch(list, /Legacy managed pool/);
+    setup.mockInput.pressEnter();
+    const detail = await setup.waitForFrame(frame => frame.includes('[History]') && frame.includes('Synthetic discussion'));
+    assert.match(detail, /Following/);
+    assert.match(detail, /▸ Finished  1/);
+    setup.mockInput.pressKey('1');
+    await setup.waitForFrame(frame => frame.includes('Pool: Chat review pool'));
   } finally { unmount(); await client.close(); await setup.dispose(); }
 });

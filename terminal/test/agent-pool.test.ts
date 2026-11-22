@@ -43,7 +43,7 @@ test('Pool views verify execution references without claiming history attributio
     assert.match(frame, /Cleanup: unknown/);
     assert.doesNotMatch(frame, /Cleanup: confirmed/);
     setup.mockInput.pressArrow('right');
-    frame = await setup.waitForFrame(value => value.includes('[Discussion]') && value.includes('Synthetic discussion'));
+    frame = await setup.waitForFrame(value => value.includes('[History]') && value.includes('Synthetic discussion'));
     assert.match(frame, /historical timestamps not reported/);
     setup.mockInput.pressArrow('right');
     frame = await setup.waitForFrame(value => value.includes('[Decisions]') && value.includes('Synthetic proposed result'));
@@ -449,7 +449,7 @@ test('history windows keep IDs above 2^53 exact while following and exporting a 
     setup.mockInput.pressEnter(); await setup.waitForFrame(value => value.includes('[Members]'));
     setup.mockInput.pressArrow('right');
     await setup.waitForFrame(value => value.includes(`Event ${ids[19]}`) && value.includes('Following'));
-    const captured = setup.captureSpans(), column = 2 + Math.floor((120 - 6) * 0.64) - 1;
+    const captured = setup.captureSpans(), column = 120 - 3;
     const track = backgroundAt(captured, 8, column), thumb = Array.from({ length: 12 }, (_, index) => index + 8).filter(row => backgroundAt(captured, row, column) !== track);
     assert.ok(thumb.length > 0 && thumb.at(-1)! - thumb[0] + 1 === thumb.length, 'the pool scrollbar thumb is continuous');
     await setup.mockMouse.drag(column, thumb.at(-1)!, column, 8);
