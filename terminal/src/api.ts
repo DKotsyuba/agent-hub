@@ -20,6 +20,8 @@ export interface ReadResponse {
 
 /** Finite read-only observations; closing cancels only application-owned reads. */
 export interface ObservationClient {
+  /** Optional v1 reads and subscriptions used by the HTTP terminal. */
+  readonly http?: ReturnType<typeof import('../../packages/client/src/index.ts').createHubClient>;
   read(resource: Resource, params?: Record<string, unknown>, signal?: AbortSignal): Promise<ReadResponse>;
   close(): Promise<void>;
 }

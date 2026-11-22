@@ -1,4 +1,5 @@
 /** Exercises the actual OpenTUI → native adapter → isolated source transports. */
+import { existsSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import net from 'node:net';
@@ -6,13 +7,15 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { createTestRenderer } from '@opentui/core/testing';
-import { createNativeClient } from '../src/client.ts';
+import { createNativeClient } from './native-observer-harness.ts';
 import { mountHub } from '../src/hub.ts';
 
-test('live interface reads only the isolated Run and Bridge fixtures', async () => {
+const binary = process.env.AGENT_HUB_TEST_OBSERVER ?? fileURLToPath(new URL('../../server/observer/target/debug/agent-hub-observer', import.meta.url));
+const skip = (process.env.AGENT_HUB_TEST_OBSERVER || existsSync(binary)) ? false : 'relocated observer binary is not built';
+
+test('live interface reads only the isolated Run and Bridge fixtures', { skip }, async () => {
   const temp = process.env.TMPDIR;
   assert.ok(temp && path.isAbsolute(temp));
-  const binary = process.env.AGENT_HUB_TEST_OBSERVER ?? fileURLToPath(new URL('../observer/target/debug/agent-hub-observer', import.meta.url));
   const directory = await mkdtemp(path.join(temp, 'hub-e2e-test-'));
   const socket = path.join(directory, 'run.sock'), helper = path.join(directory, 'bridge-fixture'), config = path.join(directory, 'connections.json');
   const methods: string[] = [], rawCursors: number[] = [];

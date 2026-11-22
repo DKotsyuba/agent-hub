@@ -15,9 +15,12 @@ const MESSAGES: Record<ErrorCode, string> = {
 
 /** Expected request failure with a safe HTTP code. */
 export class FixtureError extends Error {
+  readonly code: ErrorCode;
+
   /** Captures the machine code corresponding to the canonical v1 HTTP status. */
-  constructor(readonly code: ErrorCode) {
+  constructor(code: ErrorCode) {
     super(MESSAGES[code]);
+    this.code = code;
   }
 }
 

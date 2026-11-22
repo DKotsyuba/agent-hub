@@ -28,6 +28,10 @@ export function poolFormerBinding(value: unknown, poolId: string, memberId: stri
 export function groupPoolEvents(events: Record<string, unknown>[]): PoolMessage[] {
   const groups: PoolMessage[] = [];
   for (const event of events) {
+    if (typeof event.projected_complete === 'boolean') {
+      groups.push({ head: event, parts: [event], complete: event.projected_complete, valid: event.projected_valid === true });
+      continue;
+    }
     const id = event.event_id_exact ?? event.event_id, parent = event.message_event_id, index = event.part_index, count = event.part_count;
     const hasParts = parent != null || index != null || count != null || event.kind === 'message_part';
     if (!hasParts) { groups.push({ head: event, parts: [event], complete: true, valid: true }); continue; }
@@ -51,8 +55,10 @@ export function poolEventHeading(group: PoolMessage, roster: readonly Record<str
   const kind = event.kind ?? 'unknown event';
   // The owner observer may expose an exact recipient. Never infer a missing target from the roster or body.
   const recipient = kind === 'direct_message' && typeof event.recipient === 'string' && event.recipient ? ` · to ${event.recipient}` : '';
-  const part = group.complete ? '' : ` · incomplete message (${event.part_index ?? '?'}–${group.parts.at(-1)?.part_index ?? '?'}/${event.part_count ?? '?'})`;
-  return `${authorLabel} · #${event.message_event_id ?? event.event_id_exact ?? event.event_id ?? '?'} · ${kind}${part} · revision ${event.revision ?? '?'}${recipient}`;
+  const range = event.projected_range && typeof event.projected_range === 'object' ? object(event.projected_range) : null;
+  const at = typeof event.at_ms === 'number' ? ` · ${new Date(event.at_ms).toISOString()}` : '';
+  const part = group.complete ? '' : ` · incomplete message (${range?.first ?? event.part_index ?? '?'}–${range?.last ?? group.parts.at(-1)?.part_index ?? '?'}/${range?.expected ?? event.part_count ?? '?'})`;
+  return `${authorLabel} · #${event.message_event_id ?? event.event_id_exact ?? event.event_id ?? '?'} · ${kind}${part} · revision ${event.revision ?? '?'}${recipient}${at}${group.valid ? '' : ' · invalid grouping'}`;
 }
 
 /** Validates one nonnegative i64 encoded without a JavaScript numeric conversion. */
@@ -67,6 +73,17 @@ export function poolWindow(value: unknown, id: string, direction: 'forward' | 'b
   if (data.section !== 'history' || typeof data.has_more !== 'boolean' || data.source_timestamp !== null) throw new Error('pool_history_section');
   const view = object(data.view), source = object(view.pool), entries = view.events;
   if (source.pool_id !== id || view.section !== 'history' || !Array.isArray(entries) || view.has_more !== data.has_more || integer(data.returned) !== entries.length) throw new Error('pool_history_attribution');
+  if (data.http === true) {
+    const cursor = String(data.cursor), watermark = String(data.history_watermark);
+    let prior = -1n;
+    const rows = entries.map(item => {
+      const row = object(item), position = BigInt(String(row.event_id_exact));
+      if (position <= prior || (boundary !== null && (direction === 'forward' ? position <= BigInt(boundary) : position >= BigInt(boundary)))) throw new Error('pool_history_order');
+      prior = position;
+      return row;
+    });
+    return { entries: rows, cursor, watermark, more: data.has_more };
+  }
   const watermark = exact(data.history_watermark), cursor = exact(data.cursor);
   if (through !== null && watermark !== exact(through)) throw new Error('pool_history_watermark');
   if (boundary !== null) exact(boundary);
