@@ -384,6 +384,7 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
   let wheelState: History | null = null, wheelDirection = 0, wheelRemainder = 0, queuedWheel: { state: History; rows: number } | null = null;
   let waitingWheel: { beginning: Beginning; rows: number } | null = null;
   let connection: 'connecting' | 'connected' | 'disconnected' = 'connecting';
+  let contentGeneration = 0;
   let eventController: AbortController | null = null, eventKey = '';
   let httpOverview: ApiResponse<'overview'> | null = null, overviewRequest = 0, overviewStale = false;
   let httpDetail: ApiResponse<'session'> | null = null, detailRequest = '', detailBusy = false;
@@ -1151,6 +1152,7 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
   async function loadInitialTask(): Promise<void> {
     const agent = selectedAgent(); if (!agent || route !== 'sessions' || initialTasks.has(executionKey(agent))) return;
     const key = executionKey(agent), controller = new AbortController();
+    const generation = contentGeneration;
     const state: InitialTaskState = { busy: true, controller, result: null, unsupported: false, lines: null };
     initialTasks.set(key, state); render();
     const current = () => alive && !controller.signal.aborted && initialTasks.get(key) === state && route === 'sessions' && !!selectedAgent() && executionKey(selectedAgent()!) === key;
@@ -1178,6 +1180,11 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
       }
       }
     } catch { if (!current()) { drop(); return; } state.result = { state: 'unverified', reason: 'read_failed' }; }
+    if (client.http && state.result?.state === 'unverified' && generation !== contentGeneration) {
+      drop();
+      void loadInitialTask();
+      return;
+    }
     state.busy = false; state.controller = null; render();
   }
   function cancelSessionReads(): void { const agent = selectedAgent(); if (agent) cancelExecutionReads(executionKey(agent)); }
@@ -1382,9 +1389,15 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
     if (state.busy || state.loaded) return; state.busy = true; const controller = new AbortController(); state.controller = controller; render();
     const current = () => { const selected = selectedAgent(); return alive && !controller.signal.aborted && route === 'sessions' && tab === 'result' && answers.get(key) === state && !!selected && executionKey(selected) === ownerKey && selected.answerSha === agent.answerSha; };
     if (client.http) {
+      const generation = contentGeneration;
       try { state.content = await loadHttpResult(client.http, agent.id, executionSelector(agent), agent.sequence, controller.signal); }
       catch (error) { state.issue = error instanceof Error ? error.message : 'Result unavailable'; }
       if (!current()) { if (answers.get(key) === state) answers.delete(key); return; }
+      if (state.issue !== null && generation !== contentGeneration) {
+        answers.delete(key);
+        void loadAnswer();
+        return;
+      }
       state.busy = false; state.loaded = true; state.controller = null; render(); return;
     }
     const envelope = await read('run.answer', { agent_id: agent.id }, controller.signal);
@@ -1561,7 +1574,10 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
     let queued = false;
     void client.http.watch(topics, interval, {
       event: event => {
-        if (event.type === 'ready') retryHttpContent();
+        if (event.type === 'ready') {
+          contentGeneration++;
+          retryHttpContent();
+        }
         if (queued) return;
         queued = true;
         queueMicrotask(() => {

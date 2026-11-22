@@ -4,6 +4,7 @@ import { createConnection } from 'node:net';
 import { dirname, isAbsolute, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHttp } from './http.ts';
+import { errorResponse, HubError } from './errors.ts';
 import { createNativeClient } from './observer.ts';
 import project from '../../package.json';
 
@@ -18,6 +19,7 @@ interface Runtime {
   serve(options: ({ unix: string } | { hostname: '127.0.0.1'; port: number }) & {
     fetch(request: Request, server: Listener): Promise<Response>;
     idleTimeout: number;
+    maxRequestBodySize: number;
   }): Listener;
 }
 
@@ -73,7 +75,12 @@ export async function listen(http: ReturnType<typeof createHttp>, transport: { u
     listener = runtime.serve({
       ...('unix' in transport ? transport : { hostname: '127.0.0.1' as const, port: transport.port }),
       idleTimeout: 35,
+      maxRequestBodySize: 1024,
       fetch(request, server) {
+        if (request.method === 'GET' && (request.headers.has('transfer-encoding') ||
+            Number(request.headers.get('content-length')) !== 0 || request.body !== null)) {
+          return Promise.resolve(errorResponse(new HubError('invalid_request')));
+        }
         return http.fetch(request, () => server.timeout(request, 0));
       },
     });

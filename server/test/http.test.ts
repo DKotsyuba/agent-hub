@@ -542,3 +542,52 @@ test('HTTP caps shared finite requests and response bodies while admitting only 
     await http.close();
   }
 });
+
+test('overview receipts before a period are unknown and incomplete closed periods are lower bounds', async () => {
+  const native = await producer();
+  const http = handler({ close: native.close, async read(resource, params, signal) {
+    const value = await native.read(resource, params, signal);
+    if (resource === 'run.agents') {
+      const data = object(value.data);
+      return envelope(resource, { ...data, items: (data.items as object[]).map(row => ({
+        ...row, created_at: now / 1000 - 1, finished_at: now / 1000 - 1,
+      })) });
+    }
+    return { ...value, observed_at_ms: now };
+  } });
+  try {
+    const stale = (await get(http, 'overview', '/overview?from=' + (now + 1) + '&to=' + (now + 1000))).data;
+    for (const field of ['started', 'finished', 'succeeded', 'failed'] as const) assert.equal(stale.run?.[field].kind, 'unknown');
+    assert.equal(stale.bridge?.accepted.kind, 'unknown');
+    const incomplete = (await get(http, 'overview', '/overview?from=' + (now - 2000) + '&to=' + (now + 1000))).data;
+    assert.equal(incomplete.run?.started.kind, 'lower_bound');
+    assert.ok((incomplete.run?.started.value ?? 0) > 0);
+    const complete = (await get(http, 'overview', '/overview?from=' + (now - 2000) + '&to=' + now)).data;
+    assert.equal(complete.run?.started.kind, 'exact');
+  } finally { await http.close(); }
+});
+
+test('answer metadata alone does not advertise verifiedResult or trigger an answer read', async () => {
+  const native = await producer();
+  let chunks = false;
+  let answerReads = 0;
+  const http = handler({ close: native.close, async read(resource, params, signal) {
+    const value = await native.read(resource, params, signal);
+    if (resource === 'run.answer' || resource === 'run.answer_chunk') answerReads++;
+    return resource === 'run.identity' && !chunks
+      ? { ...value, data: { ...object(value.data), tools: [] } }
+      : value;
+  } });
+  try {
+    const path = '/sessions/demo-finished';
+    const detail = await get(http, 'session', path);
+    assert.equal(detail.data.session.answerAvailable, true);
+    assert.equal(detail.capabilities?.verifiedResult, 'unsupported');
+    const result = await http.fetch(request(mount + path + '/result'));
+    assert.equal(result.status, 422);
+    assert.equal(apiError(await result.json()).error.code, 'unsupported_capability');
+    assert.equal(answerReads, 0);
+    chunks = true;
+    assert.equal((await get(http, 'session', path)).capabilities?.verifiedResult, 'supported');
+  } finally { await http.close(); }
+});

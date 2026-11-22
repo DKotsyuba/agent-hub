@@ -65,6 +65,7 @@ function observerEnvironment(runOverride?: { socket: string; brokerUid?: number 
     result.AGENT_HUB_SESSION_SOCKET = runOverride.socket;
     if (runOverride.brokerUid !== undefined) result.AGENT_HUB_SESSION_BROKER_UID = String(runOverride.brokerUid);
   }
+  if (process.platform !== 'win32') result.AGENT_HUB_SUPERVISED_OBSERVER = '1';
   return result;
 }
 
@@ -109,12 +110,20 @@ export function createNativeClient(executable: string, runOverride?: { socket: s
         signal?.removeEventListener('abort', abort);
         resolve(value);
       };
+      /** Sweeps the isolated observer group even after a cooperative exit. */
+      const killOwnedGroup = () => {
+        try {
+          if (process.platform !== 'win32' && child.pid) process.kill(-child.pid, 'SIGKILL');
+          else if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+        } catch { /* The group has already exited. */ }
+      };
+      child.once('exit', killOwnedGroup);
       /** Ask the native observer to cancel first; a stuck observer is bounded. */
       cancel = (code: string) => {
         if (settled || cancellation) return;
         cancellation = code;
         child.stdin?.end();
-        killTimer = setTimeout(() => child.kill('SIGKILL'), 5000);
+        killTimer = setTimeout(killOwnedGroup, 5000);
         killTimer.unref();
       };
       const abort = () => cancel('cancelled');

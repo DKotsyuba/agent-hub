@@ -124,17 +124,23 @@ export async function overview(ctx: ReadContext, query: Input<'overview'>) {
     const history = run.status === 'fulfilled' ? run.value : null, current = active.status === 'fulfilled' ? active.value : null;
     const rows = history?.rows ?? [];
     const currentRows = current?.rows ?? rows.filter(item => activeStatus(item.status));
-    const inFinish = rows.filter(item => !activeStatus(item.status) && inPeriod(query, item.finishedAtMs));
-    const exact = history?.observation.coverage?.state === 'complete';
+    const receipt = history?.observation.observedAtMs ?? 0;
     const bounded = query.from !== null || query.to !== null;
-    const exactStarted = exact && (!bounded || rows.every(item => item.createdAtMs !== null));
-    const exactFinished = exact && (!bounded || rows.every(item => activeStatus(item.status) || item.finishedAtMs !== null));
+    const observedPeriod = !!history && (query.from === null || receipt >= query.from);
+    const coversPeriod = !bounded || query.to === null || query.to > Date.now() || receipt >= query.to;
+    /** Accepts only a reported clock within the selected period and observed by the receipt. */
+    const counted = (clock: number | null) => !bounded || clock !== null && clock <= receipt && inPeriod(query, clock);
+    const finished = rows.filter(item => !activeStatus(item.status));
+    const inFinish = finished.filter(item => counted(item.finishedAtMs));
+    const exact = history?.observation.coverage?.state === 'complete';
+    const exactStarted = exact && coversPeriod && (!bounded || rows.every(item => item.createdAtMs !== null && item.createdAtMs <= receipt));
+    const exactFinished = exact && coversPeriod && (!bounded || finished.every(item => item.finishedAtMs !== null && item.finishedAtMs <= receipt));
     data.run = {
       active: metric(currentRows.length, current ? current.observation.coverage?.state === 'complete' : exact), current: currentRows.slice(0, 50),
-      started: history ? metric(rows.filter(item => inPeriod(query, item.createdAtMs)).length, exactStarted) : unknown,
-      succeeded: history ? metric(inFinish.filter(item => item.status === 'succeeded').length, exactFinished) : unknown,
-      failed: history ? metric(inFinish.filter(item => ['failed', 'lost', 'timed_out'].includes(item.status)).length, exactFinished) : unknown,
-      finished: history ? metric(inFinish.length, exactFinished) : unknown,
+      started: observedPeriod ? metric(rows.filter(item => counted(item.createdAtMs)).length, exactStarted) : unknown,
+      succeeded: observedPeriod ? metric(inFinish.filter(item => item.status === 'succeeded').length, exactFinished) : unknown,
+      failed: observedPeriod ? metric(inFinish.filter(item => ['failed', 'lost', 'timed_out'].includes(item.status)).length, exactFinished) : unknown,
+      finished: observedPeriod ? metric(inFinish.length, exactFinished) : unknown,
     };
   }
   for (const result of [run, active]) observations.push(result.status === 'fulfilled' ? result.value.observation : failed('run', result.reason));
@@ -146,6 +152,7 @@ export async function overview(ctx: ReadContext, query: Input<'overview'>) {
   }
   /** Count only rows with producer clocks bounded by their own receipt. */
   const bridgeMetric = (scan: Awaited<ReturnType<typeof bridgeScan>>, field: string) => {
+    if (query.from !== null && scan.observation.observedAtMs < query.from) return unknown;
     let complete = scan.observation.coverage?.state === 'complete';
     let count = 0;
     for (const row of scan.items) {

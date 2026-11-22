@@ -195,3 +195,31 @@ test('Unix listener refuses an unexpected file or a running peer at its socket p
     } finally { await running.stop(); }
   } finally { await http.close(); await rm(directory, { recursive: true }); }
 });
+
+test('Unix listener caps inbound bytes and rejects body framing before GET dispatch', async () => {
+  const directory = await unixDirectory();
+  const socket = join(directory, 'http.sock');
+  let nativeReads = 0;
+  const http = createHttp({
+    close: async () => {},
+    read: async () => { nativeReads++; throw new Error('unexpected native read'); },
+  }, { localHost: 'localhost', webRoot: directory, release: 'test' });
+  const listener = await listen(http, { unix: socket });
+  /** Uses raw HTTP because fetch disallows GET bodies. */
+  async function status(method: string, framing: string, body = '') {
+    return new Promise<number>((resolve, reject) => {
+      const client = createConnection(socket);
+      client.once('connect', () => client.write(`${method} /api/v1/sessions HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n${framing}\r\n${body}`));
+      client.once('data', data => { client.destroy(); resolve(Number(data.toString().split(' ')[1])); });
+      client.once('error', reject);
+      client.setTimeout(2000, () => { client.destroy(); reject(new Error('HTTP response timeout')); });
+    });
+  }
+  try {
+    assert.equal(await status('GET', 'Content-Length: 4\r\n', 'body'), 400);
+    assert.equal(await status('GET', 'Transfer-Encoding: chunked\r\n', '1\r\nx\r\n0\r\n\r\n'), 400);
+    assert.equal(await status('POST', 'Content-Length: 1025\r\n', 'x'.repeat(1025)), 413);
+    assert.equal(nativeReads, 0);
+    assert.equal((await local(socket, '/health')).status, 200);
+  } finally { await listener.stop(); await rm(directory, { recursive: true }); }
+});

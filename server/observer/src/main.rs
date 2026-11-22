@@ -1,7 +1,8 @@
 //! One-request terminal observer using the native read contracts and transports.
 //!
 //! The parent writes one JSON line and keeps stdin open until the response. EOF
-//! cancels the read; only an observer-owned source frontend is killed and reaped.
+//! cancels the read and the observer reaps its frontend. The Hub server sweeps
+//! the shared process group on exit or forced cancellation.
 
 // The shared desktop modules contain additional resources/helpers intentionally
 // unused by this narrower executable; no extra route is exposed by linking them.

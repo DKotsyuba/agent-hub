@@ -110,7 +110,7 @@ async function discover(ctx: ReadContext) {
   const capabilities = optionalObject(data.capabilities), methods = capabilities.read_methods;
   const exact = capabilities.schema_version === 1 && capabilities.product === 'agent-run' && Array.isArray(methods)
     && methods.some(method => optionalObject(method).name === 'transcript_exact');
-  return { identity, task: initialTaskCapability(data), exact };
+  return { identity, task: initialTaskCapability(data), exact, chunks: (identity.outcome === 'ok' || identity.outcome === 'partial') && supportsChunks(data) };
 }
 
 /** Emits only top-level, nonnegative counts from a producer metric map. */
@@ -128,7 +128,7 @@ export async function sessionDetail(ctx: ReadContext, query: Input<'session'>) {
     initialTaskStrict: discovery.task?.modes.includes('strict') && pinned(result) && row.sequence === 1 ? 'supported' : 'unsupported',
     initialTaskCurrent: discovery.task?.modes.includes('current') ? 'supported' : 'unsupported',
     exactExport: discovery.exact && pinned(result) ? 'supported' : 'unsupported',
-    verifiedResult: result.execution && row.answerAvailable && result.agent.answerSha ? 'supported' : 'unsupported',
+    verifiedResult: discovery.chunks && result.execution && row.answerAvailable && result.agent.answerSha ? 'supported' : 'unsupported',
   };
   const lineage = e ? {
     storeFenced: e.storeFenced, match: { sessionId: row.id, execution: result.execution, match: e.match },
@@ -240,19 +240,15 @@ export async function initialTask(ctx: ReadContext, query: Input<'initialTask'>,
     capabilities: strict ? { initialTaskStrict: 'supported' } : { initialTaskCurrent: 'supported' } };
 }
 
-/** Recognizes chunk support only on a usable finite discovery payload. */
-function usableIdentity(data: unknown): boolean {
-  return data !== null && supportsChunks(data);
-}
-
 /** Verifies answer digest and rejects a changed execution or digest after assembly. */
 export async function sessionResult(ctx: ReadContext, query: Input<'sessionResult'>, position: Position | null) {
   const [result, discovery] = await Promise.all([selected(ctx, query), discover(ctx)]);
   const { agent, execution } = result;
   if (!execution || !agent.answerSha || agent.answerAvailable !== true) throw new HubError('not_found');
+  if (!discovery.chunks) throw new HubError('unsupported_capability');
   const envelope = await ctx.read('run.answer', { agent_id: query.id });
   const content = await answerText(requireData(envelope), query.id, agent.sequence, agent.answerSha,
-    usableIdentity(discovery.identity.data), async params => requireData(await ctx.read('run.answer_chunk', params)), () => !ctx.signal.aborted, true);
+    true, async params => requireData(await ctx.read('run.answer_chunk', params)), () => !ctx.signal.aborted, true);
   if (content === null) throw new HubError('not_found');
   const after = await selected(ctx, query);
   if (after.execution !== execution || after.evidence?.storeId !== result.evidence?.storeId || after.agent.sequence !== agent.sequence || after.agent.answerSha !== agent.answerSha) throw new HubError('stale_boundary');

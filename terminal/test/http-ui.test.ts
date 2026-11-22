@@ -146,7 +146,9 @@ test('HTTP adapter keeps empty, stale and unavailable observations independent',
   }
 });
 
-test('terminal readiness retries failed content and rewinds a rejected incident continuation', async () => {
+for (const pending of [false, true]) test(pending
+  ? 'terminal retries task and result failures that settle after a newer ready generation'
+  : 'terminal readiness retries failed content and rewinds a rejected incident continuation', async () => {
   const { createFixtureFetch } = await import('../../packages/client/fixtures/index.ts');
   const fixture = createFixtureFetch('populated');
   const baseUrl = new URL('https://fixture.test');
@@ -155,16 +157,23 @@ test('terminal readiness retries failed content and rewinds a rejected incident 
   } }, { status });
   let resumed = false, resultReads = 0, taskReads = 0, staleIncidents = 0;
   let incidentStarts = 0;
+  const priorRead = Promise.withResolvers<void>();
   let ready = () => {};
   const http = createHubClient({ baseUrl, async fetch(input, init) {
     const url = new URL(String(input));
     if (url.pathname.endsWith('/demo-finished/initial-task')) {
       taskReads++;
-      if (!resumed) return rejected('source_unavailable', 503);
+      if (!resumed) {
+        if (pending) await priorRead.promise;
+        return rejected('source_unavailable', 503);
+      }
     }
     if (url.pathname.endsWith('/demo-finished/result')) {
       resultReads++;
-      if (!resumed) return rejected('source_unavailable', 503);
+      if (!resumed) {
+        if (pending) await priorRead.promise;
+        return rejected('source_unavailable', 503);
+      }
     }
     if (url.pathname.endsWith('/incidents')) {
       if (url.searchParams.has('cursor')) {
@@ -212,10 +221,11 @@ test('terminal readiness retries failed content and rewinds a rejected incident 
     await click('Review saved output');
     await setup.waitForFrame(() => taskReads > 0);
     await click('Result');
-    await setup.waitForFrame(value => resultReads > 0 && value.includes('source_unavailable'));
+    await setup.waitForFrame(value => resultReads > 0 && (pending || value.includes('source_unavailable')));
     const failedAnswers = resultReads, failedTasks = taskReads;
     resumed = true;
     ready();
+    priorRead.resolve();
     await setup.waitForFrame(() => resultReads > failedAnswers && taskReads > failedTasks);
-  } finally { dispose(); await client.close(); await setup.dispose(); }
+  } finally { priorRead.resolve(); dispose(); await client.close(); await setup.dispose(); }
 });

@@ -315,3 +315,56 @@ process.stdin.once('end', () => {
     await rm(directory, { recursive: true });
   }
 });
+
+test('server sweeps Bridge and Worktree descendants even with the real observer stopped', async () => {
+  const { createNativeClient: createServerClient } = await import('../../server/src/observer.ts');
+  const temp = process.env.TMPDIR;
+  assert.ok(temp && path.isAbsolute(temp));
+  const directory = await mkdtemp(path.join(temp, 'hub-group-'));
+  const helper = path.join(directory, 'frontend.cjs'), config = path.join(directory, 'connections.json');
+  const marker = path.join(directory, 'pids');
+  const original = process.env.AGENT_HUB_CONFIG;
+  const client = createServerClient(binary, { readMs: 5000, killMs: 150 });
+  const owned: number[] = [];
+  /** Checks whether a known fixture process can still run after group cleanup. */
+  async function running(pid: number) {
+    return readFile('/proc/' + pid + '/status', 'utf8').then(
+      status => !/^State:\s+Z/m.test(status), error => { if (error.code === 'ENOENT') return false; throw error; });
+  }
+  try {
+    await writeFile(helper, `#!/usr/bin/env node
+const { spawn } = require('node:child_process');
+const fs = require('node:fs');
+const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+fs.writeFileSync(${JSON.stringify(marker)}, [process.ppid, process.pid, child.pid].join(' '));
+process.stdin.resume();
+setInterval(() => {}, 1000);
+`, { mode: 0o700 });
+    await writeFile(config, JSON.stringify({ schema_version: 1, bridge: { program: helper }, worktree: { program: helper } }));
+    process.env.AGENT_HUB_CONFIG = config;
+    for (const resource of ['bridge.overview', 'worktree.list'] as const) for (const stopped of [false, true]) {
+      const controller = new AbortController();
+      const result = client.read(resource, {}, controller.signal);
+      const pids = (await waitForFile(marker)).split(' ').map(Number);
+      owned.push(...pids);
+      assert.equal(pids.length, 3);
+      assert.ok(pids.every(pid => Number.isSafeInteger(pid) && pid > 1));
+      if (stopped) process.kill(pids[0], 'SIGSTOP');
+      controller.abort();
+      assert.equal((await result).error?.code, 'cancelled');
+      for (const pid of pids) {
+        for (let attempt = 0; attempt < 50 && await running(pid); attempt++) await new Promise(resolve => setTimeout(resolve, 20));
+        assert.equal(await running(pid), false, `${resource} fixture PID ${pid} survived ${stopped ? 'forced' : 'cooperative'} cleanup`);
+      }
+      owned.length = 0;
+      await rm(marker);
+    }
+  } finally {
+    for (const pid of owned) if (Number.isSafeInteger(pid) && pid > 1) {
+      try { process.kill(pid, 'SIGKILL'); } catch { /* Already stopped. */ }
+    }
+    await client.close();
+    if (original === undefined) delete process.env.AGENT_HUB_CONFIG; else process.env.AGENT_HUB_CONFIG = original;
+    await rm(directory, { recursive: true });
+  }
+});

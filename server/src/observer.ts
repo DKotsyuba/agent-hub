@@ -42,6 +42,7 @@ function observerEnvironment(): NodeJS.ProcessEnv {
     if (temp) result[key] = temp;
     else delete result[key];
   }
+  if (process.platform !== 'win32') result.AGENT_HUB_SUPERVISED_OBSERVER = '1';
   return result;
 }
 
@@ -86,6 +87,14 @@ export function createNativeClient(executable: string, deadlines = { readMs: 200
         signal?.removeEventListener('abort', abort);
         resolve(value);
       };
+      /** Sweeps the isolated observer group even after a cooperative exit. */
+      const killOwnedGroup = () => {
+        try {
+          if (process.platform !== 'win32' && child.pid) process.kill(-child.pid, 'SIGKILL');
+          else if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+        } catch { /* The group has already exited. */ }
+      };
+      child.once('exit', killOwnedGroup);
       /** Ask the native observer to cancel first; a stuck observer is bounded. */
       cancel = (code: string) => {
         if (settled || cancellation) return;
@@ -93,10 +102,7 @@ export function createNativeClient(executable: string, deadlines = { readMs: 200
         child.stdin?.end();
         killTimer = setTimeout(() => {
           // A stuck child or inherited output pipe must not delay reaping indefinitely.
-          try {
-            if (process.platform !== 'win32' && child.pid) process.kill(-child.pid, 'SIGKILL');
-            else child.kill('SIGKILL');
-          } catch { /* It already exited. */ }
+          killOwnedGroup();
           child.stdout?.destroy();
           child.stdin?.destroy();
         }, deadlines.killMs);
