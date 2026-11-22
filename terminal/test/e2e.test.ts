@@ -4,15 +4,15 @@ import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import net from 'node:net';
 import path from 'node:path';
 import test from 'node:test';
-import { fileURLToPath } from 'node:url';
 import { createTestRenderer } from '@opentui/core/testing';
-import { createNativeClient } from '../src/client.ts';
+import { createNativeClient, observerPath } from './native-observer-harness.ts';
 import { mountHub } from '../src/hub.ts';
+
+const binary = process.env.AGENT_HUB_TEST_OBSERVER ?? observerPath();
 
 test('live interface reads only the isolated Run and Bridge fixtures', async () => {
   const temp = process.env.TMPDIR;
   assert.ok(temp && path.isAbsolute(temp));
-  const binary = process.env.AGENT_HUB_TEST_OBSERVER ?? fileURLToPath(new URL('../observer/target/debug/agent-hub-observer', import.meta.url));
   const directory = await mkdtemp(path.join(temp, 'hub-e2e-test-'));
   const socket = path.join(directory, 'run.sock'), helper = path.join(directory, 'bridge-fixture'), config = path.join(directory, 'connections.json');
   const methods: string[] = [], rawCursors: number[] = [];
@@ -34,7 +34,10 @@ test('live interface reads only the isolated Run and Bridge fixtures', async () 
   await new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(socket, resolve); });
   await chmod(socket, 0o600);
   await writeFile(helper, `#!/usr/bin/env node\nlet input='';process.stdin.on('data',c=>input+=c);process.stdin.on('end',()=>{const r=JSON.parse(input);const counts={unhanded:0,reserved:0,invoking:0,held:0,review:0,accepted:0,hook_submitted:0,refused:0,disposed:0,open_incidents:0};const retention={events:0,payload_compacted:0,envelope_bytes:0,oldest_accepted_at_ms:null,newest_accepted_at_ms:null};const data=r.operation==='overview'?{counts,retention,coverage:'retained_history'}:{[r.operation]:[],through_seq:0,next_after_seq:null,coverage:'retained_history'};const kind=r.operation==='overview'?'bridge_overview':r.operation==='deliveries'?'delivery_page':'incident_page';process.stdout.write(JSON.stringify({schema_version:1,kind,data})+'\\n');});\n`, { mode: 0o700 });
-  await writeFile(config, JSON.stringify({ schema_version: 1, run: { socket }, bridge: { program: helper } }));
+  await writeFile(config, JSON.stringify({ schema_version: 1, run: { socket }, bridge: { program: helper },
+    quota: { socket: path.join(directory, 'quota.sock'), server_uid: process.getuid!() },
+    pool: { socket: path.join(directory, 'pool.sock'), server_uid: process.getuid!() },
+    worktree: { program: path.join(directory, 'worktree-disabled') } }));
   const previous = process.env.AGENT_HUB_CONFIG;
   process.env.AGENT_HUB_CONFIG = config;
   const client = createNativeClient(binary), setup = await createTestRenderer({ width: 120, height: 40 });

@@ -1,9 +1,7 @@
 /** Starts the Bun executable with its own private native assets. */
 import { accessSync, closeSync, constants, fstatSync, lstatSync, mkdirSync, mkdtempSync, openSync, realpathSync, readdirSync, rmdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
-import observerAsset from '../observer/target/x86_64-unknown-linux-gnu/release/agent-hub-observer' with { type: 'file' };
-import nativeAsset from '../node_modules/@opentui/core-linux-x64/libopentui.so' with { type: 'file' };
-import { useEmbeddedObserver } from './client.ts';
+import nativeAsset from '@opentui/core-linux-x64';
 
 /** Finds owned runtime parents outside operating-system temporary roots. */
 function runtimeParents() {
@@ -42,10 +40,7 @@ function cleanup(runtime) {
   if (failed) process.stderr.write('Unable to remove the Agent Hub runtime directory.\n');
 }
 
-const [libraryBytes, observerBytes] = await Promise.all([
-  Bun.file(nativeAsset).arrayBuffer(),
-  Bun.file(observerAsset).arrayBuffer(),
-]);
+const libraryBytes = await Bun.file(nativeAsset).arrayBuffer();
 let runtime;
 for (const parent of runtimeParents()) {
   let candidate;
@@ -62,12 +57,8 @@ for (const parent of runtimeParents()) {
     const assetRoot = join(candidate.anchor, 'assets');
     const libraryDir = join(assetRoot, '@opentui', 'core-linux-x64');
     mkdirSync(libraryDir, { recursive: true, mode: 0o700 });
-    const observer = join(candidate.anchor, 'agent-hub-observer');
     writeFileSync(join(libraryDir, 'libopentui.so'), Buffer.from(libraryBytes), { flag: 'wx', mode: 0o700 });
-    writeFileSync(observer, Buffer.from(observerBytes), { flag: 'wx', mode: 0o700 });
-    accessSync(observer, constants.X_OK);
     candidate.assetRoot = assetRoot;
-    candidate.observer = observer;
     runtime = candidate;
     break;
   } catch (error) {
@@ -83,7 +74,6 @@ try {
   process.env.TMPDIR = runtime.anchor;
   process.env.TMP = runtime.anchor;
   process.env.TEMP = runtime.anchor;
-  useEmbeddedObserver(runtime.observer, runtime.anchor);
   await import('./main.ts');
 } catch (error) {
   cleanup(runtime);

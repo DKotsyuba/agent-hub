@@ -1,0 +1,24 @@
+[Unit]
+Description=Agent Hub read-only server
+After=local-fs.target
+
+[Service]
+Type=simple
+User=pluto
+Group=pluto
+SupplementaryGroups=agent-run
+UMask=0077
+RuntimeDirectory=agent-hub-http agent-hub-tmp
+RuntimeDirectoryMode=0750
+RuntimeDirectoryPreserve=yes
+Environment=AGENT_HUB_CONFIG=/etc/agent-hub/connections.json
+Environment=TMPDIR=/run/agent-hub-tmp TMP=/run/agent-hub-tmp TEMP=/run/agent-hub-tmp
+ExecStart=/opt/agent-hub/current/bin/hub-server --unix /run/agent-hub-http/http.sock
+NoNewPrivileges=yes
+KillMode=mixed
+TimeoutStopSec=35s
+Restart=on-failure
+RestartSec=3s
+
+[Install]
+WantedBy=multi-user.target

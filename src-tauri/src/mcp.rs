@@ -220,7 +220,7 @@ pub(crate) async fn read(
         .as_object()
         .cloned()
         .ok_or_else(|| ReadError::invalid("params_object"))?;
-    let mut child = command.spawn().map_err(|error| {
+    let (mut child, group) = process::spawn_helper(&mut command).map_err(|error| {
         if error.kind() == io::ErrorKind::NotFound {
             ReadError::incompatible("executable_missing")
         } else {
@@ -232,6 +232,7 @@ pub(crate) async fn read(
     let (stdin, stdout) = match (child.stdin.take(), child.stdout.take()) {
         (Some(stdin), Some(stdout)) => (stdin, stdout),
         _ => {
+            group.kill();
             let _ = child.kill().await;
             let _ = child.wait().await;
             return Err(ReadError::unavailable("mcp_pipes"));
@@ -314,8 +315,9 @@ pub(crate) async fn read(
     } else {
         None
     };
-    // Kill/reap the directly owned frontend before cancellation joins rmcp:
+    // Stop the owned frontend and any desktop-owned group before cancellation joins rmcp:
     // the worker may hold Writer's mutex while awaiting a full stdin pipe.
+    group.kill();
     let killed = child.kill().await;
     let waited = child.wait().await;
     let worker_failed = if let Some(client) = client {

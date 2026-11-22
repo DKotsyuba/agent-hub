@@ -13,9 +13,9 @@ Rust observer. A distribution bundle retains (all included in
 - Bun's exact [versioned license and third-party notices](https://github.com/oven-sh/bun/blob/bun-v1.4.4/LICENSE.md).
 - The OpenTUI native package's `LICENSE*`, `AUTHORS*`, `PATENTS*` and
   `FFMPEG-SOURCE.md` files, plus notices from the other runtime npm packages
-  in `terminal/package-lock.json`.
+  in `package-lock.json`.
 - Applicable notices from the locked Rust observer dependencies in
-  `terminal/observer/Cargo.lock`.
+  `server/observer/Cargo.lock`.
 
 The native OpenTUI package documents its static FFmpeg build, source URL,
 source hash and rebuild configuration in `FFMPEG-SOURCE.md`. Bun's license

@@ -1,4 +1,5 @@
 /** Runtime-checked Worktree pages/details and workdir-based session links, for display only. */
+import { branchLabel } from '../../packages/view-model/src/worktree.ts';
 import { object, product } from '../../src/live/protocol.ts';
 
 /** One worktree row from a `worktree_page`. Unprobed values stay null, never guessed. */
@@ -81,11 +82,7 @@ export function worktreeFacts(detail: Record<string, unknown>): WorktreeFacts {
   return { status: measuredStatus, size: measuredSize };
 }
 
-/** Strips the refs/heads/ prefix for display only. */
-export function branchLabel(row: { branch: string | null; detached: boolean | null; head: string | null }): string {
-  if (row.detached) return `detached ${row.head?.slice(0, 12) ?? 'Unknown'}`;
-  return row.branch ? row.branch.replace(/^refs\/heads\//, '') : 'Unknown';
-}
+export { branchLabel } from '../../packages/view-model/src/worktree.ts';
 
 /** Returns the most specific listed worktree containing a workdir (longest path prefix). */
 export function worktreeFor<T extends { path: string | null }>(workdir: string | null, rows: T[]): T | null {

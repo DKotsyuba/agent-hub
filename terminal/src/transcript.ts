@@ -30,6 +30,7 @@ function sameName(first: TranscriptBlock, second: TranscriptBlock): boolean {
 
 /** Pairs results and late-filled call placeholders by source reference and tool name. */
 export function groupTranscript(blocks: TranscriptBlock[]): GroupedTranscript {
+  if (blocks.length && blocks.every(block => typeof block.raw.group_id === 'string')) return groupProjectedBlocks(blocks);
   const entries: TranscriptEntry[] = [], calls = new Map<string, { index: number; lastCall: number }>();
   let previousEntry = -1, previousIndex = -1;
   const open = (head: TranscriptBlock): number => {
@@ -75,5 +76,27 @@ export function groupTranscript(blocks: TranscriptBlock[]): GroupedTranscript {
     if (typeof block.raw.last_seq !== 'number' || !Number.isSafeInteger(block.raw.last_seq) || block.raw.last_seq !== block.seq || typeof next.raw.first_seq !== 'number' || !Number.isSafeInteger(next.raw.first_seq) || next.raw.first_seq > next.seq || block.raw.last_seq >= next.raw.first_seq) return;
     if (next.raw.partial_before === true) { partialAfter.delete(block.key); partialBefore.delete(next.key); }
   });
+  return { entries, byKey, partialBefore, partialAfter };
+}
+
+/** Retain the server's explicit grouping, including unmatched result heads. */
+function groupProjectedBlocks(blocks: TranscriptBlock[]): GroupedTranscript {
+  const entries: TranscriptEntry[] = [], groups = new Map<string, number>(), byKey = new Map<string, number>();
+  const partialBefore = new Set<string>(), partialAfter = new Set<string>();
+  for (const block of blocks) {
+    const id = String(block.raw.group_id);
+    if (!groups.has(id)) {
+      groups.set(id, entries.length);
+      entries.push({ head: block, calls: [], results: [] });
+    }
+    const index = groups.get(id)!;
+    const entry = entries[index];
+    if (block.raw.fragment_id === id) entry.head = block;
+    if (block.role === 'tool_call') entry.calls.push(block);
+    if (block.role === 'tool_result') entry.results.push(block);
+    byKey.set(block.key, index);
+    if (block.raw.partial_before === true) partialBefore.add(block.key);
+    if (block.raw.partial_after === true) partialAfter.add(block.key);
+  }
   return { entries, byKey, partialBefore, partialAfter };
 }

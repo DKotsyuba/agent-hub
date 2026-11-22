@@ -1,6 +1,6 @@
 name: Release
 
-# Publishes the Linux x86-64 terminal Hub when a vX.Y.Z tag is pushed. The desktop (Tauri) application is
+# Publishes the Linux x86-64 Hub distribution when a vX.Y.Z tag is pushed. The desktop (Tauri) application is
 # parked and not released; the standalone build supports Linux x64 (glibc) only, so there is no macOS asset.
 # Configure required reviewers on the `release` environment; this file alone does not do it.
 # See RELEASING.md.
@@ -22,9 +22,13 @@ env:
   CARGO_PROFILE_TEST_DEBUG: "0"
 
 jobs:
-  # Source gate: the same checks as Linux CI plus version, changelog, notices and branch consistency.
   check:
-    name: Source gate
+    name: Source and integration gate
+    uses: ./.github/workflows/ci.yml
+
+  # Builds the payload independently of the source gate and without any release credentials; publishing needs both.
+  build:
+    name: Build Linux x86_64 payload
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     defaults:
@@ -44,101 +48,7 @@ jobs:
           test "$(uname -s):$(uname -m)" = Linux:x86_64
           printf 'TMPDIR=%s\nTMP=%s\nTEMP=%s\nnpm_config_cache=%s\nBUN_INSTALL_CACHE_DIR=%s\nXDG_CACHE_HOME=%s\nCARGO_HOME=%s\n' \
             "$TMPDIR" "$TMP" "$TEMP" "$npm_config_cache" "$BUN_INSTALL_CACHE_DIR" "$XDG_CACHE_HOME" "$CARGO_HOME" >> "$GITHUB_ENV"
-
-      - name: Check out source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-
-      - name: Set up pinned Node.js
-        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
-        with:
-          node-version: "26.13.0"
-          architecture: x64
-          check-latest: false
-          package-manager-cache: false
-
-      - name: Set up pinned Bun
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-        with:
-          bun-version: "1.4.4"
-          no-cache: true
-
-      - name: Verify the tag, version fields, changelog and branch
-        run: |
-          case "$GITHUB_REF_NAME" in v[0-9]*.[0-9]*.[0-9]*) ;; *) echo "Not a release tag: $GITHUB_REF_NAME" >&2; exit 1 ;; esac
-          version="${GITHUB_REF_NAME#v}"
-          test "$(node -p "require('./terminal/package.json').version")" = "$version"
-          node scripts/release.mjs check "$version"
-          git fetch --no-tags origin main
-          git merge-base --is-ancestor "$GITHUB_SHA" origin/main || { echo "Tag $GITHUB_REF_NAME is not on main" >&2; exit 1; }
-
-      - name: Verify runtimes and Rust toolchain
-        run: |
-          test "$(node --version)" = v26.13.0
-          test "$(bun --version)" = 1.4.4
-          rustup toolchain install 1.98.1 --profile minimal --component rustfmt --component clippy --no-self-update
-          test "$(rustc --version | awk '{print $2}')" = 1.98.1
-
-      - name: Install locked terminal dependencies without lifecycle scripts
-        working-directory: terminal
-        run: npm ci --ignore-scripts --no-audit --no-fund
-
-      - name: Fetch locked native observer dependencies
-        run: cargo fetch --locked --manifest-path terminal/observer/Cargo.toml
-
-      - name: Verify THIRD_PARTY_NOTICES.md is current
-        env:
-          CARGO_NET_OFFLINE: "true"
-        run: node scripts/generate-notices.mjs --check
-
-      - name: Check types and native observer contracts
-        working-directory: terminal
-        env:
-          CARGO_NET_OFFLINE: "true"
-        run: |
-          npm run typecheck
-          cargo fmt --manifest-path observer/Cargo.toml -- --check
-          cargo clippy --offline --locked --manifest-path observer/Cargo.toml --all-targets -- -D warnings
-          cargo test --offline --locked --manifest-path observer/Cargo.toml
-          npm run build:observer
-
-      - name: Run Bun and Node suites on a standalone build
-        working-directory: terminal
-        env:
-          CARGO_NET_OFFLINE: "true"
-        run: |
-          npm run build:binary
-          npm test
-          npm run test:node
-
-  # Builds the payload independently of the source gate and without any release credentials; publishing needs both.
-  build:
-    name: Build Linux x86_64 payload
-    runs-on: ubuntu-24.04
-    timeout-minutes: 40
-    defaults:
-      run:
-        shell: bash
-    steps:
-      - name: Prepare private temporary directories and path remapping
-        run: |
-          umask 077
-          test -n "${RUNNER_TEMP:-}"
-          runner_temporary="$(realpath "$RUNNER_TEMP")"
-          task_root="$runner_temporary/agent-hub-release"
-          export TMPDIR="$task_root/tmp" TMP="$task_root/tmp" TEMP="$task_root/tmp"
-          export npm_config_cache="$task_root/npm-cache" BUN_INSTALL_CACHE_DIR="$task_root/bun-cache"
-          export XDG_CACHE_HOME="$task_root/cache" CARGO_HOME="$task_root/cargo"
-          mkdir -m 0700 -p "$task_root" "$TMPDIR" "$npm_config_cache" "$BUN_INSTALL_CACHE_DIR" "$XDG_CACHE_HOME" "$CARGO_HOME"
-          test "$(uname -s):$(uname -m)" = Linux:x86_64
-          printf 'TMPDIR=%s\nTMP=%s\nTEMP=%s\nnpm_config_cache=%s\nBUN_INSTALL_CACHE_DIR=%s\nXDG_CACHE_HOME=%s\nCARGO_HOME=%s\n' \
-            "$TMPDIR" "$TMP" "$TEMP" "$npm_config_cache" "$BUN_INSTALL_CACHE_DIR" "$XDG_CACHE_HOME" "$CARGO_HOME" >> "$GITHUB_ENV"
-          # No runner or build path may be embedded in the executables: remap the checkout and Cargo home.
-          workspace="$(realpath "$GITHUB_WORKSPACE")"
-          printf 'RUSTFLAGS=--remap-path-prefix=%s=/build/agent-hub --remap-path-prefix=%s=/cargo\nFORBIDDEN_WORKSPACE=%s\nFORBIDDEN_RUNNER_TEMP=%s\n' \
-            "$workspace" "$CARGO_HOME" "$workspace" "$runner_temporary" >> "$GITHUB_ENV"
+          printf 'FORBIDDEN_RUNNER_TEMP=%s\n' "$runner_temporary" >> "$GITHUB_ENV"
 
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -166,23 +76,25 @@ jobs:
           rustup toolchain install 1.98.1 --profile minimal --no-self-update
           test "$(rustc --version | awk '{print $2}')" = 1.98.1
 
-      - name: Install locked terminal dependencies without lifecycle scripts
-        working-directory: terminal
+      - name: Install locked workspace dependencies
         run: npm ci --ignore-scripts --no-audit --no-fund
 
       - name: Fetch locked native observer dependencies
-        run: cargo fetch --locked --manifest-path terminal/observer/Cargo.toml
+        run: cargo fetch --locked --manifest-path server/observer/Cargo.toml
 
-      - name: Build the standalone executable and package the assets once
+      - name: Build, verify and smoke-test the archive to publish
         env:
           CARGO_NET_OFFLINE: "true"
         run: |
           version="${GITHUB_REF_NAME#v}"
-          test "$(node -p "require('./terminal/package.json').version")" = "$version"
-          (cd terminal && npm run build:binary)
-          test "$(terminal/dist/agent-hub --version)" = "agent-hub $version"
-          node scripts/release.mjs package "$version" terminal/dist/agent-hub "$RUNNER_TEMP/payload" --epoch "$(git log -1 --format=%ct)"
-          node scripts/release.mjs verify "$version" "$RUNNER_TEMP/payload" --forbid "$FORBIDDEN_WORKSPACE" --forbid "$FORBIDDEN_RUNNER_TEMP" --forbid "$CARGO_HOME"
+          node scripts/release.mjs check "$version"
+          git fetch --no-tags origin main
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+          npm run build:release -- "$RUNNER_TEMP/payload"
+          node scripts/release.mjs verify "$version" "$RUNNER_TEMP/payload" --forbid "$FORBIDDEN_RUNNER_TEMP"
+          mkdir "$RUNNER_TEMP/rel"
+          tar -xzf "$RUNNER_TEMP/payload/agent-hub-$version-linux-x86_64.tar.gz" -C "$RUNNER_TEMP/rel"
+          python3 scripts/smoke-release.py "$RUNNER_TEMP/rel/agent-hub-$version-linux-x86_64"
 
       - name: Upload the exact payload
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -222,9 +134,8 @@ jobs:
           version="${GITHUB_REF_NAME#v}"
           cd "$RUNNER_TEMP/payload"
           sha256sum --check SHA256SUMS
-          test "$(ls | wc -l)" = 4
-          chmod 755 "agent-hub-linux-x86_64"
-          test "$(./agent-hub-linux-x86_64 --version)" = "agent-hub $version"
+          test "$(ls | wc -l)" = 2
+          test -f "agent-hub-$version-linux-x86_64.tar.gz"
           node "$GITHUB_WORKSPACE/scripts/release.mjs" notes "$version" > "$RUNNER_TEMP/notes.md"
           test -s "$RUNNER_TEMP/notes.md"
 
@@ -242,12 +153,10 @@ jobs:
           tag="$GITHUB_REF_NAME"
           cd "$RUNNER_TEMP/payload"
           gh release create "$tag" --draft --verify-tag --title "Agent Hub ${tag#v}" --notes-file "$RUNNER_TEMP/notes.md" \
-            agent-hub-*-linux-x86_64.tar.gz agent-hub-linux-x86_64 THIRD_PARTY_NOTICES.md SHA256SUMS
+            "agent-hub-${tag#v}-linux-x86_64.tar.gz" SHA256SUMS
           fresh="$RUNNER_TEMP/fresh"
           mkdir "$fresh"
           gh release download "$tag" --dir "$fresh"
           (cd "$fresh" && sha256sum --check SHA256SUMS)
-          for asset in agent-hub-*-linux-x86_64.tar.gz agent-hub-linux-x86_64 THIRD_PARTY_NOTICES.md; do
-            gh attestation verify "$fresh/$asset" --repo "$GITHUB_REPOSITORY"
-          done
+          gh attestation verify "$fresh/agent-hub-${tag#v}-linux-x86_64.tar.gz" --repo "$GITHUB_REPOSITORY"
           gh release edit "$tag" --draft=false

@@ -4,11 +4,11 @@ import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import net from 'node:net';
 import path from 'node:path';
 import test from 'node:test';
-import { fileURLToPath } from 'node:url';
-import { createNativeClient } from '../src/client.ts';
+import { createNativeClient, observerPath } from './native-observer-harness.ts';
+
+const binary = process.env.AGENT_HUB_TEST_OBSERVER ?? observerPath();
 
 test('observer validates Quota socket identity and envelope', async () => {
-  const binary = process.env.AGENT_HUB_TEST_OBSERVER ?? fileURLToPath(new URL('../observer/target/debug/agent-hub-observer', import.meta.url));
   const directory = await mkdtemp(path.join(process.env.TMPDIR!, 'hub-quota-test-'));
   const socket = path.join(directory, 'quota.sock'), config = path.join(directory, 'connections.json');
   const snapshot = JSON.parse(await readFile(new URL('./fixtures/quota-snapshot-v2.json', import.meta.url), 'utf8'));

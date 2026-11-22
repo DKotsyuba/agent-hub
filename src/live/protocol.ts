@@ -220,8 +220,8 @@ export function supportsChunks(value: unknown): boolean {
 }
 /** SHA-256 of exact UTF-8 text, matching producer byte proof rather than JavaScript character length. */
 export async function sha256(content: string): Promise<string> { return [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(content)))].map(byte => byte.toString(16).padStart(2, '0')).join(''); }
-/** Reconstructs at most 16 MiB with agent/hash checks and sequence-fenced chunks, without an incarnation fence. */
-export async function answerText(value: unknown, agentId: string, sequence: number | null, expectedSha: string | null, chunkSupport: boolean, read: (params: Record<string, unknown>) => Promise<unknown>, current: () => boolean): Promise<string | null> {
+/** Reconstructs at most 16 MiB with agent/hash checks and sequence-fenced chunks, optionally requiring a chunk proof even for inline answers. */
+export async function answerText(value: unknown, agentId: string, sequence: number | null, expectedSha: string | null, chunkSupport: boolean, read: (params: Record<string, unknown>) => Promise<unknown>, current: () => boolean, requireChunkProof = false): Promise<string | null> {
   const answer = object(value);
   if (answer.agent_id !== agentId || typeof answer.available !== 'boolean') return invalid('answer_attribution');
   if (!answer.available) return null;
@@ -231,20 +231,20 @@ export async function answerText(value: unknown, agentId: string, sequence: numb
   const total = integer(answer.size_bytes);
   if (total > 16 * 1024 * 1024) return invalid('answer_budget');
   let content = '';
-  if (answer.inline_complete === true && typeof answer.content === 'string') content = answer.content;
+  if (!requireChunkProof && answer.inline_complete === true && typeof answer.content === 'string') content = answer.content;
   else {
     if (!chunkSupport || sequence === null || !digest || !/^[a-f0-9]{64}$/i.test(digest) || expectedSha === null) return invalid('answer_chunk_unsupported');
     let offset = 0;
-    while (offset < total) {
+    do {
       if (!current()) return invalid('obsolete');
       const chunk = object(await read({ agent_id: agentId, sequence, expected_sha256: digest, offset_bytes: offset, max_bytes: 65536 }));
       if (!current()) return invalid('obsolete');
       if (chunk.agent_id !== agentId || chunk.sequence !== sequence || chunk.sha256 !== digest || chunk.total_bytes !== total || chunk.offset_bytes !== offset || typeof chunk.content !== 'string' || typeof chunk.complete !== 'boolean') return invalid('answer_chunk_proof');
       const bytes = new TextEncoder().encode(chunk.content).byteLength;
       const next = integer(chunk.next_offset);
-      if (bytes > 131072 || next !== offset + bytes || next <= offset || next > total || chunk.complete !== (next === total)) return invalid('answer_chunk_cursor');
+      if (bytes > 131072 || next !== offset + bytes || (next <= offset && total !== 0) || next > total || chunk.complete !== (next === total)) return invalid('answer_chunk_cursor');
       content += chunk.content; offset = next;
-    }
+    } while (offset < total);
   }
   if (new TextEncoder().encode(content).byteLength !== total || (digest !== null && await sha256(content) !== digest.toLowerCase())) return invalid('answer_digest');
   if (!current()) return invalid('obsolete');

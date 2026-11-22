@@ -2,6 +2,10 @@
 import { BoxRenderable, MacOSScrollAccel, TextRenderable, TextAttributes } from '@opentui/core';
 import type { CliRenderer, KeyEvent, MouseEvent } from '@opentui/core';
 import stringWidth from 'string-width';
+import { loadHttpExport, loadHttpInitialTask, loadHttpPoolContent, loadHttpPoolExport, loadHttpPoolRecord, loadHttpResult } from './http-content.ts';
+import { projectQuotaSnapshot, projectQuotaStatus } from '../../packages/view-model/src/quota-http.ts';
+import type { ApiResponse, Topic } from '../../packages/domain/src/index.ts';
+import { seconds, sessionRow } from './http-projection.ts';
 import { exportHistory } from './export.ts';
 import { exportExactHistory } from './export-exact.ts';
 import { independentlyPartial } from './api.ts';
@@ -54,27 +58,27 @@ interface History {
 /** Reader-only coordinates carried to a newly fetched, uncorrelated lineage snapshot. */
 interface HistoryPosition { beginning: boolean; follow: boolean; scroll: number; windowStart: number; windowEnd: number; startedAt: number }
 /** A separately paged prefix; the live tail remains independent until the reader returns to it. */
-interface Beginning { state: History; next: number | null; active: boolean; autoPages: number; width: number; height: number }
+interface Beginning { state: History; next: Cursor | null; active: boolean; autoPages: number; width: number; height: number }
 /** Buffered Agent Pool journal; source cursors and event IDs remain exact strings. */
 interface PoolHistory { entries: Record<string, unknown>[]; previous: string | null; watermark: string; resume: string; loaded: boolean; busy: boolean; follow: boolean; unseen: number; response: ReadResponse | null }
 /** Exact, on-demand evidence associated with one immutable vote event. */
 interface PoolChecks { busy: boolean; rows: Record<string, unknown>[] | null; error: string | null }
 /** Explicitly opened long source text, published only after every page is verified. */
-interface PoolContent { field: 'purpose' | 'snapshot' | 'completion'; /** Chat agreement view title and the Run agents whose sessions it links. */ agreement?: { agents: { seat: string; id: string }[] }; text: string | null; error: string | null; busy: boolean; previousScroll: number; controller: AbortController }
+interface PoolContent { field: 'purpose' | 'snapshot' | 'completion'; /** Chat agreement view title and the Run agents whose sessions it links. */ agreement?: { agents: { seat: string; id: string; execution?: string | null }[] }; text: string | null; error: string | null; busy: boolean; previousScroll: number; controller: AbortController }
 /** A complete answer exists only after source sequence and hash checks pass. */
 interface Answer { executionKey: string; controller: AbortController | null; busy: boolean; loaded: boolean; content: string | null; issue: string | null; width: number; chunk: number; lines: Line[] | null }
 /** A rendered line remembers the source block and character offset for stable scroll anchors. */
 interface Line { text: string; color?: string; bg?: string; bold?: boolean; key?: string; offset?: number; action?: () => void; spinner?: boolean; hover?: string; spans?: { text: string; color: string; bold?: boolean }[] }
 /** The immutable Pool member and exact Run status selector used for one navigation. */
 /** One execution's exact initial-task read; text exists only after full length and SHA-256 verification. */
-interface InitialTaskState { busy: boolean; controller: AbortController | null; result: InitialTaskResult | null; unsupported: boolean; lines: { width: number; rows: Line[] } | null }
+interface InitialTaskState { busy: boolean; controller: AbortController | null; result: InitialTaskResult | Awaited<ReturnType<typeof loadHttpInitialTask>> | null; unsupported: boolean; lines: { width: number; rows: Line[] } | null }
 interface BoundTarget { poolId: string; memberId: string; request: RunStatusRequest; key: string; poolObservedAtMs: number | null }
 /** A correlated status observation or a deliberately weaker legacy inventory match. */
 interface BoundObservation { targetKey: string; agent: RunAgent | null; evidence: RunStatusEvidence | null; legacy: boolean }
 /** One selected Pool member's independently observed Run status. */
 interface PoolStatusObservation { targetKey: string; evidence: RunStatusEvidence | null; source: 'pool' | 'run'; reason?: string; poolObservedAtMs?: number }
 /** Page navigation stores source selection and focus without discarding underlying state. */
-interface Location { route: Route; selected: string | null; boundSequence: number | null; boundTarget: BoundTarget | null; detailFromRelated: boolean; focus: Focus; tab: SessionTab; full: boolean; pool: string | null; poolTab: PoolTab; poolMetadata: boolean; poolCursor: number; poolRevision: number | null; poolPrevious: number[]; poolProposalId: string | null; poolScroll: number; poolMemberIndex: number; poolDeliveryIndex: number; poolDecisionIndex: number; poolVoteIndex: number; poolVoteMember: string | null; bridgeAfter: number; bridgeThrough: number | null; incidentScroll: number; query: string; filterFolder: string; filterProject: string; filterStatus: string; filterPeriodFailures: boolean; listTop: number; finishedOpen: boolean }
+interface Location { linkedAgent?: RunAgent | null; route: Route; selected: string | null; boundSequence: number | null; boundTarget: BoundTarget | null; detailFromRelated: boolean; focus: Focus; tab: SessionTab; full: boolean; pool: string | null; poolTab: PoolTab; poolMetadata: boolean; poolCursor: number; poolRevision: number | null; poolPrevious: number[]; poolProposalId: string | null; poolScroll: number; poolMemberIndex: number; poolDeliveryIndex: number; poolDecisionIndex: number; poolVoteIndex: number; poolVoteMember: string | null; bridgeAfter: number; bridgeThrough: number | null; bridgePeriod?: [number, number] | null; incidentScroll: number; query: string; filterFolder: string; filterProject: string; filterStatus: string; filterPeriodFailures: boolean; listTop: number; finishedOpen: boolean }
 /** Current read-only destination. */
 type Route = 'overview' | 'sessions' | 'pools' | 'quota' | 'worktree' | 'incidents';
 /** Keyboard region within a session view. */
@@ -379,6 +383,13 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
   const wheelAcceleration = new MacOSScrollAccel();
   let wheelState: History | null = null, wheelDirection = 0, wheelRemainder = 0, queuedWheel: { state: History; rows: number } | null = null;
   let waitingWheel: { beginning: Beginning; rows: number } | null = null;
+  let connection: 'connecting' | 'connected' | 'disconnected' = 'connecting';
+  let contentGeneration = 0;
+  let eventController: AbortController | null = null, eventKey = '';
+  let httpOverview: ApiResponse<'overview'> | null = null, overviewRequest = 0, overviewStale = false;
+  let httpDetail: ApiResponse<'session'> | null = null, detailRequest = '', detailBusy = false;
+  let linkedAgent: RunAgent | null = null;
+  const httpLifetime = new AbortController();
   let pollingIndex = 1, pollingTimer: ReturnType<typeof setInterval> | null = null;
   let spinnerRows: { text: TextRenderable; value: string }[] = [];
   let copyController: AbortController | null = null;
@@ -389,10 +400,11 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
   let relatedRead: AbortController | null = null;
   let uncorrelatedObservation = 0;
   let directStatus: boolean | null = null, relatedNextScan = 0;
+  let inventoryScope = '', poolScope = '', startupProjectChecked = false, startupProjectId: string | null = null;
   let agentPages = 1, poolPages = 1, poolCursor = 0, poolRevision: number | null = null, poolPrevious: number[] = [];
   let poolProposalId: string | null = null;
   let poolContent: PoolContent | null = null;
-  let bridgeAfter = 0, bridgeThrough: number | null = null;
+  let bridgeAfter = 0, bridgeThrough: number | null = null, bridgePeriod: [number, number] | null = null;
   let poolRequestKey = '', poolProposalKey = '', incidentRequestKey = '';
   let backStack: Location[] = [], forwardStack: Location[] = [];
   const controllers = new Set<AbortController>();
@@ -550,7 +562,13 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
           const response = await read('pool.get', { pool_id: id, section: 'history', direction: 'forward', after });
           if (!alive || poolHistories.get(id) !== state) return;
           state.response = response;
-          if (!usable(response)) break;
+          if (!usable(response)) {
+            if (client.http && response.error?.code === 'stale_boundary') {
+              state.loaded = false; state.previous = null;
+              queueMicrotask(() => { void refreshPoolHistory(id); });
+            }
+            break;
+          }
           const page = poolWindow(response.data, id, 'forward', after, null);
           if (!page.more && page.cursor !== page.watermark) throw new Error('pool_history_tail');
           const capacity = state.follow ? page.entries.length : Math.max(0, 500 - state.entries.length);
@@ -575,7 +593,13 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
     const response = await read('pool.get', { pool_id: id, section: 'history', direction: 'backward', before, through: state.watermark });
     if (!alive || poolHistories.get(id) !== state) return false;
     state.response = response;
-    if (!usable(response)) return false;
+    if (!usable(response)) {
+      if (client.http && response.error?.code === 'stale_boundary') {
+        state.loaded = false; state.previous = null;
+        queueMicrotask(() => { void refreshPoolHistory(id); });
+      }
+      return false;
+    }
     const page = poolWindow(response.data, id, 'backward', before, state.watermark);
     const width = splitLayout().detailWidth;
     const previousLines = poolEventLines(state.entries, width).length;
@@ -635,6 +659,7 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
     if (!pool || !selected) return;
     poolVoteIndex = index; poolVoteMember = selected[0];
     const vote = selected[1], id = vote.vote_event_id, count = vote.checks_count;
+    if (client.http) { render(); return; }
     if (poolCapability('structured_acceptance_v1') === true && poolHistorySupported() === true && typeof id === 'string' && /^(?:[1-9]\d{0,18})$/.test(id) && BigInt(id) <= 9223372036854775807n && typeof count === 'number' && Number.isSafeInteger(count) && count >= 0 && count <= 10) void loadPoolChecks(pool, id, count);
     render();
   }
@@ -649,6 +674,11 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
     let offset = 0, revision: number | null = null, total: number | null = null; const parts: string[] = [];
     const deadline = setTimeout(() => { state.error = 'Full content timed out; retry from the beginning.'; state.controller.abort(); }, 30000);
     try {
+      if (client.http) {
+        const text = await loadHttpPoolContent(client.http, id, field, proposalId, state.controller.signal);
+        if (poolContent === state && !state.controller.signal.aborted) state.text = text;
+        return;
+      }
       for (let pages = 0; pages < 256; pages++) {
         const response = await read('pool.get', { pool_id: id, section: 'content', field, after: String(offset), ...(proposalId ? { proposal_id: proposalId } : {}), ...(revision === null ? {} : { expected_revision: revision }) }, state.controller.signal);
         if (!alive || state.controller.signal.aborted || poolContent !== state || route !== 'pools' || pool !== id) return;
@@ -689,6 +719,13 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
     try {
       const reported = poolFacts(...[poolDetail.value, poolDetail.value?.view ? object(object(poolDetail.value.view).pool) : null].filter((value): value is Record<string, unknown> => !!value)).completionId;
       if (reported === null) { state.error = 'This pool has no completion or agreement record yet.'; return; }
+      if (client.http) {
+        const { data } = await client.http.get('pool', { params: { id }, signal: state.controller.signal });
+        if (data.pool.id !== id || !data.pool.record) { state.error = 'This pool has no reported completion or agreement record.'; return; }
+        const record = await loadHttpPoolRecord(client.http, id, data.pool.record.id, state.controller.signal);
+        if (current()) { state.text = record.text; if (record.agents) state.agreement = { agents: record.agents }; }
+        return;
+      }
       const completionId = reported ?? completionIdFromEvents(poolHistories.get(id)?.entries ?? []) ?? await scanCompletionId(id, state.controller.signal);
       if (!current()) return;
       if (!completionId) { state.error = 'No pool_completed event: this pool has no completion or agreement record (closed is not completion).'; return; }
@@ -768,14 +805,15 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
   /** Reads the explicitly requested inventory pages and fences mutable Run revisions. */
   async function inventory<T>(state: Slot<Page<T>>, resource: 'run.agents', count: number, parse: (value: unknown) => Page<T>, key: (value: T) => string): Promise<void> {
     if (!alive || state.busy) return; state.busy = true; const generation = ++state.generation; render();
-    const first = await read(resource, { limit: 200, offset: 0 });
+    const params = sessionInventoryQuery();
+    const first = await read(resource, { ...params, limit: 200, offset: 0 });
     if (!alive || generation !== state.generation) return;
     state.response = first;
     if (usable(first)) {
       try {
         let partial = independentlyPartial(first);
         const page = await collectPages(parse(first.data), count, async cursor => {
-          const next = await read(resource, { limit: 200, offset: cursor });
+          const next = await read(resource, { ...params, limit: 200, offset: cursor });
           if (!usable(next)) throw new Error('page_unavailable'); partial ||= independentlyPartial(next); return parse(next.data);
         }, key, () => alive && generation === state.generation);
         if (!alive || generation !== state.generation) return;
@@ -785,20 +823,21 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
       } catch { if (!alive || generation !== state.generation) return; state.response = failure(resource, 'page_unavailable_or_changed') as ReadResponse; }
     }
     state.busy = false;
-    if (resource === 'run.agents') { ensureSelection(); if (route === 'sessions') { ensureDefaultHistory(); if (!tailHistory()?.loaded) void loadHistory(); if (tab === 'result') void loadAnswer(); } }
+    if (resource === 'run.agents') { ensureSelection(); if (route === 'sessions') { if (client.http) { ensureSubscription(); void refreshHttpDetail(); } ensureDefaultHistory(); if (!tailHistory()?.loaded) void loadHistory(); if (tab === 'result') void loadAnswer(); } }
     render();
   }
   /** Reads the requested Agent Pool inventory pages without inventing a cross-page snapshot. */
   async function inventoryPools(): Promise<void> {
     if (!alive || pools.busy) return; pools.busy = true; const generation = ++pools.generation; render();
-    const first = await read('pool.list');
+    const params = client.http ? { query } : {};
+    const first = await read('pool.list', params);
     if (!alive || generation !== pools.generation) return;
     pools.response = first;
     if (usable(first)) {
       try {
         const page = await collectPages(poolInventory(first.data, null), poolPages, async cursor => {
           if (typeof cursor !== 'string') throw new Error('pool_inventory_cursor');
-          const next = await read('pool.list', { after: cursor });
+          const next = await read('pool.list', { ...params, after: cursor });
           if (!usable(next)) throw new Error('pool_inventory_unavailable');
           return poolInventory(next.data, cursor);
         }, item => String(object(item.pool).pool_id), () => alive && generation === pools.generation);
@@ -879,6 +918,7 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
   }
   /** Supplements the inventory from an equally fresh or newer active-only observation. */
   function loadedAgents(): RunAgent[] {
+    if (client.http && route === 'sessions' && inventoryScope !== '{}') return agents.value?.items ?? [];
     const page = agents.value, active = activeAgents.value;
     if (!page) return [];
     if (!active || !activeAgents.good || activeAgents.response !== activeAgents.good) return page.items;
@@ -891,17 +931,20 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
   }
   /** Returns the exact global terminal count only when both source totals share a revision. */
   function globalFinished(): number | null {
+    if (client.http) return null;
     const all = agents.value, active = activeAgents.value;
     if (!all || !active || !active.complete || !agents.good || agents.response !== agents.good || !activeAgents.good || activeAgents.response !== activeAgents.good || all.revision !== active.revision || all.total === null || active.total === null || active.total > all.total) return null;
     return all.total - active.total;
   }
   /** Keeps the active metric tied to its independently observed source total. */
   function activeCount(): string {
+    if (client.http && route === 'overview') return httpMetric('run', 'active');
     if (activeAgents.value && activeAgents.good && activeAgents.value.total !== null) return `${activeAgents.response !== activeAgents.good ? 'STALE · ' : ''}${activeAgents.value.total}`;
     return agents.value ? `${agents.response !== agents.good ? 'STALE · ' : ''}${loadedAgents().filter(agent => activeStatus(agent.status)).length} loaded` : 'Unknown';
   }
   /** Returns the selected loaded execution, or null when the snapshot no longer contains it. */
   function selectedAgent(): RunAgent | null {
+    if (client.http && linkedAgent && selected === linkedAgent.id) return linkedAgent;
     const listed = loadedAgents().find(value => value.id === selected) ?? null;
     const observed = detailFromRelated && boundTarget && relatedAgent.value?.targetKey === boundTarget.key ? relatedAgent.value : null;
     const related = observed?.agent ?? null;
@@ -1109,11 +1152,17 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
   async function loadInitialTask(): Promise<void> {
     const agent = selectedAgent(); if (!agent || route !== 'sessions' || initialTasks.has(executionKey(agent))) return;
     const key = executionKey(agent), controller = new AbortController();
+    const generation = contentGeneration;
     const state: InitialTaskState = { busy: true, controller, result: null, unsupported: false, lines: null };
     initialTasks.set(key, state); render();
     const current = () => alive && !controller.signal.aborted && initialTasks.get(key) === state && route === 'sessions' && !!selectedAgent() && executionKey(selectedAgent()!) === key;
     const drop = () => { if (initialTasks.get(key) === state) initialTasks.delete(key); };
     try {
+      if (client.http) {
+        const result = await loadHttpInitialTask(client.http, agent.id, executionSelector(agent), controller.signal);
+        if (!current()) { drop(); return; }
+        state.result = result;
+      } else {
       const discovery = await read('run.identity', {}, controller.signal);
       if (!current()) { drop(); return; }
       const capability = usable(discovery) && discovery.error === null ? initialTaskCapability(discovery.data) : null;
@@ -1129,14 +1178,22 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
         if (!current()) { drop(); return; }
         state.result = result;
       }
+      }
     } catch { if (!current()) { drop(); return; } state.result = { state: 'unverified', reason: 'read_failed' }; }
+    if (client.http && state.result?.state === 'unverified' && generation !== contentGeneration) {
+      drop();
+      void loadInitialTask();
+      return;
+    }
     state.busy = false; state.controller = null; render();
   }
   function cancelSessionReads(): void { const agent = selectedAgent(); if (agent) cancelExecutionReads(executionKey(agent)); }
   /** Chooses the initial item only; a missing later selection never silently switches identity. */
   function ensureSelection(): void { if (selected === null && agents.value?.items.length) selected = visibleAgents()[0]?.id ?? null; }
   /** Separates caches by execution and, for bound sessions, by Pool target and Run store. */
-  function executionKey(agent: RunAgent): string { const created = typeof agent.raw.created_at === 'number' && Number.isFinite(agent.raw.created_at) ? agent.raw.created_at : null; return JSON.stringify([agent.id, agent.sequence, created, relatedKeys.get(agent) ?? null]); }
+  function executionKey(agent: RunAgent): string { const created = typeof agent.raw.created_at === 'number' && Number.isFinite(agent.raw.created_at) ? agent.raw.created_at : null; return JSON.stringify([agent.id, agent.sequence, created, ...(client.http ? [executionSelector(agent)] : []), relatedKeys.get(agent) ?? null]); }
+  /** Returns the opaque selector attached to a validated session observation. */
+  function executionSelector(agent: RunAgent): string | null { return typeof agent.raw.execution === 'string' ? agent.raw.execution : null; }
   /** Gets or creates the selected execution's independently refreshed tail. */
   function tailHistory(): History | null { const agent = selectedAgent(); if (!agent) return null; const key = executionKey(agent); let item = histories.get(key); if (!item) { item = history(); histories.set(key, item); } return item; }
   /** Returns the selected execution's prefix, when one has been requested. */
@@ -1204,21 +1261,39 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
     const tool = blocks.findLast(block => ['tool', 'tool_call', 'tool_result'].includes(block.role) && typeof block.raw.name === 'string' && !!block.raw.name);
     return tool ? `Last loaded transcript action: ${safe(tool.raw.name)}` : 'Action: Unknown';
   }
+  /** Keeps stable fragment IDs for HTTP history even when a source position exceeds Number precision. */
+  function renderHistoryPage(value: unknown, id: string) {
+    const page = transcriptPage(value, id);
+    if (client.http) for (const block of page.blocks) block.key = String(block.raw.fragment_id);
+    return page;
+  }
+  /** Orders HTTP fragments by exact source position while keeping producer grouping IDs. */
+  function mergeHistory(previous: TranscriptBlock[], incoming: TranscriptBlock[]): TranscriptBlock[] {
+    if (!client.http) return mergeBlocks(previous, incoming);
+    return [...new Map([...previous, ...incoming].map(block => [block.key, block])).values()].sort((a, b) => {
+      const left = String(a.raw.source_position), right = String(b.raw.source_position);
+      return left.length - right.length || (left < right ? -1 : left > right ? 1 : 0);
+    });
+  }
   /** Fetches an initial tail, source continuation, or an explicitly requested older page. */
   async function loadHistory(older = false): Promise<void> {
     void loadInitialTask();
     const agent = selectedAgent(), state = tailHistory(); if (!agent || !state || state.busy || (older && state.previous === null)) return;
     const key = executionKey(agent), initial = !state.loaded;
-    const params: Record<string, unknown> = { agent_id: agent.id, view: 'blocks', ...(older ? { before_cursor: state.previous, tail_blocks: 40 } : initial || state.resume === null ? { tail_blocks: 40 } : { cursor: state.resume }) };
+    const params: Record<string, unknown> = { agent_id: agent.id, view: 'blocks', ...(client.http ? { execution: executionSelector(agent), resume: !initial && !older, edge: state.response && usable(state.response) ? object(state.response.data).projection_edge : undefined } : {}), ...(older ? { before_cursor: state.previous, tail_blocks: 40 } : initial || state.resume === null ? { tail_blocks: 40 } : { cursor: state.resume }) };
     const controller = new AbortController(); state.controller = controller; state.busy = true; render(); const observed = await readTranscript(params, controller.signal), envelope = observed.envelope;
     if (!alive || histories.get(key) !== state) return;
     if (state.controller !== controller) return;
     state.controller = null;
     if (controller.signal.aborted) { state.busy = false; const current = selectedAgent(); if (route === 'sessions' && current && executionKey(current) === key && !state.loaded) void loadHistory(); render(); return; }
     state.response = envelope;
+    if (client.http && envelope.error?.code === 'stale_boundary' && !initial) {
+      state.loaded = false; state.blocks = []; regroupHistory(state); state.resume = null; state.previous = null; state.busy = false;
+      void loadHistory(); return;
+    }
     if (usable(envelope)) {
       try {
-        const page = transcriptPage(envelope.data, agent.id), previous = new Map(state.blocks.map(block => [block.key, block.content]));
+        const page = renderHistoryPage(envelope.data, agent.id), previous = new Map(state.blocks.map(block => [block.key, block.content]));
         if (!observed.raw && page.raw.view !== 'blocks') throw new Error('transcript_view');
         if (observed.raw) {
           if (page.raw.cursor !== observed.cursor || page.raw.view != null && page.raw.view !== 'raw') throw new Error('transcript_cursor');
@@ -1227,7 +1302,7 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
           if (page.complete ? page.raw.next_cursor != null : last === observed.cursor || page.raw.next_cursor !== last) throw new Error('transcript_continuation');
         }
         const added = page.blocks.filter(block => !previous.has(block.key) || previous.get(block.key) !== block.content).length;
-        state.blocks = mergeBlocks(state.blocks, page.blocks); regroupHistory(state); state.loaded = true;
+        state.blocks = mergeHistory(state.blocks, page.blocks); regroupHistory(state); state.loaded = true;
         const beginning = beginnings.get(key);
         if (initial || older) { state.previous = observed.raw ? null : page.previous; state.headComplete = observed.raw ? initial && observed.cursor === 0 : page.complete && page.previous === null; }
         if (!older) state.tailComplete = observed.raw ? page.complete : initial || page.complete;
@@ -1246,7 +1321,7 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
     }
     state.busy = false;
     const current = selectedAgent();
-    if (observed.raw && state.response === envelope && usable(envelope) && state.loaded && !state.tailComplete && state.catchup++ < 32 && alive && current && executionKey(current) === key && route === 'sessions') queueMicrotask(() => { void loadHistory(); });
+    if ((observed.raw || client.http && !older) && state.response === envelope && usable(envelope) && state.loaded && !state.tailComplete && state.catchup++ < 32 && alive && current && executionKey(current) === key && route === 'sessions') queueMicrotask(() => { void loadHistory(); });
     else state.catchup = 0;
     render();
   }
@@ -1257,34 +1332,44 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
     const key = executionKey(agent), state = beginning.state, cursor = beginning.next;
     if (automatic) beginning.autoPages++; else beginning.autoPages = 0;
     const controller = new AbortController(); state.controller = controller; state.busy = true; render();
-    const observed = await readTranscript({ agent_id: agent.id, view: 'blocks', cursor, limit: 40 }, controller.signal), envelope = observed.envelope;
+    const observed = await readTranscript({ agent_id: agent.id, view: 'blocks', cursor, limit: 40, ...(client.http ? { execution: executionSelector(agent) } : {}) }, controller.signal), envelope = observed.envelope;
     if (!alive || beginnings.get(key) !== beginning) return;
     if (state.controller !== controller) return;
     state.controller = null;
     if (controller.signal.aborted) { state.busy = false; const current = selectedAgent(); if (route === 'sessions' && current && executionKey(current) === key && beginning.active && !state.loaded) void loadBeginningPage(); render(); return; }
     state.response = envelope;
+    if (client.http && envelope.error?.code === 'stale_boundary' && cursor !== 0) {
+      state.loaded = false; state.blocks = []; regroupHistory(state); beginning.next = 0; state.busy = false;
+      void loadBeginningPage(); return;
+    }
     if (usable(envelope)) {
       try {
-        const page = transcriptPage(envelope.data, agent.id);
+        const page = renderHistoryPage(envelope.data, agent.id);
         if (page.raw.cursor !== cursor || (observed.raw ? page.raw.view != null && page.raw.view !== 'raw' : page.raw.view !== 'blocks') || page.raw.direction != null && page.raw.direction !== 'forward') throw new Error('transcript_cursor');
-        let previous = cursor;
-        for (const block of page.blocks) {
-          const first = block.raw.first_seq ?? block.seq, last = block.raw.last_seq ?? block.seq;
-          if (typeof first !== 'number' || !Number.isSafeInteger(first) || first <= previous || first > block.seq || last !== block.seq || !Number.isSafeInteger(block.seq)) throw new Error('transcript_order');
-          previous = block.seq;
-        }
         const next = page.raw.next_cursor;
-        if (page.complete ? next != null : typeof next !== 'number' || !Number.isSafeInteger(next) || next <= cursor || next !== previous) throw new Error('transcript_continuation');
-        const tail = histories.get(key), tailAhead = typeof tail?.resume === 'number' && tail.resume > previous;
-        if (page.complete && tailAhead && previous === cursor) throw new Error('transcript_coverage_changed');
+        let previous = typeof cursor === 'number' ? cursor : 0;
+        let tailAhead = false;
+        if (client.http) {
+          if (next !== null && (typeof next !== 'string' || next === cursor || !page.blocks.length)) throw new Error('transcript_continuation');
+        } else {
+          for (const block of page.blocks) {
+            const first = block.raw.first_seq ?? block.seq, last = block.raw.last_seq ?? block.seq;
+            if (typeof first !== 'number' || !Number.isSafeInteger(first) || first <= previous || first > block.seq || last !== block.seq || !Number.isSafeInteger(block.seq)) throw new Error('transcript_order');
+            previous = block.seq;
+          }
+          if (page.complete ? next != null : typeof next !== 'number' || !Number.isSafeInteger(next) || next <= Number(cursor) || next !== previous) throw new Error('transcript_continuation');
+          const tail = histories.get(key);
+          tailAhead = typeof tail?.resume === 'number' && tail.resume > previous;
+          if (page.complete && tailAhead && previous === cursor) throw new Error('transcript_coverage_changed');
+        }
         const initial = !state.loaded, atEnd = state.windowEnd >= state.grouped.entries.length;
-        state.blocks = initial ? page.blocks : mergeBlocks(state.blocks, page.blocks);
+        state.blocks = mergeHistory(initial ? [] : state.blocks, page.blocks);
         regroupHistory(state); state.loaded = true; state.headComplete = true; state.tailComplete = page.complete && !tailAhead;
         if (initial) { state.anchor = null; state.selected = null; state.scroll = 0; state.windowStart = 0; state.windowEnd = Math.min(historyWindowSize(), state.grouped.entries.length); }
         else if (atEnd) state.windowEnd = Math.min(state.grouped.entries.length, state.windowEnd + Math.max(1, state.windowSize));
         state.partial ||= independentlyPartial(envelope);
         state.complete = state.tailComplete && !state.partial;
-        beginning.next = page.complete ? tailAhead ? previous : null : next as number;
+        beginning.next = page.complete ? tailAhead ? previous : null : next as Cursor;
         restoreHistoryPosition(state, beginning.next !== null);
       } catch { state.response = failure('run.transcript', 'transcript_schema') as ReadResponse; }
     }
@@ -1303,6 +1388,18 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
     let state = answers.get(key); if (!state) { state = { executionKey: ownerKey, controller: null, busy: false, loaded: false, content: null, issue: null, width: 0, chunk: 0, lines: null }; answers.set(key, state); }
     if (state.busy || state.loaded) return; state.busy = true; const controller = new AbortController(); state.controller = controller; render();
     const current = () => { const selected = selectedAgent(); return alive && !controller.signal.aborted && route === 'sessions' && tab === 'result' && answers.get(key) === state && !!selected && executionKey(selected) === ownerKey && selected.answerSha === agent.answerSha; };
+    if (client.http) {
+      const generation = contentGeneration;
+      try { state.content = await loadHttpResult(client.http, agent.id, executionSelector(agent), agent.sequence, controller.signal); }
+      catch (error) { state.issue = error instanceof Error ? error.message : 'Result unavailable'; }
+      if (!current()) { if (answers.get(key) === state) answers.delete(key); return; }
+      if (state.issue !== null && generation !== contentGeneration) {
+        answers.delete(key);
+        void loadAnswer();
+        return;
+      }
+      state.busy = false; state.loaded = true; state.controller = null; render(); return;
+    }
     const envelope = await read('run.answer', { agent_id: agent.id }, controller.signal);
     if (!current()) { state.busy = false; state.controller = null; if (answers.get(key) === state) answers.delete(key); return; }
     if (!usable(envelope)) state.issue = `${envelope.outcome}: ${envelope.error?.message ?? 'Answer unavailable'}`;
@@ -1332,8 +1429,24 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
   }
   /** Refreshes visible read-only sources; independent slots retain their own failures and timestamps. */
   function refresh(): void {
-    if (route === 'overview' || route === 'sessions') { void inventory(agents, 'run.agents', agentPages, runPage, agent => agent.id); void inventoryActiveAgents(); }
-    if (route === 'overview') {
+    if (client.http) ensureSubscription();
+    if (client.http && connection !== 'connected') return;
+    if (client.http) {
+      if (route === 'sessions' && start?.project && !startupProjectChecked) {
+        startupProjectChecked = true;
+        void discoverStartupProject(start.project);
+      }
+      const scope = JSON.stringify(sessionInventoryQuery());
+      if (inventoryScope !== scope) {
+        if (inventoryScope) agentPages = 1;
+        inventoryScope = scope; reset(agents); reset(activeAgents);
+      }
+      if (route === 'pools' && poolScope !== query) { poolScope = query; poolPages = 1; reset(pools); }
+    }
+    if (client.http && route === 'overview') void refreshHttpOverview();
+    if (client.http && route === 'sessions') void refreshHttpDetail();
+    if (route === 'overview' || route === 'sessions') { void inventory(agents, 'run.agents', agentPages, runPage, agent => agent.id); if (!client.http || inventoryScope === '{}') void inventoryActiveAgents(); }
+    if (route === 'overview' && !client.http) {
       void observe(bridge, 'bridge.overview', {}, value => bridgeData(value, 'bridge_overview'));
       void observeBridgePages(deliveries, 'bridge.deliveries');
       void observeBridgePages(incidentMetric, 'bridge.incidents');
@@ -1363,14 +1476,14 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
           const item = pools.value?.items.find(row => object(row.pool).pool_id === poolId);
           if (item && poolFacts(item, object(item.pool)).kind === 'chat') {
             if (historyRosterId !== poolId) { reset(historyRoster); historyRosterId = poolId; }
-            void observe(historyRoster, 'pool.get', { pool_id: poolId, section: 'members', after: 0 }, value => poolSection(value, poolId, 'members', 0, null));
+            void observe(historyRoster, 'pool.get', { pool_id: poolId, section: 'members', after: 0 }, value => client.http ? product(value, 'pool_detail') : poolSection(value, poolId, 'members', 0, null));
           }
         }
         if (section === 'history' && poolHistorySupported() === true) void refreshPoolHistory(poolId);
         else if (section === 'criteria' ? poolCapability('structured_acceptance_v1') === true : section !== 'history' || poolHistorySupported() === false) {
           const observation = observe(poolDetail, 'pool.get', params, value => {
-            const data = poolSection(value, poolId, section, poolCursor, revision);
-            if (fenced && poolCursor === 0 && data.view) poolRevision = Number(object(object(data.view).pool).revision);
+            const data = client.http ? product(value, 'pool_detail') : poolSection(value, poolId, section, poolCursor, revision);
+            if (!client.http && fenced && poolCursor === 0 && data.view) poolRevision = Number(object(object(data.view).pool).revision);
             return data;
           });
           if (section === 'members') void observation.then(() => { if (alive && route === 'pools' && poolRequestKey === key) void refreshPoolStatus(); });
@@ -1380,37 +1493,148 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
           const proposal = { pool_id: poolId, section: 'proposal', after: 0, ...(poolProposalId ? { proposal_id: poolProposalId } : {}) };
           const key = JSON.stringify(proposal);
           if (poolProposalKey !== key) { reset(poolProposal); poolProposalKey = key; }
-          void observe(poolProposal, 'pool.get', proposal, value => poolSection(value, poolId, 'proposal', 0, null));
+          void observe(poolProposal, 'pool.get', proposal, value => client.http ? product(value, 'pool_detail') : poolSection(value, poolId, 'proposal', 0, null));
         }
       }
     }
-    if (route === 'overview' || route === 'quota') void observe(quota, 'quota.snapshot', {}, quotaSnapshot);
+    if (route === 'overview' || route === 'quota') void observe(quota, 'quota.snapshot', {}, value => client.http ? projectQuotaSnapshot(value as NonNullable<ApiResponse<'quota'>['data']['snapshot']>) : quotaSnapshot(value));
     if (route === 'worktree') {
       void inventory(agents, 'run.agents', agentPages, runPage, agent => agent.id); void inventoryActiveAgents();
       if (Date.now() - worktreesLoadedAt >= WORKTREE_REFRESH_MS) void loadWorktrees(); else void loadWorktreeFacts();
       if (worktreeOpen) {
-        const params = { repo: worktreeOpen.repo, path: worktreeOpen.row.path }, key = JSON.stringify(params);
+        const params = { repo: worktreeOpen.repo, path: worktreeOpen.row.path, ...(client.http ? { id: worktreeOpen.row.key } : {}) }, key = JSON.stringify(params);
         if (worktreeInspectKey !== key) { reset(worktreeInspect); worktreeInspectKey = key; worktreeInspectAt = 0; }
         if (Date.now() - worktreeInspectAt >= WORKTREE_REFRESH_MS) { worktreeInspectAt = Date.now(); void observe(worktreeInspect, 'worktree.inspect', params, parseWorktreeDetail); }
       }
     }
-    if (route === 'quota') void observe(quotaService, 'quota.status', {}, quotaStatus);
-    if (route === 'incidents') { const key = JSON.stringify([bridgeAfter, bridgeThrough]); if (incidentRequestKey !== key) { reset(incidents); incidentRequestKey = key; } void observe(incidents, 'bridge.incidents', { limit: 100, after_seq: bridgeAfter, include_closed: true, ...(bridgeThrough === null ? {} : { through_seq: bridgeThrough }) }, value => bridgeData(value, 'incident_page')); }
+    if (route === 'quota') void observe(quotaService, 'quota.status', {}, value => client.http ? projectQuotaStatus(value as NonNullable<ApiResponse<'quota'>['data']['status']>) : quotaStatus(value));
+    if (route === 'incidents') void refreshIncidents();
+
+  }
+  /** Rewinds an expired incident page without dropping its last usable receipt. */
+  async function refreshIncidents(): Promise<void> {
+    const key = JSON.stringify([bridgeAfter, bridgeThrough, bridgePeriod]);
+    if (incidentRequestKey !== key) {
+      if (bridgeAfter === 0) reset(incidents);
+      incidentRequestKey = key;
+    }
+    if (incidents.busy) return;
+    await observe(incidents, 'bridge.incidents', { limit: 100, after_seq: bridgeAfter, include_closed: true,
+      ...(bridgePeriod ? { from: bridgePeriod[0], to: bridgePeriod[1] } : {}),
+      ...(bridgeThrough === null ? {} : { through_seq: bridgeThrough }) }, value => bridgeData(value, 'incident_page'));
+    if (client.http && route === 'incidents' && incidentRequestKey === key && bridgeAfter !== 0 && incidents.response?.error?.code === 'stale_boundary') {
+      bridgeAfter = 0; bridgeThrough = null; incidentScroll = 0;
+      incidentRequestKey = JSON.stringify([bridgeAfter, bridgeThrough, bridgePeriod]);
+      await refreshIncidents();
+    }
+  }
+  /** Discards only failed content cache entries when a new Hub stream is ready. */
+  function retryHttpContent(): void {
+    const agent = route === 'sessions' ? selectedAgent() : null;
+    if (!agent) return;
+    const execution = executionKey(agent), answerKey = JSON.stringify([execution, agent.answerSha]);
+    const task = initialTasks.get(execution), answer = answers.get(answerKey);
+    if (task && !task.busy && task.result?.state === 'unverified') initialTasks.delete(execution);
+    if (answer && !answer.busy && answer.issue !== null && answer.content === null) answers.delete(answerKey);
+    void loadInitialTask();
+  }
+  /** Pushes selectors understood by v1 into the inventory query. Literal folders still filter paths locally. */
+  function sessionInventoryQuery() {
+    if (!client.http || route !== 'sessions') return {};
+    const [from, to] = bounds(period, Date.now());
+    const project = filterProject === start?.project ? startupProjectId : null;
+    return {
+      ...(project ? { project } : {}),
+      ...(filterStatus ? { status: filterStatus } : {}),
+      ...(query && query.length <= 200 ? { q: query } : {}),
+      ...(filterPeriodFailures ? { from, to } : {}),
+    };
+  }
+  /** Resolves the startup project through the service's discovered stable IDs and paths. */
+  async function discoverStartupProject(selector: string): Promise<void> {
+    try {
+      const response = await client.http!.get('worktrees', { signal: httpLifetime.signal });
+      const project = response.data.projects.find(project => project.id === selector || project.path === selector);
+      if (!alive || !project) return;
+      startupProjectId = project.id;
+      if (route === 'sessions' && filterProject === selector) refresh();
+    } catch { /* The session inventory can still match a reported project ID. */ }
+  }
+  /** Keep a single subscription for the visible root and, when applicable, its selected resource. */
+  function ensureSubscription(): void {
+    if (!alive || !client.http) return;
+    const topics: Topic[] = [route === 'worktree' ? 'worktrees' : route];
+    if (route === 'sessions' && selected) topics.push(`session:${selected}:detail`, `session:${selected}:history`, `session:${selected}:result`, `session:${selected}:initial-task`);
+    if (route === 'pools' && pool && /^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$/.test(pool)) topics.push(`pool:${pool}:detail`, `pool:${pool}:${poolTab === 'discussion' ? 'history' : poolTab}`);
+    if (route === 'worktree' && worktreeOpen) topics.push(`worktree:${worktreeOpen.row.key}:detail`);
+    const interval = pollingIntervals[pollingIndex], key = JSON.stringify([topics, interval]);
+    if (key === eventKey) return;
+    eventKey = key; eventController?.abort();
+    const controller = new AbortController(); eventController = controller;
+    let queued = false;
+    void client.http.watch(topics, interval, {
+      event: event => {
+        if (event.type === 'ready') {
+          contentGeneration++;
+          retryHttpContent();
+        }
+        if (queued) return;
+        queued = true;
+        queueMicrotask(() => {
+          queued = false;
+          if (!controller.signal.aborted && alive) refresh();
+        });
+      },
+      connection: state => {
+        if (!alive || controller.signal.aborted) return;
+        connection = state; render();
+      },
+    }, controller.signal);
+  }
+  /** Revalidates period metrics without publishing a response for an older period. */
+  async function refreshHttpOverview(): Promise<void> {
+    const request = ++overviewRequest, [from, to] = bounds(period, Date.now());
+    if (httpOverview && (httpOverview.data.from !== from || httpOverview.data.to !== to)) httpOverview = null;
+    try {
+      const result = await client.http!.get('overview', { query: { from, to }, signal: AbortSignal.any([httpLifetime.signal, AbortSignal.timeout(20_000)]) });
+      if (!alive || route !== 'overview' || request !== overviewRequest) return;
+      httpOverview = result; overviewStale = false; render();
+    } catch {
+      if (alive && request === overviewRequest) { overviewStale = true; render(); }
+    }
+  }
+  /** Refreshes details for the selected opaque execution and discards superseded replies. */
+  async function refreshHttpDetail(): Promise<void> {
+    const agent = selectedAgent();
+    if (!agent) return;
+    const key = executionKey(agent);
+    if (key === detailRequest && detailBusy) return;
+    if (key !== detailRequest) httpDetail = null;
+    detailRequest = key; detailBusy = true;
+    try {
+      const execution = executionSelector(agent);
+      const response = await client.http!.get('session', { params: { id: agent.id }, query: { execution }, signal: AbortSignal.any([httpLifetime.signal, AbortSignal.timeout(20_000)]) });
+      if (alive && detailRequest === key && selectedAgent() && executionKey(selectedAgent()!) === key && response.data.session.id === agent.id && response.data.session.execution === execution) httpDetail = response;
+    } catch { /* Previous details remain scoped to the same opaque selector. */ }
+    finally { if (detailRequest === key) { detailBusy = false; if (alive) render(); } }
   }
   /** Replaces the current poll timer without interrupting reads already in progress. */
   function schedulePolling(): void {
+    if (client.http) { ensureSubscription(); return; }
     if (pollingTimer !== null) clearInterval(pollingTimer);
     pollingTimer = setInterval(refresh, pollingIntervals[pollingIndex] * 1000);
   }
   /** Cycles the session's visible polling interval in ascending order. */
   function cyclePolling(): void { pollingIndex = (pollingIndex + 1) % pollingIntervals.length; schedulePolling(); render(); }
   /** Saves the current navigation location before a section or related-object transition. */
-  function location(): Location { return { route, selected, boundSequence, boundTarget, detailFromRelated, focus, tab, full, pool, poolTab, poolMetadata, poolCursor, poolRevision, poolPrevious: [...poolPrevious], poolProposalId, poolScroll, poolMemberIndex, poolDeliveryIndex, poolDecisionIndex, poolVoteIndex, poolVoteMember, bridgeAfter, bridgeThrough, incidentScroll, query, filterFolder, filterProject, filterStatus, filterPeriodFailures, listTop, finishedOpen }; }
+  function location(): Location { return { linkedAgent, route, selected, boundSequence, boundTarget, detailFromRelated, focus, tab, full, pool, poolTab, poolMetadata, poolCursor, poolRevision, poolPrevious: [...poolPrevious], poolProposalId, poolScroll, poolMemberIndex, poolDeliveryIndex, poolDecisionIndex, poolVoteIndex, poolVoteMember, bridgeAfter, bridgeThrough, bridgePeriod, incidentScroll, query, filterFolder, filterProject, filterStatus, filterPeriodFailures, listTop, finishedOpen }; }
   /** Restores a navigation location without modifying its cached reading position. */
   function restore(value: Location): void {
     if (route === 'sessions') { cancelSessionReads(); cancelRelatedRead(); }
     if (route === 'pools') { cancelPoolMemberRead(); cancelPoolStatus(); closePoolContent(); }
     ({ route, selected, boundSequence, boundTarget, detailFromRelated, focus, tab, full, pool, poolTab, poolMetadata, poolCursor, poolRevision, poolPrevious, poolProposalId, poolScroll, poolMemberIndex, poolDeliveryIndex, poolDecisionIndex, poolVoteIndex, poolVoteMember, bridgeAfter, bridgeThrough, incidentScroll, query, filterFolder, filterProject, filterStatus, filterPeriodFailures, listTop, finishedOpen } = value);
+    linkedAgent = value.linkedAgent ?? null;
+    bridgePeriod = value.bridgePeriod ?? null;
     if (detailFromRelated && relatedAgent.value?.targetKey !== boundTarget?.key) reset(relatedAgent);
     else if (detailFromRelated && relatedAgent.good) relatedAgent.response = failure('run.status', 'status_rechecking') as ReadResponse;
     poolPrevious = [...poolPrevious];
@@ -1418,7 +1642,7 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
     refresh(); render();
   }
   /** Moves to a section while preserving a real Back path. */
-  function navigate(next: Route, prepare?: () => void): void { if (route === 'sessions' && (next !== 'sessions' || detailFromRelated)) cancelSessionReads(); if (route === 'sessions') cancelRelatedRead(); if (route === 'pools' && next !== 'pools') { cancelPoolMemberRead(); cancelPoolStatus(); closePoolContent(); } backStack.push(location()); forwardStack = []; route = next; focus = 'list'; full = false; boundSequence = null; boundTarget = null; detailFromRelated = false; overlay = null; if (next === 'incidents') { bridgeAfter = 0; bridgeThrough = null; incidentRequestKey = ''; } prepare?.(); refresh(); render(); }
+  function navigate(next: Route, prepare?: () => void): void { if (route === 'sessions' && (next !== 'sessions' || detailFromRelated)) cancelSessionReads(); if (route === 'sessions') cancelRelatedRead(); if (route === 'pools' && next !== 'pools') { cancelPoolMemberRead(); cancelPoolStatus(); closePoolContent(); } backStack.push(location()); forwardStack = []; route = next; focus = 'list'; full = false; boundSequence = null; boundTarget = null; detailFromRelated = false; overlay = null; if (next === 'incidents') { bridgePeriod = client.http ? bounds(period, Date.now()) : null; bridgeAfter = 0; bridgeThrough = null; incidentRequestKey = ''; } prepare?.(); refresh(); render(); }
   /** Invalidates a request key so another source/page cannot inherit its last-good data. */
   function reset<T>(state: Slot<T>): void { state.generation++; state.value = null; state.good = null; state.response = null; state.busy = false; }
   /** Filters loaded executions without inferring repository identities. */
@@ -1426,10 +1650,10 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
     const term = query.trim().toLocaleLowerCase(), folder = filterFolder.replace(/\/+$/, '') || filterFolder;
     return loadedAgents().filter(agent => {
       const matches = !term || [agent.name, agent.summary, agent.id, agent.model, agent.status, agent.workdir].some(value => value?.toLocaleLowerCase().includes(term));
-      const workdir = agentWorkdir(agent), project = !filterProject || !!workdir && projectRoot(workdir.path) === filterProject;
+      const workdir = agentWorkdir(agent), project = !filterProject || agent.raw.project_id === filterProject || startupProjectId !== null && filterProject === start?.project && agent.raw.project_id === startupProjectId || !!workdir && (projectRoot(workdir.path) === filterProject || client.http && (workdir.path === filterProject || workdir.path.startsWith(filterProject + '/')));
       const path = !folder || !!agent.workdir && (agent.workdir === folder || agent.workdir.startsWith(folder === '/' ? '/' : folder + '/'));
-      const [start, end] = bounds(period, Date.now());
-      const inPeriod = !filterPeriodFailures || agent.finished !== null && agent.finished * 1000 >= start && agent.finished * 1000 < end;
+      const [from, to] = bounds(period, Date.now());
+      const inPeriod = !filterPeriodFailures || agent.finished !== null && agent.finished * 1000 >= from && agent.finished * 1000 < to;
       return matches && path && project && inPeriod && (!filterStatus || agent.status === filterStatus);
     });
   }
@@ -1456,7 +1680,7 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
     render();
   }
   /** Opens a selected execution without attributing content from a previous sequence. */
-  function chooseAgent(id: string): void { const changed = selected !== id || detailFromRelated; if (changed) cancelSessionReads(); if (detailFromRelated) cancelRelatedRead(); selected = id; boundSequence = null; boundTarget = null; detailFromRelated = false; tab = 'history'; if (changed && currentBeginning()) jumpBeginning(false); else ensureDefaultHistory(); void loadHistory(); render(); }
+  function chooseAgent(id: string): void { const changed = selected !== id || detailFromRelated; if (changed || linkedAgent) cancelSessionReads(); if (detailFromRelated) cancelRelatedRead(); linkedAgent = null; selected = id; boundSequence = null; boundTarget = null; detailFromRelated = false; tab = 'history'; if (changed && currentBeginning()) jumpBeginning(false); else ensureDefaultHistory(); void loadHistory(); if (client.http) refresh(); render(); }
   /** Opens a pool while invalidating the previous pool's keyed observation. */
   function choosePool(id: string): void { cancelPoolMemberRead(); cancelPoolStatus(); closePoolContent(); pool = id; const row = pools.value?.items.find(item => object(item.pool).pool_id === id); poolTab = row && poolFacts(row, object(row.pool)).kind === 'chat' ? 'discussion' : 'members'; poolMetadata = false; poolCursor = 0; poolRevision = null; poolPrevious = []; poolProposalId = null; poolMemberIndex = 0; poolDeliveryIndex = 0; poolDecisionIndex = 0; poolVoteIndex = 0; poolVoteMember = null; poolScroll = 0; poolRequestKey = ''; poolProposalKey = ''; refresh(); render(); }
   /** Keeps each pool tab and source page's reading position independent. */
@@ -1470,8 +1694,20 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
   function setPoolTab(next: PoolTab): void { if (next !== poolTab) { cancelPoolMemberRead(); cancelPoolStatus(); } closePoolContent(); savePoolPosition(); poolTab = next; const page = poolPaging.get(JSON.stringify([pool, poolTab, poolProposalId])); poolCursor = page?.cursor ?? 0; poolRevision = page?.revision ?? null; poolPrevious = [...(page?.previous ?? [])]; poolScroll = poolPositions.get(poolPositionKey()) ?? 0; refresh(); render(); }
   /** Selects a precise archived proposal without moving the archive's own page. */
   function choosePoolProposal(id: string | null): void { savePoolPosition(); poolProposalId = id; poolVoteMember = null; poolVoteIndex = 0; poolProposalKey = ''; refresh(); render(); }
+  /** Format exact, bounded and unknown HTTP metrics with their source freshness. */
+  function httpMetric(source: 'run', metric: 'active' | 'finished' | 'failed'): string;
+  function httpMetric(source: 'bridge', metric: 'accepted' | 'pending' | 'incidents'): string;
+  function httpMetric(source: 'run' | 'bridge', metric: 'active' | 'finished' | 'failed' | 'accepted' | 'pending' | 'incidents'): string {
+    const group = httpOverview?.data[source];
+    const value = group?.[metric as keyof typeof group] as { kind: string; value: number | null } | undefined;
+    const observation = httpOverview?.observations.find(item => item.source === source);
+    if (!value || value.kind === 'unknown' || value.value === null) return 'Unknown';
+    const stale = overviewStale || connection !== 'connected' || observation?.staleSinceMs != null;
+    return `${stale ? 'STALE · ' : ''}${value.kind === 'lower_bound' ? '≥' : ''}${value.value}`;
+  }
   /** Computes one loaded period count using only producer event clocks. */
   function runCount(status: 'finished' | 'failed'): string {
+    if (client.http) return httpMetric('run', status);
     if (!agents.value || !agents.good) return 'Unknown';
     const [start, end] = bounds(period, Date.now());
     if (agents.good.observed_at_ms < start) return 'STALE · Unknown';
@@ -1483,6 +1719,7 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
   }
   /** Computes Bridge period metrics only from retained rows with their explicit event clocks. */
   function bridgeCount(state: Slot<Record<string, unknown>>, field: 'deliveries' | 'incidents', clock: string): string {
+    if (client.http) return httpMetric('bridge', field === 'deliveries' ? 'accepted' : 'incidents');
     if (!state.value || !state.good) return 'Unknown'; const rows = state.value[field]; if (!Array.isArray(rows)) return 'Unknown';
     const [start, end] = bounds(period, Date.now()); let missing = false;
     if (state.good.observed_at_ms < start) return 'STALE · Unknown';
@@ -1572,7 +1809,7 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
         textAt(box, 0, 2, width - 2, coverage, { color: C.muted, bg: C.panel });
       };
       compactSource(3, 'Agent Run', [`Active: ${active}`, `Finished: ${compact(runCount('finished'))}`, `Failed: ${compact(runCount('failed'))}`], runFailed() ? notice(agents) : `Failed included in finished · ${notice(agents)}`);
-      compactSource(7, 'Agent Bridge', [`Intake: ${compact(bridgeCount(deliveries, 'deliveries', 'accepted_at_ms'))}`, 'Pending: Unknown', `Incidents: ${compact(bridgeCount(incidentMetric, 'incidents', 'created_ms'))}`], `Retained by Bridge · ${notice(bridge)}`);
+      compactSource(7, 'Agent Bridge', [`Intake: ${compact(bridgeCount(deliveries, 'deliveries', 'accepted_at_ms'))}`, `Pending: ${client.http ? httpMetric('bridge', 'pending') : 'Unknown'}`, `Incidents: ${compact(bridgeCount(incidentMetric, 'incidents', 'created_ms'))}`], `Retained by Bridge · ${notice(bridge)}`);
       const attention = panel(parent, left, 11, width, 4, 'Needs attention');
       textAt(attention, 0, 1, width - 2, `${attentionIndex === 0 ? '›' : ' '} Failed executions: ${compact(runCount('failed'))} [Open]`, { color: C.error, bg: C.panel, click: () => openAttention(0) });
       textAt(attention, 0, 2, width - 2, `${attentionIndex === 1 ? '›' : ' '} Bridge incidents: ${compact(bridgeCount(incidentMetric, 'incidents', 'created_ms'))} [Open]`, { color: C.error, bg: C.panel, click: () => openAttention(1) });
@@ -1600,8 +1837,8 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
       textAt(box, 2, sourceH - 2, width - 4, coverage, { color: C.muted, bg: C.panel });
     };
     const active = activeCount();
-    drawSource('Agent Run', 4, ['Active · now', `Finished · ${period}`, `Failed · ${period}`], [active, runCount('finished'), runCount('failed')], runFailed() ? `${notice(agents)} · ${agents.value ? `${agents.value.items.length} loaded / ${agents.value.total} reported` : 'coverage unknown'}` : `${agents.value ? `${agents.value.items.length} loaded / ${agents.value.total} reported` : 'coverage unknown'} · failed included in finished · ${notice(agents)}`, { label: 'Open sessions →', open: () => navigate('sessions') });
-    drawSource('Agent Bridge', 5 + sourceH, [`Accepted by Bridge · ${period}`, 'Pending · now', `Incidents · ${period}`], [bridgeCount(deliveries, 'deliveries', 'accepted_at_ms'), 'Unknown', bridgeCount(incidentMetric, 'incidents', 'created_ms')], `${notice(bridge)} · Retained by Bridge · deliveries ${sourceState(deliveries)} · incidents ${sourceState(incidentMetric)}`, { label: 'View incidents →', open: () => navigate('incidents') });
+    drawSource('Agent Run', 4, ['Active · now', `Finished · ${period}`, `Failed · ${period}`], [active, runCount('finished'), runCount('failed')], runFailed() ? `${notice(agents)} · ${agents.value ? `${agents.value.items.length} loaded${client.http ? '' : ` / ${agents.value.total} reported`}` : 'coverage unknown'}` : `${agents.value ? `${agents.value.items.length} loaded${client.http ? '' : ` / ${agents.value.total} reported`}` : 'coverage unknown'} · failed included in finished · ${notice(agents)}`, { label: 'Open sessions →', open: () => navigate('sessions') });
+    drawSource('Agent Bridge', 5 + sourceH, [`Accepted by Bridge · ${period}`, 'Pending · now', `Incidents · ${period}`], [bridgeCount(deliveries, 'deliveries', 'accepted_at_ms'), client.http ? httpMetric('bridge', 'pending') : 'Unknown', bridgeCount(incidentMetric, 'incidents', 'created_ms')], client.http ? `Retained by Bridge · ${httpOverview?.observations.find(item => item.source === 'bridge')?.outcome ?? 'Unknown'}` : `${notice(bridge)} · Retained by Bridge · deliveries ${sourceState(deliveries)} · incidents ${sourceState(incidentMetric)}`, { label: 'View incidents →', open: () => navigate('incidents') });
     if (quotaCard) drawQuotaCard(parent, left, 6 + sourceH * 2, width);
     const attention = panel(parent, left, attentionY, width, attentionH, '');
     const failed = runCount('failed'), incident = bridgeCount(incidentMetric, 'incidents', 'created_ms');
@@ -1618,7 +1855,7 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
   async function loadWorktrees(): Promise<void> {
     if (!alive || worktreesBusy) return;
     worktreesBusy = true; worktreesLoadedAt = Date.now(); const generation = ++worktreeGeneration; render();
-    await observe(repositories, 'hub.repositories', {}, repositoriesData);
+    await observe(repositories, 'hub.repositories', {}, value => client.http ? object(value).repositories as string[] : repositoriesData(value));
     const repos: (string | null)[] = repositories.value?.length ? repositories.value : [null], groups: WorktreeGroup[] = [];
     for (const repo of repos) {
       const group: WorktreeGroup = { repo, rows: [], coverage: null, partial: false, error: null };
@@ -1656,7 +1893,7 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
         worktreeFactsAt.set(next.key, Date.now());
         if (worktreeFacts.get(next.key)?.state !== 'ready') worktreeFacts.set(next.key, { state: 'pending' });
         render();
-        const envelope = await read('worktree.inspect', { repo: next.repo ?? next.path, path: next.path, checks: { status: true, size: true } });
+        const envelope = await read('worktree.inspect', { repo: next.repo ?? next.path, path: next.path, ...(client.http ? { id: next.key } : {}), checks: { status: true, size: true } });
         if (!alive) break;
         let entry: FactsEntry;
         if (!usable(envelope)) entry = { state: 'failed', code: safe(envelope.error?.code ?? envelope.outcome) };
@@ -1686,32 +1923,45 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
   function worktreeRows(): { row: WorktreeRow; repo: string | null }[] { return orderedWorktrees(worktreeProjects()).map(view => ({ row: view.row, repo: view.repo })); }
   /** Opens the inspect detail for one listed row; orphan and missing rows have no Git registration to inspect. */
   function openWorktree(index: number): void {
-    const entry = worktreeRows()[index]; if (!entry?.row.path) return;
-    worktreeIndex = index; worktreeKey = entry.row.key; worktreeOpen = { row: entry.row, repo: entry.repo ?? entry.row.path }; worktreeSessionIndex = 0; worktreeScroll = 0; refresh(); render();
+    const entry = worktreeRows()[index]; if (!entry || !client.http && !entry.row.path) return;
+    worktreeIndex = index; worktreeKey = entry.row.key; worktreeOpen = { row: entry.row, repo: entry.repo ?? entry.row.path ?? entry.row.key }; worktreeSessionIndex = 0; worktreeScroll = 0; refresh(); render();
   }
   /** Opens one Run session from a worktree link, clearing list filters so it is visible. */
-  function openSession(id: string): void {
+  function openSession(id: string, linked?: RunAgent): void {
     navigate('sessions', () => {
       filterStatus = ''; filterPeriodFailures = false; filterFolder = ''; filterProject = ''; query = ''; finishedOpen = true;
       if (id !== selected) cancelSessionReads();
-      selected = id;
+      selected = id; linkedAgent = linked ?? null;
       if (currentBeginning()) jumpBeginning(false); else ensureDefaultHistory();
       void loadHistory();
     });
+  }
+  /** Reads only the links declared in the selected Worktree projection. */
+  function worktreeSessionLinks(): ApiResponse<'worktree'>['data']['worktree']['sessions'] {
+    const data = worktreeInspect.value;
+    return client.http && data?.key === worktreeOpen?.row.key && Array.isArray(data?.sessions) ? data.sessions : [];
   }
   /** Draws the per-repository worktree list or one worktree's detail with its linked sessions. */
   function drawWorktree(parent: BoxRenderable): void {
     const width = renderer.width - 4, height = renderer.height - 6, lines: Line[] = [], allRows = worktreeGroups.flatMap(group => group.rows), agentsLoaded = loadedAgents();
     if (worktreeOpen) {
-      const open = worktreeOpen, linked = linkedSessions(open.row, allRows, agentsLoaded);
+      const open = worktreeOpen;
+      const links = worktreeSessionLinks();
+      const linked = client.http ? links.map(link => ({
+        ...link, agent: agentsLoaded.find(agent => agent.id === link.sessionId && (!link.execution || executionSelector(agent) === link.execution)),
+      })) : linkedSessions(open.row, allRows, agentsLoaded).map(agent => ({ sessionId: agent.id, execution: null, match: 'workdir', agent }));
       worktreeSessionIndex = Math.max(0, Math.min(worktreeSessionIndex, linked.length - 1));
       textAt(parent, 2, 2, width, `Agent Worktree · ${open.row.key}`, { bold: true });
       lines.push({ text: notice(worktreeInspect), color: C.muted });
       const measured = worktreeFacts.get(open.row.key), sizeText = measured?.state === 'ready' ? sizeSummary(measured).text.replace(/^size /, '') : undefined;
       if (worktreeInspect.value) for (const line of detailLines(worktreeInspect.value, Date.now() / 1000, sizeText)) addWrapped(lines, safe(line), width);
       lines.push({ text: '' }, { text: `Run sessions in this worktree (${linked.length}) · ${notice(agents)}`, bold: true, color: C.accent });
-      if (!linked.length) lines.push({ text: 'No loaded Run session has its workdir in this worktree.', color: C.muted });
-      linked.forEach((agent, index) => lines.push({ text: `${index === worktreeSessionIndex ? '›' : ' '} ${safe(agent.status).padEnd(10)} ${safe(agent.name ?? agent.id)} · ${safe(agent.workdir)}`, color: activeStatus(agent.status) ? C.good : C.text, bg: index === worktreeSessionIndex ? C.selected : undefined, action: () => openSession(agent.id) }));
+      if (!linked.length) lines.push({ text: client.http ? 'No Run links reported in this Worktree observation.' : 'No loaded Run session has its workdir in this worktree.', color: C.muted });
+      linked.forEach(({ agent, sessionId, execution, match }, index) => lines.push({
+        text: `${index === worktreeSessionIndex ? '›' : ' '} ${safe(agent?.status ?? match).padEnd(10)} ${safe(agent?.name ?? sessionId)} · ${safe(agent?.workdir)}`,
+        color: agent && activeStatus(agent.status) ? C.good : C.text, bg: index === worktreeSessionIndex ? C.selected : undefined,
+        action: () => { if (client.http) openSeatSession(sessionId, execution); else openSession(sessionId); },
+      }));
     } else {
       const projects = worktreeProjects(), entries = orderedWorktrees(projects), selectedIndex = worktreeSelected(entries.length), selectedKey = entries[selectedIndex]?.key ?? null;
       const toggle = `[d] Technical details ${worktreeDetails ? '▾' : '▸'}`;
@@ -1843,7 +2093,10 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
         const firstSeq = finalResult?.raw.first_seq, lastSeq = finalResult?.raw.last_seq;
         const oneResult = firstSeq == null && lastSeq == null || typeof firstSeq === 'number' && Number.isSafeInteger(firstSeq) && firstSeq >= 0 && typeof lastSeq === 'number' && lastSeq === finalResult?.seq && firstSeq === lastSeq;
         const verified = finalResult ? state.toolTimes.get(resultTimeKey(finalResult))?.at ?? null : null;
-        const end = finalResult && !state.grouped.partialAfter.has(finalResult.key) ? oneResult ? finalResult.at : verified : null;
+        const projectedEnd = finalResult && client.http
+          ? finalResult.raw.end_at !== undefined ? (typeof finalResult.raw.end_at === 'number' ? finalResult.raw.end_at : null) : finalResult.raw.first_position == null ? finalResult.at : null
+          : null;
+        const end = finalResult && !state.grouped.partialAfter.has(finalResult.key) ? client.http ? projectedEnd : oneResult ? finalResult.at : verified : null;
         const startTime = toolTime(start), endTime = toolTime(end);
         const elapsed = entry.calls.length && start !== null && end !== null && startTime !== '--:--:--' && endTime !== '--:--:--' && end >= start ? duration(end - start) : null;
         const compact = width < 72, timing = entry.calls.length ? `${startTime}${compact ? '→' : ' → '}${endTime}${finalResult ? ` · ${elapsed ?? (compact ? '?s' : 'duration unknown')}` : ''}` : startTime;
@@ -2065,6 +2318,23 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
     historyThumb.top = historyThumbTop; historyThumb.height = historyThumbHeight; historyThumb.backgroundColor = C.muted;
     historyTrack.visible = true;
   }
+  /** Exposes selected execution and lineage facts under their separate evidence labels. */
+  function httpDetailFields(data: ApiResponse<'session'>['data']): [string, unknown][] {
+    const lineage = data.lineage;
+    return [
+      ['History attribution', data.historyAttribution], ['Answer attribution', data.answerAttribution],
+      ['Execution usage', data.executionUsage], ['Cumulative usage', data.cumulativeUsage], ['Tool counts', data.toolCounts],
+      ['Run delivery', data.delivery], ['Run cleanup', data.cleanup],
+      ...(lineage ? [
+        ['Lineage match', lineage.match.match], ['Store fence', lineage.storeFenced], ['Pin state', lineage.pinState],
+        ['Selected raw execution', lineage.selected], ['Latest retained execution', lineage.retainedLatest],
+        ['Lineage coverage', lineage.coverage], ['Restart/resume', lineage.restartResume], ['Lineage terminal', lineage.lineageTerminal],
+        ['Terminal outcome', lineage.terminalOutcome], ['Success commit', lineage.successCommit], ['Lineage cleanup', lineage.cleanup],
+        ['Pool observation', stamp(seconds(lineage.poolObservedAtMs))], ['Run status observation', stamp(seconds(lineage.statusObservedAtMs))],
+        ['Run sampled', stamp(seconds(lineage.sampledAtMs))],
+      ] as [string, unknown][] : []),
+    ];
+  }
   /** Builds source details without interpreting workdir as a verified repository. */
   function sessionDetails(agent: RunAgent, width: number): Line[] {
     const evidence = currentBoundEvidence();
@@ -2081,12 +2351,13 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
       ['Last action evidence', lastAction(agent)], ['Last transcript activity', stamp(agent.progress)], ['Silence at source observation', duration(agent.silence)],
       ['Native usage (latest execution)', agent.raw.usage], ['Tool counts (latest execution)', agent.raw.tool_counts], ['Usage across executions', agent.raw.usage_cumulative],
       ...(!evidence ? [['Answer available', agent.answerAvailable], ['Cleanup', agent.raw.cleanup]] as [string, unknown][] : []), ['Delivery', agent.raw.delivery], ['Source observation', stamp(agent.observed)],
+      ...(client.http && detailRequest === executionKey(agent) && httpDetail ? httpDetailFields(httpDetail.data) : []),
       ['Inventory received', agents.good ? stamp(agents.good.observed_at_ms / 1000) : null], ['Producer metadata', agent.raw],
     ];
     const task = initialTasks.get(executionKey(agent))?.result;
     if (task?.state === 'verified') {
       const cached = initialTasks.get(executionKey(agent))!;
-      if (cached.lines?.width !== width) { const taskRows: Line[] = []; addWrapped(taskRows, initialTaskScope(task), width, { color: C.good }); addWrapped(taskRows, task.text, width); taskRows.push({ text: '' }); cached.lines = { width, rows: taskRows }; }
+      if (cached.lines?.width !== width) { const taskRows: Line[] = []; addWrapped(taskRows, task.storeId === null ? `Initial task · SHA-256 verified · ${task.mode === 'strict' ? 'store and active pin fenced' : 'retained root verified'}` : initialTaskScope(task), width, { color: C.good }); addWrapped(taskRows, task.text, width); taskRows.push({ text: '' }); cached.lines = { width, rows: taskRows }; }
       rows.push(...cached.lines.rows);
     }
     for (const [label, value] of fields) addWrapped(rows, `${label}: ${shown(value)}`, width);
@@ -2134,7 +2405,7 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
       if (!matching.length && agents.value) lines.push({ text: 'No matching loaded sessions.', color: C.muted });
       listTop = Math.max(0, Math.min(listTop, Math.max(0, lines.length - listHeight)));
       lineViewport(parent, 1, listY, sidebarWidth - 2, listHeight, lines, listTop, delta => { listTop = Math.max(0, Math.min(Math.max(0, lines.length - listHeight), listTop + delta)); render(); }, C.sidebar, 0, line => line.hover);
-      textAt(parent, 2, h - 4, leftWidth, `${agents.good && agents.response !== agents.good ? 'STALE · ' : ''}${agents.value ? loadedAgents().length : '?'} loaded${agents.value ? ` / ${agents.value.total} reported` : ''}${agents.value && (!agents.value.complete || activeAgents.value && !activeAgents.value.complete) ? ' · partial' : ''}${query || filterFolder || filterProject || filterStatus ? ' · filtered' : ''}`, { color: C.muted, bg: C.sidebar });
+      textAt(parent, 2, h - 4, leftWidth, `${agents.good && agents.response !== agents.good ? 'STALE · ' : ''}${agents.value ? loadedAgents().length : '?'} loaded${agents.value && !client.http ? ` / ${agents.value.total} reported` : ''}${agents.value && (!agents.value.complete || activeAgents.value && !activeAgents.value.complete) ? ' · partial' : ''}${query || filterFolder || filterProject || filterStatus ? ' · filtered' : ''}`, { color: C.muted, bg: C.sidebar });
       if (agents.value?.next !== null && agents.value?.next !== undefined) textAt(parent, 2, h - 3, leftWidth, 'Load more  [n]', { color: C.accent, bg: C.sidebar, click: () => { agentPages++; refresh(); } });
     }
     if (!showDetail) return;
@@ -2177,11 +2448,13 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
       if (!state.follow && !state.anchor) rememberHistoryAnchor(state);
       const incompleteBodies = state.blocks.some(block => block.raw.content_complete !== true || state.grouped.partialBefore.has(block.key) || state.grouped.partialAfter.has(block.key) || typeof block.raw.omitted_bytes === 'number' && block.raw.omitted_bytes > 0);
       const beginning = currentBeginning(), isBeginning = beginning?.active && beginning.state === state, tail = tailHistory();
-      if (isBeginning && state.loaded && h - 4 >= y + height) { const task = initialTasks.get(executionKey(agent)); textAt(parent, detailX, h - 4, detailWidth, initialTaskLabel(!task ? null : task.busy ? 'reading' : task.unsupported ? null : task.result), { color: task?.result?.state === 'verified' ? C.good : C.muted }); }
+      if (isBeginning && state.loaded && h - 4 >= y + height) { const task = initialTasks.get(executionKey(agent)); textAt(parent, detailX, h - 4, detailWidth, task?.result?.state === 'verified' && task.result.storeId === null ? `Initial task verified (${task.result.mode}) · SHA-256 ${task.result.sha256.slice(0, 12)}… · ${task.result.totalBytes} bytes · see Details [d]` : initialTaskLabel(!task ? null : task.busy ? 'reading' : task.unsupported ? null : task.result), { color: task?.result?.state === 'verified' ? C.good : C.muted }); }
       const follow = state.follow ? '● Following' : `○ Follow paused${tail?.unseen ? ` · ${tail.unseen} new` : ''}`;
       const range = isBeginning && beginning ? !state.loaded ? state.busy ? 'Loading beginning…' : 'Beginning unavailable · [i] retry' : beginning.next !== null ? state.busy ? 'Loading next page…' : state.response && !usable(state.response) ? 'Next page unavailable · [n] retry' : 'More history available' : state.complete ? incompleteBodies ? 'all pages loaded · bodies incomplete/unknown' : 'loaded history complete' : 'coverage incomplete or unknown'
         : state.complete ? incompleteBodies ? 'all pages loaded · bodies incomplete/unknown' : 'loaded history complete' : state.previous !== null ? 'older page available [g]' : 'coverage incomplete or unknown';
-      const coverage = `Across runs · ${range}${!isBeginning && state.response && !usable(state.response) ? ` · ${state.response.outcome}${state.loaded ? ' (last good)' : ''}` : ''}${isBeginning && tail?.response && !usable(tail.response) ? ' · tail unavailable' : ''}`;
+      const pageData = client.http && state.response && usable(state.response) ? object(state.response.data) : null;
+      const attribution = pageData?.attribution === 'execution_verified' ? 'Execution verified' : pageData?.attribution === 'unverified' ? 'Attribution unverified' : 'Across runs';
+      const coverage = `${attribution}${pageData?.projection_format === 'legacy_raw' ? ' · legacy forward-only' : ''} · ${range}${!isBeginning && state.response && !usable(state.response) ? ` · ${state.response.outcome}${state.loaded ? ' (last good)' : ''}` : ''}${isBeginning && tail?.response && !usable(tail.response) ? ' · tail unavailable' : ''}`;
       const followWidth = Math.min(detailWidth, stringWidth(follow));
       const available = Math.max(0, detailWidth - followWidth - 2);
       textAt(parent, detailX, h - 3, available, coverage, { color: C.muted });
@@ -2204,8 +2477,27 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
       lineViewport(parent, detailX, y, detailWidth, height, lines, position, delta => { if (state) { state.detailsScroll = Math.max(0, Math.min(Math.max(0, lines.length - height), position + delta)); render(); } }, C.bg, 2);
     }
   }
+  /** Reads an already decoded session link attached by the HTTP projection. */
+  function memberSession(row: Record<string, unknown>) {
+    return client.http ? row.hub_session as { sessionId: string; execution: string | null; match: string } | null : null;
+  }
   /** Opens the Sessions view for a seat's Run agent when that agent is in the loaded Run inventory. */
-  function openSeatSession(agentId: string): void {
+  function openSeatSession(agentId: string, execution?: string | null): void {
+    if (client.http) {
+      const source = location(), tree = worktreeOpen?.row.key;
+      cancelPoolMemberRead();
+      const controller = new AbortController();
+      poolMemberRead = controller;
+      void client.http.get('session', { params: { id: agentId }, query: { execution }, signal: AbortSignal.any([controller.signal, AbortSignal.timeout(20_000)]) })
+        .then(response => {
+          if (!alive || controller.signal.aborted || route !== source.route || pool !== source.pool || poolTab !== source.poolTab || tree !== worktreeOpen?.row.key) return;
+          if (response.data.session.id !== agentId || execution && response.data.session.execution !== execution) throw new Error('session_link_changed');
+          openSession(agentId, runAgent(sessionRow(response.data.session)));
+        })
+        .catch(() => { if (alive && !controller.signal.aborted) { alert = 'Linked Run session is unavailable.'; render(); } })
+        .finally(() => { if (poolMemberRead === controller) poolMemberRead = null; });
+      return;
+    }
     if (!agents.value?.items.some(agent => agent.id === agentId)) { alert = 'Run session is not in the loaded inventory; refresh Sessions or load more.'; render(); return; }
     openSession(agentId);
   }
@@ -2302,7 +2594,14 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
     if (!pool) {
       textAt(parent, detailX, 2, width, 'Select a pool to view its history', { bold: true });
       const supported = poolCapability(INVENTORY_SNAPSHOT_CAPABILITY);
-      if (poolTotals.value) {
+      if (client.http) {
+        const raw = pools.value?.raw.totals;
+        if (raw) {
+          const summary = object(raw);
+          addWrapped(lines, `Source snapshot r${shown(summary.revision)} · ${shown(summary.retained)} retained · ${shown(summary.closed)} closed`, mainWidth, { color: C.muted });
+          addWrapped(lines, `Open ${shown(summary.open)} · Completed ${shown(summary.completed)} · ${shown(summary.unknown)} unclassified`, mainWidth, { color: C.muted });
+        } else lines.push({ text: 'Source-wide totals unavailable', color: C.muted });
+      } else if (poolTotals.value) {
         const stale = poolTotals.response !== poolTotals.good;
         for (const [index, text] of inventoryTotalsLines(poolTotals.value).entries()) addWrapped(lines, `${index === 0 && stale ? 'STALE · ' : ''}${text}`, mainWidth, { color: C.muted });
       } else if (supported === false) lines.push({ text: 'Source-wide totals unavailable · observer does not advertise inventory_snapshot_v1', color: C.muted });
@@ -2311,8 +2610,8 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
       textAt(parent, detailX, 2, width, shown(info?.name ?? pool), { bold: true });
       textAt(parent, detailX, 5, Math.min(9, width), '‹ Pools', { color: C.accent, click: back });
       const kind = poolKindLabel(poolInfo.kind ?? listFacts.kind);
-      const state = info?.closed === true ? 'Closed' : poolInfo.completionId ? 'Completed' : info ? 'Live' : 'Unknown';
-      textAt(parent, detailX, 3, width, `${shown(pool)} · ${state} · revision ${shown(info?.revision)}${kind ? ` · Kind: ${kind}` : ''}`, { color: C.muted });
+      const state = info?.closed === true ? 'Closed' : poolInfo.completionId ? 'Completed' : info && info.closure_state !== 'unknown' ? 'Live' : 'Unknown';
+      textAt(parent, detailX, 3, width, `${shown(pool)} · ${state} · revision ${shown(client.http ? info?.revision_exact : info?.revision)}${kind ? ` · Kind: ${kind}` : ''}`, { color: C.muted });
       textAt(parent, detailX, 4, width, `Goal: ${shown(info?.purpose).replace(/\n/g, ' ')}`, { color: C.muted, click: () => { void openPoolContent('purpose'); } });
       let tabX = detailX;
       for (const value of poolTabs) {
@@ -2331,7 +2630,7 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
           addWrapped(lines, poolContent.text, mainWidth);
           if (poolContent.agreement) {
             lines.push({ text: '' });
-            for (const agent of poolContent.agreement.agents) lines.push({ text: `  Open Run session · seat ${shown(agent.seat).replace(/\n/g, ' ')} →`, color: C.accent, action: () => openSeatSession(agent.id) });
+            for (const agent of poolContent.agreement.agents) lines.push({ text: `  Open Run session · seat ${shown(agent.seat).replace(/\n/g, ' ')} →`, color: C.accent, action: () => openSeatSession(agent.id, agent.execution) });
           }
         }
       } else if (!data && !journal) {
@@ -2350,17 +2649,19 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
           const member = object(value), binding = bindings.map(object).find(item => object(item.member).member_id === member.member_id);
           const background = index === poolMemberIndex ? C.selected : C.panel, seat = poolSeat(member);
           if (seat) {
-            const open = seat.runAgentId ? () => { poolMemberIndex = index; openSeatSession(seat.runAgentId!); } : () => { poolMemberIndex = index; alert = 'This seat has no Run agent yet.'; render(); };
+            const link = memberSession(member);
+            const agentId = link?.sessionId ?? seat.runAgentId;
+            const open = agentId ? () => { poolMemberIndex = index; openSeatSession(agentId, link?.execution); } : () => { poolMemberIndex = index; alert = 'This seat has no Run agent yet.'; render(); };
             lines.push({ text: '', bg: background, action: open });
             addWrapped(lines, `${index === poolMemberIndex ? '›' : ' '} ${shown(seat.seatId)} · ${shown(seat.profile)} · ${shown(member.state)}`, mainWidth, { bg: background, bold: true, action: open });
             addWrapped(lines, `  ${shown(member.task)}`, mainWidth, { bg: background, color: C.muted, action: open });
             addWrapped(lines, `  Admission: ${seat.admission} · ${seat.joined ? 'Joined chat' : 'Not joined'} · Execution: ${shown(member.runtime)}`, mainWidth, { bg: background, color: C.muted, action: open });
-            addWrapped(lines, seat.runAgentId ? `  Run agent: ${shown(seat.runAgentId)}` : `  Run agent: none yet · admission ${seat.admission}`, mainWidth, { bg: background, color: C.muted, action: open });
-            if (seat.runAgentId) addWrapped(lines, '  Open Run session →', mainWidth, { bg: background, color: C.accent, action: open });
+            addWrapped(lines, agentId ? `  Run agent: ${shown(agentId)}` : `  Run agent: none yet · admission ${seat.admission}`, mainWidth, { bg: background, color: C.muted, action: open });
+            if (agentId) addWrapped(lines, `  Open Run session · ${link?.match ?? 'unverified'} →`, mainWidth, { bg: background, color: C.accent, action: open });
             lines.push({ text: '', bg: background, action: open }, { text: '' });
             continue;
           }
-          const choose = () => { poolMemberIndex = index; if (binding) openMember(binding); else { alert = 'No confirmed Run binding for this member.'; render(); } };
+          const choose = () => { poolMemberIndex = index; const link = memberSession(member); if (client.http && link) openSeatSession(link.sessionId, link.execution); else if (binding) openMember(binding); else { alert = 'No confirmed Run binding for this member.'; render(); } };
           const statusTarget = index === poolMemberIndex ? selectedPoolStatusTarget() : null;
           const observation = statusTarget && poolStatus.value?.targetKey === statusTarget.key && poolDetail.response === poolDetail.good ? poolStatus.value : null;
           const evidence = observation?.evidence ?? null;
@@ -2379,13 +2680,16 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
             addWrapped(lines, observation?.source === 'pool' ? `  ${stale ? 'STALE · ' : ''}Run proof: unknown · ${shown(observation.reason)}` : `  Execution: ${shown(member.runtime)}`, mainWidth, { bg: background, color: C.muted, action: choose });
             addWrapped(lines, '  Cleanup: unknown · proof not verified', mainWidth, { bg: background, color: C.muted, action: choose });
           }
-          if (binding && typeof binding.run_id === 'string' && typeof binding.run_sequence === 'number') addWrapped(lines, '  Open matching Run session →', mainWidth, { bg: background, color: C.accent, action: choose });
+          const linked = memberSession(member);
+          if (client.http && linked) addWrapped(lines, `  Open Run session · ${linked.match} →`, mainWidth, { bg: background, color: C.accent, action: choose });
+          else if (binding && typeof binding.run_id === 'string' && typeof binding.run_sequence === 'number') addWrapped(lines, '  Open matching Run session →', mainWidth, { bg: background, color: C.accent, action: choose });
           else addWrapped(lines, '  No confirmed Run binding', mainWidth, { bg: background, color: C.muted });
           lines.push({ text: '', bg: background, action: choose }, { text: '' });
         }
         if (!members.length) lines.push({ text: 'No members reported in this page.', color: C.muted });
       } else if (poolTab === 'discussion' && journal) {
-        lines.push({ text: 'History', bold: true }, { text: 'Source order · historical timestamps not reported', color: C.muted }, { text: '' });
+        const format = client.http && journal.response && usable(journal.response) ? product(journal.response.data, 'pool_detail').format : null;
+        lines.push({ text: 'History', bold: true }, { text: format === 'legacy_forward' ? 'Legacy forward-only history · frozen export unavailable' : client.http ? 'Source order · reported event timestamps' : 'Source order · historical timestamps not reported', color: C.muted }, { text: '' });
         if (!journal.loaded) lines.push({ text: journal.response && !usable(journal.response) ? 'Pool history unavailable.' : 'Loading pool history…', color: C.muted });
         else if (!journal.entries.length) lines.push({ text: 'No entries in the reported history.', color: C.muted });
         else lines.push(...poolEventLines(journal.entries, mainWidth, roster));
@@ -2442,6 +2746,10 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
             lines.push({ text: '' }, { text: `Checks · ${chosen[0]}`, bold: true });
             if (checks?.busy) lines.push({ text: 'Loading check evidence…', color: C.muted });
             else if (checks?.error) lines.push({ text: checks.error, color: C.muted });
+            else if (client.http && Array.isArray(vote.criteria)) {
+              if (vote.checksComplete !== true) addWrapped(lines, 'Check evidence is incomplete.', mainWidth, { color: C.muted });
+              for (const row of vote.criteria.map(object)) addWrapped(lines, `  ${shown(row.id)} · ${shown(row.state)} · ${shown(row.evidence)}`, mainWidth);
+            }
             else if (checks?.rows) { if (!checks.rows.length) lines.push({ text: 'No checks recorded.', color: C.muted }); for (const check of checks.rows) addWrapped(lines, `  ${shown(check.criterion_id)} · ${shown(check.status)} · ${shown(check.evidence)}`, mainWidth); }
             else lines.push({ text: 'No individually attributable checks reported.', color: C.muted });
           }
@@ -2541,6 +2849,11 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
   }
   /** Resolves and rechecks an archived owner binding before opening unverified Run lineage. */
   async function openFormerMember(): Promise<void> {
+    if (client.http && poolDetail.value?.view && poolDetail.response === poolDetail.good) {
+      const rows = object(poolDetail.value.view).deliveries;
+      const link = Array.isArray(rows) && rows[poolDeliveryIndex] ? memberSession(object(rows[poolDeliveryIndex])) : null;
+      if (link) { openSeatSession(link.sessionId, link.execution); return; }
+    }
     const delivery = selectedFormerDelivery();
     if (!delivery) { alert = 'Select a fresh accepted replacement to open its original member.'; render(); return; }
     cancelPoolMemberRead(); const controller = new AbortController(); poolMemberRead = controller; formerDeliveryKey = delivery.key;
@@ -2591,15 +2904,15 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
     textAt(parent, 2, 2, width, 'Agent Bridge · retained incident evidence', { bold: true });
     textAt(parent, 2, 3, width, `${notice(incidents)} · includes closed incidents`, { color: C.muted });
     const data = incidents.value, rows = data && Array.isArray(data.incidents) ? data.incidents : [];
-    for (const value of rows) { const row = object(value); addWrapped(lines, `#${shown(row.incident_seq)} · ${shown(row.publisher)} · ${shown(row.event_id)} · ${shown(row.state)}`, width, { bold: true }); addWrapped(lines, `Created: ${typeof row.created_ms === 'number' ? stamp(row.created_ms / 1000) : 'Not reported'} · metadata: ${shown(row)}`, width, { color: C.muted }); lines.push({ text: '' }); }
+    for (const value of rows) { const row = object(value); addWrapped(lines, `#${shown(row.incident_id ?? row.incident_seq)} · ${shown(row.publisher)} · ${shown(row.event_id)} · ${shown(row.state)}`, width, { bold: true }); addWrapped(lines, `Created: ${typeof row.created_ms === 'number' ? stamp(row.created_ms / 1000) : 'Not reported'} · metadata: ${shown(row)}`, width, { color: C.muted }); lines.push({ text: '' }); }
     if (!rows.length) lines.push({ text: data ? 'No incidents in this retained page.' : 'Loading or unavailable.', color: C.muted });
-    if (typeof data?.next_after_seq === 'number') lines.push({ text: '[n] Load next retained page', color: C.accent, action: nextIncidents });
+    if (incidents.response === incidents.good && typeof data?.next_after_seq === 'number') lines.push({ text: '[n] Load next retained page', color: C.accent, action: nextIncidents });
     incidentScroll = Math.max(0, Math.min(incidentScroll, Math.max(0, lines.length - height)));
     lineViewport(parent, 2, 5, width, height, lines, incidentScroll, delta => { incidentScroll = Math.max(0, Math.min(Math.max(0, lines.length - height), incidentScroll + delta)); render(); });
   }
   /** Continues the retained scan under the source's original high-water mark. */
   function nextIncidents(): void {
-    const data = incidents.value; if (!data || typeof data.next_after_seq !== 'number' || typeof data.through_seq !== 'number' || data.next_after_seq <= bridgeAfter || data.next_after_seq >= data.through_seq) return;
+    const data = incidents.value; if (incidents.response !== incidents.good || !data || typeof data.next_after_seq !== 'number' || typeof data.through_seq !== 'number' || data.next_after_seq <= bridgeAfter || data.next_after_seq >= data.through_seq) return;
     bridgeAfter = data.next_after_seq; bridgeThrough = data.through_seq; incidentScroll = 0; refresh();
   }
   /** Returns the currently available commands for the help/palette overlay. */
@@ -2670,6 +2983,7 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
       theme = themes[active.index] ?? theme; C = theme === 'light' || theme === 'system' && renderer.themeMode === 'light' ? lightColors : darkColors;
       void preferences?.save(theme).catch(() => { if (alive) { alert = 'Appearance changed for this session; saving failed.'; render(); } });
     }
+    if (client.http && ['search', 'folder', 'status'].includes(active.kind)) refresh();
     if ((active.kind === 'commands' || active.kind === 'help') && chosen) commands().find(command => command.name === chosen)?.action();
     render();
   }
@@ -2691,7 +3005,7 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
     if ((route === 'sessions' || route === 'pools') && full) { full = false; focus = previousFocus; render(); return; }
     if (route === 'sessions' && renderer.width < 110 && focus !== 'list' && !detailFromRelated) { focus = 'list'; render(); return; }
     if (route === 'pools' && poolContent) { closePoolContent(); render(); return; }
-    if (route === 'worktree' && worktreeOpen) { worktreeOpen = null; worktreeInspectKey = ''; reset(worktreeInspect); render(); return; }
+    if (route === 'worktree' && worktreeOpen) { cancelPoolMemberRead(); worktreeOpen = null; worktreeInspectKey = ''; reset(worktreeInspect); render(); return; }
     if (route === 'pools' && pool) { leavePoolDetail(); render(); return; }
     const previous = backStack.pop(); if (previous) { forwardStack.push(location()); restore(previous); }
   }
@@ -2814,11 +3128,11 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
   async function copyHistory(): Promise<void> {
     if (copyController) return;
     if (poolContent) { alert = 'Close full content before copying history.'; render(); return; }
-    if (route === 'pools' && poolHistorySupported() !== true) { alert = 'Pool history copy requires a source watermark and is not available.'; render(); return; }
+    if (!client.http && route === 'pools' && poolHistorySupported() !== true) { alert = 'Pool history copy requires a source watermark and is not available.'; render(); return; }
     const agent = route === 'sessions' ? selectedAgent() : null;
     const bound = agent && boundSequence !== null ? boundTarget : null, evidence = bound ? currentBoundEvidence() : null;
-    if (agent && boundSequence !== null && (!bound || !relatedAgent.good || relatedAgent.response !== relatedAgent.good || evidence?.match !== 'verified' || !evidence.storeFenced || evidence.pinState !== 'active' || evidence.coverage !== 'complete' || !bound.request.expected_store_id || !bound.request.targets[0].execution_ref || !bound.request.targets[0].pin_id)) { alert = 'Exact execution copy requires a fresh verified store, execution and active pin.'; render(); return; }
-    const target = bound && agent ? { kind: 'exact' as const, request: bound.request, key: bound.key, executionKey: executionKey(agent) } : agent ? { kind: 'session' as const, id: agent.id } : route === 'pools' && pool && poolTab === 'discussion' ? { kind: 'pool' as const, id: pool } : null;
+    if (!client.http && agent && boundSequence !== null && (!bound || !relatedAgent.good || relatedAgent.response !== relatedAgent.good || evidence?.match !== 'verified' || !evidence.storeFenced || evidence.pinState !== 'active' || evidence.coverage !== 'complete' || !bound.request.expected_store_id || !bound.request.targets[0].execution_ref || !bound.request.targets[0].pin_id)) { alert = 'Exact execution copy requires a fresh verified store, execution and active pin.'; render(); return; }
+    const target = !client.http && bound && agent ? { kind: 'exact' as const, request: bound.request, key: bound.key, executionKey: executionKey(agent) } : agent ? { kind: 'session' as const, id: agent.id } : route === 'pools' && pool && poolTab === 'discussion' ? { kind: 'pool' as const, id: pool } : null;
     if (!target) { alert = 'No eligible history selected.'; render(); return; }
     const controller = new AbortController(); copyController = controller; exactCopyExecution = target.kind === 'exact' ? target.executionKey : null; controllers.add(controller);
     alert = target.kind === 'exact' ? 'Scanning pinned execution history · Esc cancels' : target.kind === 'session' ? 'Scanning retained session lineage; pruning may omit records · Esc cancels' : 'Scanning frozen pool journal · Esc cancels'; render();
@@ -2833,10 +3147,17 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
         if (capabilities.schema_version !== 1 || capabilities.product !== 'agent-run' || !Array.isArray(methods) || !methods.some(value => value && typeof value === 'object' && !Array.isArray(value) && object(value).name === 'transcript_exact')) throw new Error('Run does not advertise exact transcript export');
         if (!currentExact()) throw new Error('Selected execution changed');
       }
-      const content = target.kind === 'exact' ? await exportExactHistory(client, target.request, controller.signal) : await exportHistory(client, target, controller.signal);
+      const execution = agent ? executionSelector(agent) : null;
+      const exact = connection === 'connected' && !!client.http && !!execution && httpDetail?.data.session.id === agent?.id &&
+        httpDetail?.data.session.execution === execution && httpDetail.capabilities?.exactExport === 'supported' &&
+        httpDetail.data.lineage?.match.match === 'verified' && httpDetail.data.lineage.storeFenced && httpDetail.data.lineage.pinState === 'active';
+      const content = client.http ? target.kind === 'pool'
+        ? await loadHttpPoolExport(client.http, target.id, controller.signal)
+        : await loadHttpExport(client.http, agent!.id, execution, exact ? 'exact' : 'retained', controller.signal)
+        : target.kind === 'exact' ? await exportExactHistory(client, target.request, controller.signal) : await exportHistory(client, target, controller.signal);
       if (!alive || controller.signal.aborted) return;
-      if (!currentExact()) throw new Error('Selected execution changed');
-      alert = renderer.copyToClipboardOSC52(content) ? target.kind === 'exact' ? 'Exact execution copy requested; terminal receipt is not confirmed.' : target.kind === 'session' ? 'Retained scan copy requested; pruning may omit records, receipt unconfirmed.' : 'Journal copy requested; terminal receipt is not confirmed.' : 'Copy failed; select displayed text if supported.';
+      if (!currentExact() || client.http && (agent ? route !== 'sessions' || !selectedAgent() || executionKey(selectedAgent()!) !== executionKey(agent) : target.kind === 'pool' && (route !== 'pools' || pool !== target.id))) throw new Error('Selected execution changed');
+      alert = renderer.copyToClipboardOSC52(content) ? target.kind === 'exact' || exact ? 'Exact execution copy requested; terminal receipt is not confirmed.' : target.kind === 'session' ? 'Retained scan copy requested; pruning may omit records, receipt unconfirmed.' : 'Journal copy requested; terminal receipt is not confirmed.' : 'Copy failed; select displayed text if supported.';
     } catch (error) {
       if (alive) alert = controller.signal.aborted ? 'History export cancelled; clipboard unchanged.' : `History copy withheld: ${error instanceof Error ? safe(error.message) : 'source unavailable'}`;
     } finally {
@@ -2861,7 +3182,7 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
     if (name === '2') { navigate('pools'); return; }
     if (name === '3') { navigate('quota'); return; }
     if (name === '4') { navigate('worktree'); return; }
-    if (name === 'r') { if (route === 'sessions') { const agent = selectedAgent(); if (agent) { const key = JSON.stringify([executionKey(agent), agent.answerSha]); answers.get(key)?.controller?.abort(); answers.delete(key); initialTasks.get(executionKey(agent))?.controller?.abort(); initialTasks.delete(executionKey(agent)); } if (detailFromRelated) { directStatus = null; relatedNextScan = 0; } } if (route === 'pools') poolStatusRetryAt = 0; if (route === 'worktree') { worktreesLoadedAt = 0; worktreeInspectAt = 0; worktreeFactsAt.clear(); } refresh(); return; }
+    if (name === 'r') { if (client.http && connection !== 'connected') eventKey = ''; if (route === 'sessions') { const agent = selectedAgent(); if (agent) { const key = JSON.stringify([executionKey(agent), agent.answerSha]); answers.get(key)?.controller?.abort(); answers.delete(key); initialTasks.get(executionKey(agent))?.controller?.abort(); initialTasks.delete(executionKey(agent)); } if (detailFromRelated) { directStatus = null; relatedNextScan = 0; } } if (route === 'pools') poolStatusRetryAt = 0; if (route === 'worktree') { worktreesLoadedAt = 0; worktreeInspectAt = 0; worktreeFactsAt.clear(); } refresh(); return; }
     if (name === 'tab' && (route === 'sessions' || route === 'pools' && pool)) { const choices: Focus[] = full || renderer.width < 110 && focus !== 'list' ? ['tabs', 'history'] : ['list', 'tabs', 'history']; const current = choices.indexOf(focus); focus = choices[(current + (key.shift ? choices.length - 1 : 1)) % choices.length]; render(); return; }
     if (name === 'up' || name === 'k') { move(-1); return; }
     if (name === 'down' || name === 'j') { move(1); return; }
@@ -2886,12 +3207,25 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
       else if (route === 'quota') { quotaDetails = !quotaDetails; render(); }
       else if (route === 'worktree') {
         if (!worktreeOpen) openWorktree(worktreeSelected(worktreeRows().length));
+        else if (client.http) { const link = worktreeSessionLinks()[worktreeSessionIndex]; if (link) openSeatSession(link.sessionId, link.execution); }
         else { const linked = linkedSessions(worktreeOpen.row, worktreeRows().map(entry => entry.row), loadedAgents()); if (linked[worktreeSessionIndex]) openSession(linked[worktreeSessionIndex].id); }
       }
       else if (route === 'sessions') { if (focus === 'list') { focus = 'history'; void loadHistory(); render(); } else if (focus === 'history' && tab === 'history') toggleMessage(); }
       else if (route === 'pools' && (!pool || focus === 'list')) { const item = visiblePools()[poolIndex]; if (item) { focus = 'history'; const id = String(object(item.pool).pool_id); if (pool !== id) choosePool(id); else render(); } }
       else if (route === 'pools' && poolTab === 'discussion') visiblePoolEvent?.();
-      else if (route === 'pools' && poolTab === 'members' && poolDetail.value?.view) { const members = object(poolDetail.value.view).members, bindings = poolDetail.value.bindings; const seat = Array.isArray(members) && members[poolMemberIndex] ? poolSeat(object(members[poolMemberIndex])) : null; if (seat) { if (seat.runAgentId) openSeatSession(seat.runAgentId); else { alert = 'This seat has no Run agent yet.'; render(); } } else if (Array.isArray(members) && members[poolMemberIndex] && Array.isArray(bindings)) { const id = object(members[poolMemberIndex]).member_id, binding = bindings.map(object).find(value => object(value.member).member_id === id); if (binding) openMember(binding); } }
+      else if (route === 'pools' && poolTab === 'members' && poolDetail.value?.view) {
+        const members = object(poolDetail.value.view).members, bindings = poolDetail.value.bindings;
+        const member = Array.isArray(members) && members[poolMemberIndex] ? object(members[poolMemberIndex]) : null;
+        const seat = member ? poolSeat(member) : null, link = member ? memberSession(member) : null;
+        if (link) openSeatSession(link.sessionId, link.execution);
+        else if (seat) {
+          if (seat.runAgentId) openSeatSession(seat.runAgentId);
+          else { alert = 'This seat has no Run agent yet.'; render(); }
+        } else if (member && Array.isArray(bindings)) {
+          const binding = bindings.map(object).find(value => object(value.member).member_id === member.member_id);
+          if (binding) void openMember(binding);
+        }
+      }
       else if (route === 'pools' && poolTab === 'decisions' && Array.isArray(poolDetail.value?.decisions)) { const proposal = poolDetail.value.decisions[poolDecisionIndex]; if (proposal && typeof object(proposal).proposal_id === 'string') choosePoolProposal(String(object(proposal).proposal_id)); }
       else if (route === 'pools' && poolTab === 'votes') choosePoolVote(poolVoteIndex);
       else if (route === 'pools' && poolTab === 'deliveries') void openFormerMember();
@@ -2901,7 +3235,7 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
     if (name === '/' && (route === 'sessions' || route === 'pools')) { overlay = { kind: 'search', query, index: 0, original: query }; render(); return; }
     if (name === 'p' && route === 'sessions') { overlay = { kind: 'folder', query: '', index: 0, original: filterFolder }; render(); return; }
     if (name === 't' && route === 'sessions') { overlay = { kind: 'status', query: '', index: 0, original: filterStatus }; render(); return; }
-    if (name === 'x' && (route === 'sessions' || route === 'pools')) { query = ''; filterFolder = ''; filterProject = ''; filterStatus = ''; filterPeriodFailures = false; listTop = 0; render(); return; }
+    if (name === 'x' && (route === 'sessions' || route === 'pools')) { query = ''; filterFolder = ''; filterProject = ''; filterStatus = ''; filterPeriodFailures = false; listTop = 0; if (client.http) refresh(); render(); return; }
     if (name === 'o' && route === 'sessions') { toggleFinished(); return; }
     if (name === 'o' && route === 'pools') { toggleFinishedPools(); return; }
     if (name === 'n') {
@@ -2949,7 +3283,7 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
     const w = renderer.width, h = renderer.height;
     surface(frame, 0, 0, w, Math.min(2, h), C.header);
     textAt(frame, 2, 0, 12, 'agent-hub', { bold: true, color: C.text, bg: C.header });
-    const modeLabel = mode === 'demo' ? 'DEMO DATA' : 'LIVE READ-ONLY', modeX = Math.max(15, w - stringWidth(modeLabel) - 2);
+    const modeLabel = mode === 'demo' ? 'DEMO DATA' : client.http && connection !== 'connected' ? connection === 'connecting' ? 'CONNECTING TO HUB' : 'HUB DISCONNECTED' : 'LIVE READ-ONLY', modeX = Math.max(15, w - stringWidth(modeLabel) - 2);
     let navX = 16;
     for (const item of [{ route: 'overview' as const, label: 'Overview' }, { route: 'sessions' as const, label: 'Sessions' }, { route: 'pools' as const, label: 'Pools' }, { route: 'quota' as const, label: 'Quota' }, { route: 'worktree' as const, label: 'Worktree' }]) {
       const label = item.route === route ? `[${item.label}]` : item.label, width = Math.min(stringWidth(label), modeX - navX - 1);
@@ -2957,7 +3291,7 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
       navX += stringWidth(label) + 3;
     }
     textAt(frame, modeX, 0, w - modeX, modeLabel, { color: C.muted, bg: C.header });
-    const pollingLabel = `Poll: ${pollingIntervals[pollingIndex]}s [u]`, pollingWidth = stringWidth(pollingLabel);
+    const pollingLabel = `${client.http ? 'Live' : 'Poll'}: ${pollingIntervals[pollingIndex]}s [u]`, pollingWidth = stringWidth(pollingLabel);
     textAt(frame, Math.max(2, w - pollingWidth - 2), 1, Math.min(pollingWidth, Math.max(0, w - 4)), pollingLabel, { color: C.accent, bg: C.header, click: () => { if (!overlay) cyclePolling(); } });
     if (w < 60 || h < 16) textAt(frame, 2, Math.max(2, Math.floor(h / 2)), Math.max(1, w - 4), 'Resize terminal to at least 60 × 16. Navigation state is retained.', { color: C.accent });
     else if (route === 'overview') drawOverview(frame);
@@ -3032,12 +3366,12 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
   const poolThumb = new BoxRenderable(renderer, { position: 'absolute', left: 0, top: 0, width: 1, height: 1, backgroundColor: C.muted });
   poolTrack.add(poolThumb); renderer.root.add(poolTrack);
   renderer.keyInput.on('keypress', onKey); renderer.on('resize', render); renderer.on('theme_mode', terminalThemeChanged); renderer.on('frame', releaseRetiredFrames);
-  render(); refresh(); schedulePolling();
+  render(); schedulePolling(); if (!client.http) refresh();
   const spinnerTimer = setInterval(() => {
     if (!spinnerRows.length) return;
     spinnerFrame = (spinnerFrame + 1) % spinnerFrames.length;
     for (const row of spinnerRows) { row.value = row.value.slice(0, 2) + spinnerFrames[spinnerFrame] + row.value.slice(3); row.text.content = row.value; }
     renderer.requestRender();
   }, 80);
-  return () => { if (!alive) return; alive = false; if (pendingPaint !== null) renderer.cancelAnimationFrame(pendingPaint); if (pollingTimer !== null) clearInterval(pollingTimer); clearInterval(spinnerTimer); spinnerRows = []; for (const controller of controllers) controller.abort(); controllers.clear(); renderer.keyInput.off('keypress', onKey); renderer.off('resize', render); renderer.off('theme_mode', terminalThemeChanged); renderer.off('frame', releaseRetiredFrames); releaseRetiredFrames(); frame?.destroyRecursively(); frame = null; historyTrack.destroyRecursively(); poolTrack.destroyRecursively(); };
+  return () => { if (!alive) return; alive = false; httpLifetime.abort(); eventController?.abort(); if (pendingPaint !== null) renderer.cancelAnimationFrame(pendingPaint); if (pollingTimer !== null) clearInterval(pollingTimer); clearInterval(spinnerTimer); spinnerRows = []; for (const controller of controllers) controller.abort(); controllers.clear(); renderer.keyInput.off('keypress', onKey); renderer.off('resize', render); renderer.off('theme_mode', terminalThemeChanged); renderer.off('frame', releaseRetiredFrames); releaseRetiredFrames(); frame?.destroyRecursively(); frame = null; historyTrack.destroyRecursively(); poolTrack.destroyRecursively(); };
 }

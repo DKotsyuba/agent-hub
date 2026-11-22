@@ -4,15 +4,15 @@ import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import net from 'node:net';
 import path from 'node:path';
 import test from 'node:test';
-import { createNativeClient } from '../src/client.ts';
+import { createNativeClient, observerPath } from './native-observer-harness.ts';
 import { createDemoClient } from '../src/demo.ts';
 import { poolInventory, poolSection, poolWindow } from '../src/pool.ts';
 import type { Resource } from '../src/api.ts';
 
 const poolBinary = process.env.AGENT_POOL_TEST_CANDIDATE;
-const hubBinary = process.env.AGENT_HUB_TEST_OBSERVER;
+const hubBinary = process.env.AGENT_HUB_TEST_OBSERVER ?? observerPath();
 
-test('Hub and the Pool candidate exchange only owner read requests over a synthetic resident', { skip: !poolBinary || !hubBinary }, async () => {
+test('Hub and the Pool candidate exchange only owner read requests over a synthetic resident', { skip: poolBinary ? false : 'external Pool candidate is not configured' }, async () => {
   assert.ok(poolBinary && path.isAbsolute(poolBinary) && hubBinary && path.isAbsolute(hubBinary));
   assert.ok(process.env.TMPDIR && path.isAbsolute(process.env.TMPDIR));
   const directory = await mkdtemp(path.join(process.env.TMPDIR, 'pool-wire-'));

@@ -1,16 +1,19 @@
 # Agent Hub
 
-A terminal-first OpenTUI interface is in `terminal/`. It starts with Run and Bridge observations, and provides read-only Sessions, Agent Pool, Quota and Worktree views. The earlier desktop prototype remains available below.
+Agent Hub serves read-only Sessions, Agent Pool, Quota, Worktree and Bridge observations through a Unix HTTP server. The web UI and OpenTUI client share the same v1 API. The earlier desktop prototype remains available below.
 
 ## Installing a release
 
-Each GitHub release publishes the Linux x86-64 (glibc 2.39 or newer) terminal build: `agent-hub-<version>-linux-x86_64.tar.gz` (the `agent-hub` executable, `LICENSE`, `THIRD_PARTY_NOTICES.md` and the `etc/agent-hub/connections.json` template), the bare executable `agent-hub-linux-x86_64`, the notices file and a `SHA256SUMS` file. Verify the download before running it:
+Each GitHub release publishes `agent-hub-<version>-linux-x86_64.tar.gz` and
+`SHA256SUMS`. The archive includes both clients, the server, the observer,
+a systemd unit, a connection template and license material. It requires
+Linux x86-64 with glibc 2.39 or newer.
 
 ```sh
-sha256sum --check --ignore-missing SHA256SUMS
+sha256sum --check SHA256SUMS
 ```
 
-The release contains only the terminal Hub. The desktop (Tauri) application in this repository is parked and is not built or released. Maintainers: see [RELEASING.md](RELEASING.md).
+See [RELEASING.md](RELEASING.md) for the archive layout and activation procedure.
 
 `packaging/etc/agent-hub/connections.json` is the host-wide default for the Dobi reference host. Copy it to `/etc/agent-hub/connections.json` on a machine that runs the same services:
 
@@ -24,24 +27,25 @@ The UIDs are specific to Dobi; on any other host set the real sockets and server
 
 ## Terminal interface
 
-Use Bun 1.4.4 or newer and the pinned Rust toolchain. Node 26.4 or newer remains available for the existing Node compatibility checks. Install the terminal project's locked dependencies with scripts disabled, then build its local read-only observer:
+Use Bun 1.4.4 and the pinned Rust toolchain for development. Build the observer
+from the root workspace before running the server from source.
 
 ```sh
-cd terminal
 npm ci --ignore-scripts
-npm run build:observer
-npm start -- --demo
-npm start -- --live
-npm run build:binary
+npm run observer:build
+npm run web:build
+npm run terminal -- --demo
 ```
 
-`npm run build:binary` produces `terminal/dist/agent-hub`, a single Linux x64 executable containing Bun, OpenTUI and the native observer. The current build requires glibc 2.39 or newer and an accessible `/proc` filesystem. Live views need the existing Agent Run, Agent Pool and Bridge services and their connection settings; the binary does not install or start them. At startup it extracts its native files into an owned private, executable runtime directory and removes them on normal exit. Set `TMPDIR` to an owned, writable directory outside `/tmp` on an executable filesystem if no suitable runtime directory is available.
+See [the server README](server/README.md) for a source-mode Unix listener.
+The TUI defaults to `/run/agent-hub-http/http.sock` and accepts an explicit
+`--server https://hub.example` origin. `--demo` selects synthetic observations;
+a live disconnection remains visible and the TUI retries its Hub endpoint.
+Source connection settings belong to the server. The compiled TUI extracts its
+OpenTUI library into an owned executable runtime directory at startup and cleans
+it up on exit. Set `TMPDIR` to a private writable directory outside `/tmp` if needed.
 
-Third-party license texts for the embedded Bun runtime, OpenTUI and the npm and Rust dependencies are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md); a distribution of the executable must retain that file and `LICENSE`. See [third-party material](docs/third-party-linux.md) for the remaining rebuild verification.
-
-`--demo` uses synthetic data only. `--live` is the default and never falls back to demo when a source fails. Live mode reads the same `connections.json` / `AGENT_HUB_CONFIG` contract as the desktop shell; Run, Pool and Bridge remain independent sources. The development launcher honors `CARGO_TARGET_DIR` when locating the built observer. Pool and Bridge need their separately configured observer-only access and an absolute temporary-directory environment. No source service, agent or model is started or managed by the interface.
-
-On Linux the configuration is read from `AGENT_HUB_CONFIG` if set (never falling back), otherwise `~/.config/dev.agent-mcp.hub/connections.json`, otherwise the host-wide `/etc/agent-hub/connections.json` (the template in `packaging/etc/agent-hub/connections.json` is the Dobi reference-host default, see [Installing a release](#installing-a-release)). With no file, or a file without `run.socket`, Linux Run defaults to the shared broker `/run/agent-mcp/api.sock` trusted as UID 1003; the terminal process must hold the `agent-run` group (check with `id`). A Run card error shows its code, and socket/group failures add a hint. To use an authorized shared Run socket, set its absolute path and the broker's trusted Unix UID explicitly:
+On Linux the configuration is read from `AGENT_HUB_CONFIG` if set (never falling back), otherwise `~/.config/dev.agent-mcp.hub/connections.json`, otherwise the host-wide `/etc/agent-hub/connections.json` (the template in `packaging/etc/agent-hub/connections.json` is the Dobi reference-host default, see [Installing a release](#installing-a-release)). With no file, or a file without `run.socket`, Linux Run defaults to the shared broker `/run/agent-mcp/api.sock` trusted as UID 1003; the server process must hold the `agent-run` group (check with `id`). A Run card error shows its code, and socket/group failures add a hint. To use an authorized shared Run socket, set its absolute path and the broker's trusted Unix UID explicitly:
 
 ```json
 {"schema_version":1,"run":{"socket":"/absolute/path/to/api.sock","broker_uid":1000},"pool":{"config":"/absolute/path/to/pool.toml"},"bridge":{"config":"/absolute/path/to/interfaces.toml"}}
@@ -59,9 +63,9 @@ Press `?` for keys and `,` for appearance. Click the polling control or press `u
 
 Sessions open at the beginning of retained history. The first retained user message is not proof of the original task, so the view marks it unverified until a source can establish it. The viewport fills from available pages, and scrolling loads later pages; press `G` to follow the latest messages.
 
-Pass a project directory as a positional argument to start with its path-derived worktree group, or `--pool ID` to open a standalone pool directly. `--home DIR` selects `DIR/api.sock` for this invocation and takes precedence over `AGENT_RUN_HOME`; `--socket PATH` takes precedence over both and can be paired with `--broker-uid UID` for an explicitly trusted shared broker. These options do not modify `connections.json`. Use `--version` to display the Hub version. On older Run brokers that explicitly reject grouped transcript options, Hub reads raw forward pages instead; unrelated read failures are not treated as a compatibility fallback.
+Pass a project directory as a positional argument to start with its path-derived worktree group, or `--pool ID` to open a standalone pool directly. The former `--home`, `--socket` and `--broker-uid` options have moved to the server's source configuration. Use `--version` to display the Hub version. On older Run brokers that explicitly reject grouped transcript options, Hub reads raw forward pages instead; unrelated read failures are not treated as a compatibility fallback.
 
-The Pool view reads only the standalone Agent Pool observer. Its members, journal, proposals, votes and deliveries are independent source sections; a Run session opens only when the current ID and sequence match the reported binding. Sequence reuse after retention means that match alone does not prove historical execution identity. If Run reports the direct status method unavailable, Hub searches at most 32 revision-fenced inventory pages and rechecks that compatibility scan every 30 seconds, or on `r`. When the observer advertises `history_window_v1`, discussion starts at the latest events, `g` loads earlier events, `f`/`G` resumes following, and `y` copies a journal snapshot through its source watermark. Older observers retain forward-only page navigation and do not support snapshot copy. The optional `structured_acceptance_v1` capability exposes criteria and explicitly attributed vote checks. Historical timestamps are not supplied by Pool v1.
+The server reads Pool through the configured observer. Its members, journal, proposals, votes and deliveries are independent source sections; managed bindings carry the source-reported identity, and chat seat links can open a reported Run ID with an unverified label. Sequence reuse after retention means that match alone does not prove historical execution identity. If Run reports the direct status method unavailable, Hub searches at most 32 revision-fenced inventory pages and rechecks that compatibility scan every 30 seconds, or on `r`. When the observer advertises `history_window_v1`, discussion starts at the latest events, `g` loads earlier events, `f`/`G` resumes following, and `y` copies a journal snapshot through its source watermark. Older observers retain forward-only page navigation and do not support snapshot copy. The optional `structured_acceptance_v1` capability exposes criteria and explicitly attributed vote checks. Historical timestamps are not supplied by Pool v1.
 
 The Pool list groups matching loaded records as Open and Closed; these counts are not source-wide totals, and closure does not establish execution completion. When the observer advertises `inventory_snapshot_v1`, a separate line shows exact source-wide retained and closed totals with their snapshot revision; Open and Completed stay unavailable until the source has a completion ledger, and are never derived from closure. On an accepted replacement in Deliveries, Enter or click opens the former member's available Run lineage after rechecking its exact Pool binding. Transcript and answer attribution remain unverified. When Run advertises its exact transcript read, `y` copies a single historical execution only with a freshly verified store, execution reference and active history pin. Incomplete or unverifiable content is refused; the snapshot does not prove current completion or authorship.
 
@@ -85,7 +89,7 @@ Official shadcn/ui components in src/components/ui are unmodified registry sourc
 
 ## Navigation and acceptance
 
-Object details replace the list at every window width. Back and browser Back/Forward retain context; related objects have their own detail screens. Agent rows use one consistent full-width hover/focus/click target.
+The web app shows the list beside the detail pane at widths of 1024 px and above. Details replace the list at narrower widths. Back and browser Back/Forward retain context; related objects have their own detail screens. Agent rows use one consistent full-width hover/focus/click target.
 
 Run npm run preview after building to serve the reviewed production bundle on http://127.0.0.1:4173. Browser regression is npm run test:browser using the prepared driver; see docs/verification.md for evidence and limits.
 

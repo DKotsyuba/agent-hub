@@ -1,0 +1,8 @@
+{
+  "name": "@agent-hub/view-model",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@agent-hub/domain": "*"
+  }
+}

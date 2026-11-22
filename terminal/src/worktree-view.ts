@@ -1,6 +1,7 @@
 /** Presentation model of the Worktree tab: one card per project with a block per worktree.
  * Pure and renderer-independent: it maps already validated list rows and on-demand facts (status counts, size)
  * to toned spans. Missing facts stay Unknown, a lower bound stays a lower bound, and nothing is guessed. */
+import { formatBytes } from '../../packages/view-model/src/worktree.ts';
 import { fitSpans, leftRight, spansWidth, wrapCells } from './quota-view.ts';
 import type { Row, Span } from './quota-view.ts';
 import type { Tone } from './quota.ts';
@@ -18,17 +19,7 @@ export interface SessionCount { total: number; active: number }
 /** A terminal row of the tab; `key` ties the rows of a worktree block to its selection and click target. */
 export interface WorktreeRowView extends Row { key?: string }
 
-/** Formats a byte count with binary multiples (1 GB = 1024³ bytes, like `du -h`): 0 B, 640 KB, 1.2 GB, 12 GB. */
-export function formatBytes(bytes: number): string {
-  if (!Number.isFinite(bytes) || bytes < 0) return 'Unknown';
-  if (bytes < 1024) return `${Math.round(bytes)} B`;
-  const units = ['KB', 'MB', 'GB', 'TB'];
-  let unit = 0, value = bytes / 1024;
-  const round = (number: number) => number < 10 ? Math.round(number * 10) / 10 : Math.round(number);
-  while (unit < units.length - 1 && round(value) >= 1024) { value /= 1024; unit++; }
-  const rounded = round(value);
-  return `${rounded < 10 ? rounded.toFixed(1) : String(rounded)} ${units[unit]}`;
-}
+export { formatBytes } from '../../packages/view-model/src/worktree.ts';
 
 /** Names a merge state as a badge text and tone. */
 export function mergeBadge(state: MergeState): { text: string; tone: Tone } {

@@ -1,7 +1,8 @@
 //! One-request terminal observer using the native read contracts and transports.
 //!
 //! The parent writes one JSON line and keeps stdin open until the response. EOF
-//! cancels the read; only an observer-owned source frontend is killed and reaped.
+//! cancels the read and the observer reaps its frontend. The Hub server sweeps
+//! the shared process group on exit or forced cancellation.
 
 // The shared desktop modules contain additional resources/helpers intentionally
 // unused by this narrower executable; no extra route is exposed by linking them.
@@ -159,7 +160,7 @@ fn failure_response(resource: Option<Resource>, error: ReadError) -> Vec<u8> {
     bytes
 }
 
-/// Validates the narrower terminal allowlist before config or source I/O.
+/// Validates the Hub observer allowlist before config or source I/O.
 async fn observe(
     request: &ReadRequest,
     cancel: &mut watch::Receiver<bool>,
@@ -544,6 +545,7 @@ async fn read_pool_socket(
 ) -> Result<Value, ReadError> {
     if request.resource == Resource::PoolRunProof
         || request.params.get("include_bindings") == Some(&Value::Bool(true))
+        || request.params.get("section").and_then(Value::as_str) == Some("binding")
     {
         return Err(ReadError::incompatible("pool_socket_private_section"));
     }
@@ -661,6 +663,31 @@ mod tests {
             )
             .is_ok()
         );
+    }
+
+    /// Private mappings are blocked before any attempt to reach the group observer socket.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn pool_group_socket_denies_private_reads_before_connect() {
+        let (_tx, mut cancel) = watch::channel(false);
+        for (resource, params) in [
+            (Resource::PoolRunProof, json!({"section":"run_proof"})),
+            (Resource::PoolGet, json!({"section":"binding"})),
+            (
+                Resource::PoolGet,
+                json!({"section":"members","include_bindings":true}),
+            ),
+        ] {
+            let error = read_pool_socket(
+                std::path::Path::new("/unreachable/pool.sock"),
+                0,
+                &ReadRequest { resource, params },
+                &mut cancel,
+            )
+            .await
+            .expect_err("private read denied");
+            assert_eq!(error.code, "pool_socket_private_section");
+        }
     }
 
     /// Archived Tasks and IDE sources are never reachable from the terminal observer.

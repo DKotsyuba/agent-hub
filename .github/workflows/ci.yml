@@ -5,6 +5,7 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
@@ -14,8 +15,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  terminal:
-    name: Linux x86_64 terminal
+  integration:
+    name: Linux x86_64 integration
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     defaults:
@@ -76,37 +77,47 @@ jobs:
           rustup show active-toolchain
           test "$(rustc --version | awk '{print $2}')" = 1.98.1
 
-      - name: Install locked terminal dependencies without lifecycle scripts
-        working-directory: terminal
+      - name: Install locked workspace dependencies
         run: npm ci --ignore-scripts --no-audit --no-fund
 
       - name: Fetch locked native observer dependencies
-        run: cargo fetch --locked --manifest-path terminal/observer/Cargo.toml
+        run: cargo fetch --locked --manifest-path server/observer/Cargo.toml
 
-      - name: Check types and native observer contracts
-        working-directory: terminal
+      - name: Check notices, types and v1 contracts
         env:
           CARGO_NET_OFFLINE: "true"
         run: |
+          node scripts/generate-notices.mjs --check
           npm run typecheck
-          cargo fmt --manifest-path observer/Cargo.toml -- --check
-          cargo clippy --offline --locked --manifest-path observer/Cargo.toml --all-targets -- -D warnings
-          cargo test --offline --locked --manifest-path observer/Cargo.toml
-          npm run build:observer
+          npm run typecheck --workspace agent-hub-terminal
+          npm run test:contract
+          npm test --workspace agent-hub-server
 
-      - name: Build standalone executable
-        working-directory: terminal
-        env:
-          CARGO_NET_OFFLINE: "true"
+      - name: Check and build the native observer
         run: |
-          npm run build:binary
-          test -x dist/agent-hub
-          test "$(dist/agent-hub --version)" = "agent-hub $(node -p "require('./package.json').version")"
+          manifest=server/observer/Cargo.toml
+          cargo fmt --manifest-path "$manifest" -- --check
+          cargo clippy --offline --locked --manifest-path "$manifest" --all-targets -- -D warnings
+          cargo test --offline --locked --manifest-path "$manifest"
+          npm run observer:build
 
-      - name: Run Bun and Node compatibility suites
-        working-directory: terminal
-        env:
-          CARGO_NET_OFFLINE: "true"
+      - name: Build and verify the release archive
+        run: npm run build:release -- "$RUNNER_TEMP/payload"
+
+      - name: Run Bun and Node terminal suites
         run: |
-          npm test
-          npm run test:node
+          npm test --workspace agent-hub-terminal
+          npm run test:node --workspace agent-hub-terminal
+
+      - name: Smoke-test the extracted archive and browser
+        run: |
+          export AGENT_HUB_CHROME="$(command -v google-chrome)"
+          export AGENT_HUB_CHROMEDRIVER="$(command -v chromedriver || true)"
+          if [ -z "$AGENT_HUB_CHROMEDRIVER" ]; then
+            AGENT_HUB_CHROMEDRIVER="$CHROMEWEBDRIVER/chromedriver"
+          fi
+          test -x "$AGENT_HUB_CHROME"
+          test -x "$AGENT_HUB_CHROMEDRIVER"
+          mkdir "$RUNNER_TEMP/rel"
+          tar -xzf "$RUNNER_TEMP"/payload/agent-hub-*-linux-x86_64.tar.gz -C "$RUNNER_TEMP/rel"
+          python3 scripts/smoke-release.py "$RUNNER_TEMP"/rel/agent-hub-*-linux-x86_64 node "$GITHUB_WORKSPACE/scripts/smoke-browser.mjs"

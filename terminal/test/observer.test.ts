@@ -6,8 +6,7 @@ import { chmod, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promis
 import net from 'node:net';
 import path from 'node:path';
 import test from 'node:test';
-import { fileURLToPath } from 'node:url';
-import { createNativeClient, observerPath } from '../src/client.ts';
+import { createNativeClient, observerPath } from './native-observer-harness.ts';
 import type { Resource } from '../src/api.ts';
 
 /** Waits for a fixture file without inspecting unrelated processes or sources. */
@@ -20,15 +19,16 @@ async function waitForFile(file: string): Promise<string> {
 
 type Json = Record<string, any>;
 
+const binary = process.env.AGENT_HUB_TEST_OBSERVER ?? observerPath();
+
 test('closed observer reads, validates and cancels only its own sources', async () => {
-  const binary = process.env.AGENT_HUB_TEST_OBSERVER ?? fileURLToPath(new URL('../observer/target/debug/agent-hub-observer', import.meta.url));
   const temp = process.env.TMPDIR;
   assert.ok(binary && path.isAbsolute(binary));
   assert.ok(temp && path.isAbsolute(temp));
   assert.equal(observerPath(temp), path.join(temp, 'debug', process.platform === 'win32' ? 'agent-hub-observer.exe' : 'agent-hub-observer'));
   const directory = await mkdtemp(path.join(temp, 'hub-observer-test-'));
   const socket = path.join(directory, 'run.sock');
-  const helper = path.join(directory, 'bridge-fixture');
+  const helper = path.join(directory, 'bridge-fixture.cjs');
   const poolHelper = path.join(directory, 'pool-fixture');
   const poolConfig = path.join(directory, 'pool-observer.toml');
   const unconfiguredHelper = path.join(directory, 'bridge-unconfigured');
@@ -178,7 +178,8 @@ test('closed observer reads, validates and cancels only its own sources', async 
     assert.equal(outside.outcome, 'invalid');
     assert.equal(outside.error?.code, 'resource_denied');
 
-    assert.equal((await client.read('bridge.overview')).outcome, 'ok');
+    const bridge = await client.read('bridge.overview');
+    assert.equal(bridge.outcome, 'ok', JSON.stringify(bridge));
     const malformed = await client.read('bridge.overview', { null_error: true });
     assert.equal(malformed.outcome, 'invalid');
     assert.equal(malformed.error?.code, 'source_envelope');
@@ -233,7 +234,7 @@ test('closed observer reads, validates and cancels only its own sources', async 
     assert.throws(() => process.kill(pid, 0), { code: 'ESRCH' }, 'cancelled helper must be reaped');
 
     await rm(helperPid);
-    const clientUrl = new URL('../src/client.ts', import.meta.url).href;
+    const clientUrl = new URL('./native-observer-harness.ts', import.meta.url).href;
     const program = `import { createNativeClient } from ${JSON.stringify(clientUrl)}; const client = createNativeClient(${JSON.stringify(binary)}); process.on('SIGINT', () => { void client.close(); }); await client.read('bridge.overview', { hold: true });`;
     const frontend = spawn(process.execPath, ['--input-type=module', '-e', program], { stdio: 'ignore', detached: true, env: process.env });
     let secondPid: number | undefined;
@@ -257,7 +258,6 @@ test('closed observer reads, validates and cancels only its own sources', async 
 });
 
 test('a FIFO config cannot keep the finite observer alive after its deadline', { timeout: 22_000 }, async () => {
-  const binary = process.env.AGENT_HUB_TEST_OBSERVER ?? fileURLToPath(new URL('../observer/target/debug/agent-hub-observer', import.meta.url));
   const temp = process.env.TMPDIR;
   assert.ok(temp && path.isAbsolute(temp));
   const directory = await mkdtemp(path.join(temp, 'hub-config-test-'));
@@ -273,6 +273,98 @@ test('a FIFO config cannot keep the finite observer alive after its deadline', {
   } finally {
     await client.close();
     if (previous === undefined) delete process.env.AGENT_HUB_CONFIG; else process.env.AGENT_HUB_CONFIG = previous;
+    await rm(directory, { recursive: true });
+  }
+});
+
+test('cancelling the real observer stops a frontend descendant that holds stdout open', async () => {
+  const temp = process.env.TMPDIR;
+  assert.ok(temp && path.isAbsolute(temp));
+  const directory = await mkdtemp(path.join(temp, 'hub-child-'));
+  const helper = path.join(directory, 'frontend.cjs'), config = path.join(directory, 'connections.json'), marker = path.join(directory, 'child.pid');
+  const previous = process.env.AGENT_HUB_CONFIG;
+  const client = createNativeClient(binary);
+  let descendant: number | undefined;
+  try {
+    const childScript = `require('node:fs').writeFileSync(${JSON.stringify(marker)}, String(process.pid)); setInterval(() => {}, 1000)`;
+    await writeFile(helper, `#!/usr/bin/env node
+const {spawn} = require('node:child_process');
+process.stdin.resume();
+process.stdin.once('end', () => {
+  spawn(process.execPath, ['-e', ${JSON.stringify(childScript)}], {stdio: ['ignore', 'inherit', 'ignore']}).unref();
+  process.exit(0);
+});
+`, { mode: 0o700 });
+    await writeFile(config, JSON.stringify({ schema_version: 1, bridge: { program: helper } }));
+    process.env.AGENT_HUB_CONFIG = config;
+    const controller = new AbortController();
+    const result = client.read('bridge.overview', {}, controller.signal);
+    descendant = Number(await waitForFile(marker));
+    controller.abort();
+    assert.equal((await result).error?.code, 'cancelled');
+    /** A reparented zombie has exited but may await the container's init. */
+    const live = async (pid: number) => readFile('/proc/' + pid + '/status', 'utf8').then(
+      status => !/^State:\s+Z/m.test(status), error => { if (error.code === 'ENOENT') return false; throw error; });
+    for (let attempt = 0; attempt < 50 && await live(descendant); attempt++) await new Promise(resolve => setTimeout(resolve, 20));
+    assert.equal(await live(descendant), false, 'the frontend group has no running descendant');
+    descendant = undefined;
+  } finally {
+    if (descendant) { try { process.kill(descendant, 'SIGKILL'); } catch { /* Already stopped. */ } }
+    await client.close();
+    if (previous === undefined) delete process.env.AGENT_HUB_CONFIG; else process.env.AGENT_HUB_CONFIG = previous;
+    await rm(directory, { recursive: true });
+  }
+});
+
+test('server sweeps Bridge and Worktree descendants even with the real observer stopped', async () => {
+  const { createNativeClient: createServerClient } = await import('../../server/src/observer.ts');
+  const temp = process.env.TMPDIR;
+  assert.ok(temp && path.isAbsolute(temp));
+  const directory = await mkdtemp(path.join(temp, 'hub-group-'));
+  const helper = path.join(directory, 'frontend.cjs'), config = path.join(directory, 'connections.json');
+  const marker = path.join(directory, 'pids');
+  const original = process.env.AGENT_HUB_CONFIG;
+  const client = createServerClient(binary, { readMs: 5000, killMs: 150 });
+  const owned: number[] = [];
+  /** Checks whether a known fixture process can still run after group cleanup. */
+  async function running(pid: number) {
+    return readFile('/proc/' + pid + '/status', 'utf8').then(
+      status => !/^State:\s+Z/m.test(status), error => { if (error.code === 'ENOENT') return false; throw error; });
+  }
+  try {
+    await writeFile(helper, `#!/usr/bin/env node
+const { spawn } = require('node:child_process');
+const fs = require('node:fs');
+const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+fs.writeFileSync(${JSON.stringify(marker)}, [process.ppid, process.pid, child.pid].join(' '));
+process.stdin.resume();
+setInterval(() => {}, 1000);
+`, { mode: 0o700 });
+    await writeFile(config, JSON.stringify({ schema_version: 1, bridge: { program: helper }, worktree: { program: helper } }));
+    process.env.AGENT_HUB_CONFIG = config;
+    for (const resource of ['bridge.overview', 'worktree.list'] as const) for (const stopped of [false, true]) {
+      const controller = new AbortController();
+      const result = client.read(resource, {}, controller.signal);
+      const pids = (await waitForFile(marker)).split(' ').map(Number);
+      owned.push(...pids);
+      assert.equal(pids.length, 3);
+      assert.ok(pids.every(pid => Number.isSafeInteger(pid) && pid > 1));
+      if (stopped) process.kill(pids[0], 'SIGSTOP');
+      controller.abort();
+      assert.equal((await result).error?.code, 'cancelled');
+      for (const pid of pids) {
+        for (let attempt = 0; attempt < 50 && await running(pid); attempt++) await new Promise(resolve => setTimeout(resolve, 20));
+        assert.equal(await running(pid), false, `${resource} fixture PID ${pid} survived ${stopped ? 'forced' : 'cooperative'} cleanup`);
+      }
+      owned.length = 0;
+      await rm(marker);
+    }
+  } finally {
+    for (const pid of owned) if (Number.isSafeInteger(pid) && pid > 1) {
+      try { process.kill(pid, 'SIGKILL'); } catch { /* Already stopped. */ }
+    }
+    await client.close();
+    if (original === undefined) delete process.env.AGENT_HUB_CONFIG; else process.env.AGENT_HUB_CONFIG = original;
     await rm(directory, { recursive: true });
   }
 });

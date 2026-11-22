@@ -4,6 +4,18 @@ All notable changes to Agent Hub are documented here. The format follows [Keep a
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-22
+
+### Added
+
+- A read-only Hub server serves the v1 HTTP API, live invalidations and the localized web UI.
+- The Linux release archive includes the server, TUI, native observer, web assets, a systemd unit and a connection template.
+
+### Changed
+
+- **Breaking:** The TUI now requires a running compatible `hub-server` for live data. It connects over HTTP using a local Unix socket by default.
+- The browser and terminal share the v1 client and presentation helpers. Chat seats can link to a Run session with its reported verification status.
+
 ## [0.1.3] - 2026-11-22
 
 ### Changed
@@ -50,6 +62,7 @@ First public release: the terminal Hub for Linux x86-64 (standalone executable).
 
 - Archived Tasks and IDE sources are denied by the observer; the terminal has no Tasks, IDE or Run info tabs.
 
+[0.2.0]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.2.0
 [0.1.3]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.1.3
 [0.1.2]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.1.2
 [0.1.1]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.1.1

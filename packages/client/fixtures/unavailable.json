@@ -1,0 +1,87 @@
+{
+  "clockMs": 1794011100000,
+  "observations": {
+    "run": {
+      "source": "run",
+      "outcome": "unavailable",
+      "producerAtMs": null,
+      "observedAtMs": 1794011100000,
+      "coverage": {
+        "scope": "retained",
+        "state": "unknown"
+      },
+      "issue": {
+        "code": "source_unavailable"
+      }
+    },
+    "pool": {
+      "source": "pool",
+      "outcome": "unavailable",
+      "producerAtMs": null,
+      "observedAtMs": 1794011100000,
+      "coverage": {
+        "scope": "retained",
+        "state": "unknown"
+      },
+      "issue": {
+        "code": "source_unavailable"
+      }
+    },
+    "quota": {
+      "source": "quota",
+      "outcome": "unavailable",
+      "producerAtMs": null,
+      "observedAtMs": 1794011100000,
+      "coverage": {
+        "scope": "retained",
+        "state": "unknown"
+      },
+      "issue": {
+        "code": "source_unavailable"
+      }
+    },
+    "worktree": {
+      "source": "worktree",
+      "outcome": "unavailable",
+      "producerAtMs": null,
+      "observedAtMs": 1794011100000,
+      "coverage": {
+        "scope": "retained",
+        "state": "unknown"
+      },
+      "issue": {
+        "code": "source_unavailable"
+      }
+    },
+    "bridge": {
+      "source": "bridge",
+      "outcome": "unavailable",
+      "producerAtMs": null,
+      "observedAtMs": 1794011100000,
+      "coverage": {
+        "scope": "retained",
+        "state": "unknown"
+      },
+      "issue": {
+        "code": "source_unavailable"
+      }
+    }
+  },
+  "capabilities": {},
+  "overview": {
+    "run": null,
+    "bridge": null,
+    "quota": null
+  },
+  "sessions": [],
+  "pools": [],
+  "poolTotals": null,
+  "quota": {
+    "status": null,
+    "snapshot": null
+  },
+  "projects": [],
+  "worktrees": [],
+  "incidents": [],
+  "bridgeAcceptedAtMs": []
+}

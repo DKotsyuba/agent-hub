@@ -4,7 +4,7 @@ use crate::contract::{FRAME_LIMIT, READ_TIMEOUT, ReadError};
 use std::{path::Path, process::Stdio};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
-    process::Command,
+    process::{Child, Command},
     sync::watch,
 };
 
@@ -41,7 +41,7 @@ pub(crate) fn command(program: &Path, args: &[String], source: &str) -> Result<C
 /// Typed error output is retained even when an early exit breaks stdin; the adapter
 /// never accepts data without full request delivery and a documented exit code.
 /// Concurrently writes input and drains output; the adapter rejects success/exit contradictions.
-/// Cancellation, deadline and overflow always kill and reap only this direct child.
+/// Cancellation, deadline and overflow reap the direct child. Its group is swept by the owning supervisor.
 pub(crate) async fn execute(
     mut command: Command,
     input: Vec<u8>,
@@ -50,7 +50,7 @@ pub(crate) async fn execute(
     if *cancel.borrow() {
         return Err(ReadError::unavailable("cancelled"));
     }
-    let mut child = command.spawn().map_err(|error| {
+    let (mut child, group) = spawn_helper(&mut command).map_err(|error| {
         if error.kind() == std::io::ErrorKind::NotFound {
             ReadError::incompatible("executable_missing")
         } else {
@@ -60,6 +60,7 @@ pub(crate) async fn execute(
     let (mut stdin, stdout) = match (child.stdin.take(), child.stdout.take()) {
         (Some(stdin), Some(stdout)) => (stdin, stdout),
         _ => {
+            group.kill();
             let _ = child.kill().await;
             let _ = child.wait().await;
             return Err(ReadError::unavailable("helper_pipes"));
@@ -109,6 +110,7 @@ pub(crate) async fn execute(
             result = tokio::time::timeout(READ_TIMEOUT, io) => result.unwrap_or_else(|_| Err(ReadError::unavailable("client_timeout"))),
         }
     };
+    group.kill();
     if result.is_err() {
         // kill().await includes reaping; a child that already exited is still waited below.
         let kill = child.kill().await;
@@ -118,4 +120,47 @@ pub(crate) async fn execute(
         }
     }
     result
+}
+
+/// Tracks a private helper group when no observer supervisor owns the group.
+pub(crate) struct HelperGroup {
+    #[cfg(unix)]
+    private: Option<rustix::process::Pid>,
+}
+
+impl HelperGroup {
+    /// Stops descendants in a desktop-owned group without signaling the desktop process.
+    pub(crate) fn kill(self) {
+        #[cfg(unix)]
+        if let Some(group) = self.private {
+            let _ = rustix::process::kill_process_group(group, rustix::process::Signal::KILL);
+        }
+    }
+}
+
+/// Both frontend protocols inherit the supervised observer group on Unix.
+/// Direct desktop and unsupervised invocations isolate each helper instead.
+pub(crate) fn spawn_helper(command: &mut Command) -> std::io::Result<(Child, HelperGroup)> {
+    #[cfg(unix)]
+    let isolate = {
+        use rustix::process::{getpgrp, getpid};
+        let supervised = env!("CARGO_PKG_NAME") == "agent-hub-observer"
+            && std::env::var_os("AGENT_HUB_SUPERVISED_OBSERVER").is_some_and(|value| value == "1")
+            && getpgrp() == getpid();
+        let isolate = !supervised;
+        if isolate {
+            command.process_group(0);
+        }
+        isolate
+    };
+    let child = command.spawn()?;
+    let group = HelperGroup {
+        #[cfg(unix)]
+        private: child
+            .id()
+            .filter(|_| isolate)
+            .and_then(|id| i32::try_from(id).ok())
+            .and_then(rustix::process::Pid::from_raw),
+    };
+    Ok((child, group))
 }
