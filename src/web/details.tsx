@@ -144,7 +144,7 @@ function Member({ item, caps }: { item: PoolMember; caps?: Capabilities }) {
   return <article className="web-subcard"><h3>{item.name ?? item.id}</h3>
     <Facts rows={[[ 'Role', item.role], ['State', item.state], ['Runtime', item.runtime], ['Task', item.task],
       ['Seat', item.seat?.id], ['Profile', item.seat?.profile], ['Admission', item.seat && label(item.seat.admission)], ['Joined', item.seat?.joined]]} />
-    {item.session && caps?.runBindings === 'supported' && <Link className="web-link" href={sessionHref(item.session.sessionId, item.session.execution)}>{item.session.sessionId} · {label(item.session.match)}</Link>}
+    {item.session && (item.seat || caps?.runBindings === 'supported') && <Link className="web-link" href={sessionHref(item.session.sessionId, item.session.execution)}>{item.session.sessionId} · {label(item.session.match)}</Link>}
     {item.lineage && caps?.runProofs === 'supported' && <Expand title="Execution lineage"><Lineage value={item.lineage} /></Expand>}
   </article>;
 }

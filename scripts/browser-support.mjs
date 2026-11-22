@@ -30,7 +30,7 @@ export async function createBrowser() {
       'wdio:enforceWebDriverClassic': true,
       'wdio:chromedriverOptions': { binary: driverPath },
       'goog:chromeOptions': {
-        binary: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+        binary: process.env.AGENT_HUB_CHROME ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
         args: ['--headless=new', '--no-first-run', '--no-default-browser-check', '--disable-background-networking', '--disable-component-update', '--disable-sync', '--disable-breakpad', '--user-data-dir=' + profile, '--crash-dumps-dir=' + artifactRoot],
       },
       'goog:loggingPrefs': { browser: 'ALL' },

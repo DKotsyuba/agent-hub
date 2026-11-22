@@ -29,7 +29,15 @@ test('HTTP fixture shows history, agreement, Quota and Worktree, and detects los
     const requests: URL[] = [];
     const http = createHubClient({
       baseUrl: url,
-      fetch(input, init) { requests.push(new URL(String(input))); return fetch(input, init); },
+      async fetch(input, init) {
+        const request = new URL(String(input));
+        requests.push(request);
+        const response = await fetch(input, init);
+        if (!response.ok || !/\/pools\/[^/]+(?:\/sections\/members)?$/.test(request.pathname)) return response;
+        const body = await response.json() as { capabilities?: { runBindings: string } };
+        if (body.capabilities) body.capabilities.runBindings = 'unsupported';
+        return Response.json(body);
+      },
     });
     const client = createHttpClient(url, http);
     const setup = await createTestRenderer({ width: 120, height: 40 });
@@ -68,6 +76,16 @@ test('HTTP fixture shows history, agreement, Quota and Worktree, and detects los
       setup.mockInput.pressKey('o');
       await frame('Chat review pool');
       setup.mockInput.pressEnter();
+      await frame('Synthetic discussion.');
+      setup.mockInput.pressArrow('left');
+      await frame('Open Run session · unverified');
+      const seatReadCount = requests.filter(request => request.pathname === '/api/v1/sessions/demo-inspect').length;
+      setup.mockInput.pressEnter();
+      await frame('Inspect the saved execution history.');
+      assert.ok(requests.filter(request => request.pathname === '/api/v1/sessions/demo-inspect').length > seatReadCount);
+      setup.mockInput.pressEscape();
+      await frame('Open Run session · unverified');
+      setup.mockInput.pressArrow('right');
       await frame('Synthetic discussion.');
       setup.mockInput.pressKey('l');
       await frame('Result (recorded by Pool');

@@ -7,7 +7,8 @@ import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Choice } from '../components/hub-primitives';
 import { client, useRead } from './data';
-import { branchLabel, formatBytes, worktreeMeasurements } from './model';
+import { worktreeMeasurements } from './model';
+import { branchLabel, formatBytes } from '../../packages/view-model/src/index';
 import { Next, period, Period } from './catalog';
 import { EmptyRows, href, Link, ReadState, Sources, CoverageLine, useWebText } from './ui';
 
@@ -97,7 +98,7 @@ export function InventoryList({ kind, query, id, update }: {
             <span>{[row.kind && label(row.kind), row.leader].filter(Boolean).join(' · ')}</span><span>{row.purposePreview}</span>
           </Row>;
           const measurements = worktreeMeasurements(row, label, bytes => formatBytes(bytes, n));
-          return <Row key={row.id} id={row.id} target={detailUrl(row.id)} selected={id === row.id} title={label(branchLabel(row))} state={row.integration}>
+          return <Row key={row.id} id={row.id} target={detailUrl(row.id)} selected={id === row.id} title={label(branchLabel(row, true))} state={row.integration}>
             <span>{row.path}</span><span>{measurements.changes} · {measurements.size}</span><span>{label(row.class)} · {label(row.activity ?? 'Unknown')}{row.mtimeBased ? ' · ' + label('mtime-derived') : ''}</span>
           </Row>;
         })}</div>

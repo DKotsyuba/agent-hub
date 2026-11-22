@@ -8,7 +8,8 @@ import { Separator } from '../components/ui/separator';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import { Panel } from '../components/hub-primitives';
 import { client, useRead } from './data';
-import { branchLabel, formatBytes, quotaAccountTitle, worktreeMeasurements } from './model';
+import { quotaAccountTitle, worktreeMeasurements } from './model';
+import { branchLabel, formatBytes, projectQuotaSnapshot, projectQuotaStatus } from '../../packages/view-model/src/index';
 import { CoverageLine, EmptyRows, Expand, Facts, href, Link, ReadState, sessionHref, Sources, Text, useWebText } from './ui';
 
 /** URL period bounds are shared with the Bridge and failed execution drill-downs. */
@@ -103,48 +104,53 @@ export function Quota() {
   const { label, clock, percent } = useWebText();
   const read = useRead('quota', signal => client.get('quota', { signal }), 'quota');
   const pct = (value: number | null) => value == null ? null : percent(value);
-  return <ReadState read={read}>{({ data, observations }) => <>
-    {data.status && <Panel title={label('Service status')}><Facts rows={[[ 'Status', label(data.status.status)], ['Started', clock(data.status.startedAtMs)],
-      ['Last collection', clock(data.status.lastCollectionAtMs)], ['Collection successful', data.status.lastCollectionOk], ['Sources', data.status.sourceCount]]} />
-      {!!data.status.external.length && <Expand title="External collections">{data.status.external.map((entry, i) => <Facts key={i} rows={[
-        ['Account', entry.account], ['Provider', entry.provider], ['Source', entry.source], ['Accepted', clock(entry.acceptedAtMs)], ['Revision', entry.revision],
+  const quotaClock = (seconds: number | null) => clock(seconds === null ? null : Math.round(seconds * 1000));
+  return <ReadState read={read}>{({ data, observations }) => {
+    const status = data.status && projectQuotaStatus(data.status);
+    const snapshot = data.snapshot && projectQuotaSnapshot(data.snapshot);
+    return <>
+    {status && <Panel title={label('Service status')}><Facts rows={[[ 'Status', label(status.status)], ['Started', quotaClock(status.startedAt)],
+      ['Last collection', quotaClock(status.lastCollectionAt)], ['Collection successful', status.lastCollectionOk], ['Sources', status.sourceCount]]} />
+      {!!status.external.length && <Expand title="External collections">{status.external.map((entry, i) => <Facts key={i} rows={[
+        ['Account', entry.account], ['Provider', entry.provider], ['Source', entry.source], ['Accepted', quotaClock(entry.acceptedAt)], ['Revision', entry.revision],
       ]} />)}</Expand>}
     </Panel>}
-    {data.snapshot && <>
-      <EmptyRows count={data.snapshot.accounts.length} observations={observations} />
-      <div className="web-cards web-quota">{data.snapshot.accounts.map(account => <Panel key={account.account} title={label(quotaAccountTitle(account, data.snapshot!))}>
-        {quotaAccountTitle(account, data.snapshot!) !== account.account && <p className="web-muted">{account.account}</p>}
+    {snapshot && <>
+      <EmptyRows count={snapshot.accounts.length} observations={observations} />
+      <div className="web-cards web-quota">{snapshot.accounts.map(account => <Panel key={account.account} title={label(quotaAccountTitle(account, snapshot))}>
+        {quotaAccountTitle(account, snapshot) !== account.account && <p className="web-muted">{account.account}</p>}
         {account.models.map((model, i) => <article className="web-subcard" key={model.provider + model.model + i}>
           <header className="web-row-meta"><strong>{model.model}</strong><Badge variant="outline">{label(model.state)}</Badge><span>{model.provider}</span></header>
           <PercentBar value={model.remaining} title={model.model + ' ' + label('Remaining')} />
-          <Facts rows={[[ 'Reset', clock(model.resetAtMs)], ['Validity', model.validity.kind === 'until' ? clock(model.validity.atMs) : label(model.validity.kind)],
+          <Facts rows={[[ 'Reset', quotaClock(model.resetAt)], ['Validity', model.validity.kind === 'until' ? quotaClock(model.validity.at) : label(model.validity.kind)],
             ['Burn', model.burn != null ? model.burn + ' ' + label('pp/hour') : null], ['Risk', label(model.risk)]]} />
           <Expand title="Technical evidence"><Facts rows={[
-            ['Native model', model.nativeModel], ['Score', model.score], ['Evidence', model.evidence], ['Last sample', clock(model.newestObservedAtMs)],
-            ['Exhausted until', clock(model.exhaustedUntilMs)], ['Pools', model.pools.join(', ')], ['Window', model.window && [model.window.pool, model.window.source, model.window.window].join(' · ')],
+            ['Native model', model.nativeModel], ['Score', model.score], ['Evidence', model.evidence], ['Last sample', quotaClock(model.newestObservedAt)],
+            ['Exhausted until', quotaClock(model.exhaustedUntil)], ['Pools', model.pools.join(', ')], ['Window', model.window && [model.window.pool, model.window.source, model.window.window].join(' · ')],
           ]} /></Expand>
         </article>)}
         {account.windows.map((window, i) => <article key={i} className="web-subcard">
           <header className="web-row-meta"><strong>{window.window}</strong><span>{[window.lane, window.runtime, window.pool].join(' · ')}</span></header>
           <PercentBar value={window.lastRemaining} title={window.window + ' ' + label('Last sample')} />
-          <Facts rows={[[ 'Last sample', clock(window.observedAtMs)], ['Reset', clock(window.lastResetAtMs)], ['Valid until', clock(window.validUntilMs)],
+          <Facts rows={[[ 'Last sample', quotaClock(window.observedAt)], ['Reset', quotaClock(window.lastResetAt)], ['Valid until', quotaClock(window.validUntil)],
             ['Projected reserve', pct(window.projected)], ['Sustainable reserve', pct(window.sustainable)],
             ['Burn', window.burn != null ? window.burn + ' ' + label('pp/hour') : null], ['Risk', label(window.risk)]]} />
           <Expand title="Technical evidence"><Facts rows={[[ 'Source', window.source], ['Models', window.models.join(', ')], ['Forecast known', window.forecastKnown], ['Marker', window.marker]]} /></Expand>
         </article>)}
-        {account.latches.map((latch, i) => <p className="web-warning" key={i}>{label('Exhaustion latch')} · {latch.window} · {label(latch.active ? 'active' : 'Inactive')} · {clock(latch.observedAtMs)} → {clock(latch.resetAtMs)}</p>)}
+        {account.latches.map((latch, i) => <p className="web-warning" key={i}>{label('Exhaustion latch')} · {latch.window} · {label(latch.active ? 'active' : 'Inactive')} · {quotaClock(latch.observedAt)} → {quotaClock(latch.resetAt)}</p>)}
         {account.advice.map((advice, i) => <Text key={i}>{advice}</Text>)}
       </Panel>)}</div>
-      <Panel title={label('Collection coverage')}><Facts rows={[[ 'Status', label(data.snapshot.coverage.state)], ['Evaluated', clock(data.snapshot.evaluatedAtMs)],
-        ['Last collection', clock(data.snapshot.coverage.lastCollectionAtMs)], ['Collection successful', data.snapshot.coverage.lastCollectionOk],
-        ['Unobserved', data.snapshot.coverage.unobserved.join(', ') || '—']]} />
-        {data.snapshot.coverage.sources.map((entry, i) => <Expand key={i} title={entry.source + ' · ' + entry.account}><Facts rows={[
+      <Panel title={label('Collection coverage')}><Facts rows={[[ 'Status', label(snapshot.coverage.state)], ['Evaluated', quotaClock(snapshot.evaluatedAt)],
+        ['Last collection', quotaClock(snapshot.coverage.lastCollectionAt)], ['Collection successful', snapshot.coverage.lastCollectionOk],
+        ['Unobserved', snapshot.coverage.unobserved.join(', ') || '—']]} />
+        {snapshot.coverage.sources.map((entry, i) => <Expand key={i} title={entry.source + ' · ' + entry.account}><Facts rows={[
           ['Status', label(entry.status)], ['Provider', entry.provider], ['Windows', entry.windows], ['Issues', entry.issues.join(', ') || '—'],
         ]} /></Expand>)}
       </Panel>
     </>}
     <Sources items={observations} />
-  </>}</ReadState>;
+  </>;
+  }}</ReadState>;
 }
 
 /** Worktree probe values preserve lower bounds and distinguish unavailable from pending. */
@@ -164,7 +170,7 @@ export function WorktreeDetails({ id }: { id: string }) {
   const [topic, key]: [Topic, string] = [`worktree:${id}:detail`, id];
   const read = useRead(key, signal => client.get('worktree', { params: { id }, signal }), topic);
   return <ReadState read={read}>{({ data, observations }) => <>
-    <h2>{label(branchLabel(data.worktree))}</h2><WorktreeFacts row={data.worktree} />
+    <h2>{label(branchLabel(data.worktree, true))}</h2><WorktreeFacts row={data.worktree} />
     {data.warnings.map((warning, i) => <p className="web-warning" key={i}>{warning.message ?? warning.code}</p>)}
     <CoverageLine value={data.coverage} />
     {data.worktree.sessions.map((item, i) => <Link className="web-inline-row web-link" key={i}

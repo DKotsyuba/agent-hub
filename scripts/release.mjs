@@ -1,20 +1,22 @@
 #!/usr/bin/env node
 /**
- * Release helper for the Agent Hub terminal build (Linux x86-64).
+ * Release helper for the Agent Hub distribution (Linux x86-64).
  *
  *   node scripts/release.mjs prepare <X.Y.Z>          bump every version field with minimal text edits
  *   node scripts/release.mjs check <X.Y.Z>            require every version field and the CHANGELOG section to match
  *   node scripts/release.mjs notes <X.Y.Z>            print the CHANGELOG section as release notes
- *   node scripts/release.mjs package <X.Y.Z> <binary> <outdir> [--epoch SECONDS]
+ *   npm run build:release -- [outdir]                 build and verify a complete archive
+ *   node scripts/release.mjs package <X.Y.Z> <outdir> [--epoch SECONDS]
  *                                                     assemble the release assets and SHA256SUMS
  *   node scripts/release.mjs verify <X.Y.Z> <outdir> [--forbid PATH]...
  *                                                     re-check hashes, layout, version and embedded paths
  * Runs under Node 24+ or Bun. The assets are:
- *   agent-hub-<version>-linux-x86_64.tar.gz, agent-hub-linux-x86_64, THIRD_PARTY_NOTICES.md, SHA256SUMS.
+ *   agent-hub-<version>-linux-x86_64.tar.gz and SHA256SUMS.
  */
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -23,10 +25,9 @@ const SEMVER = /^\d+\.\d+\.\d+$/;
 /** Paths that must never appear in a shipped binary, in addition to anything passed with --forbid. */
 const ALWAYS_FORBIDDEN = ['/home/', '/Users/'];
 
-/** Aborts with a one-line diagnostic. */
+/** Rejects the operation while allowing archive scratch cleanup to finish. */
 function fail(message) {
-  console.error(`release: ${message}`);
-  process.exit(1);
+  throw new Error(message);
 }
 
 /** Returns the argument as a validated plain semantic version. */
@@ -45,8 +46,8 @@ const VERSION_FIELDS = [
   ['package-lock.json', /("packages": \{\s*"": \{\s*"name": "agent-hub",\s*"version": ")([^"]+)(")/s],
   ['terminal/package.json', /^(\{\s*"name": "agent-hub-terminal",\s*"version": ")([^"]+)(")/s],
   ['package-lock.json', /("terminal": \{\s*"name": "agent-hub-terminal",\s*"version": ")([^"]+)(")/s],
-  ['terminal/observer/Cargo.toml', /(\[package\]\nname = "agent-hub-observer"\nversion = ")([^"]+)(")/],
-  ['terminal/observer/Cargo.lock', /(\[\[package\]\]\nname = "agent-hub-observer"\nversion = ")([^"]+)(")/],
+  ['server/observer/Cargo.toml', /(\[package\]\nname = "agent-hub-observer"\nversion = ")([^"]+)(")/],
+  ['server/observer/Cargo.lock', /(\[\[package\]\]\nname = "agent-hub-observer"\nversion = ")([^"]+)(")/],
   ['src-tauri/Cargo.toml', /(\[package\]\nname = "agent-hub"\nversion = ")([^"]+)(")/],
   ['src-tauri/Cargo.lock', /(\[\[package\]\]\nname = "agent-hub"\nversion = ")([^"]+)(")/],
   ['src-tauri/tauri.conf.json', /^(\{[^]*?"version": ")([^"]+)(")/],
@@ -119,7 +120,7 @@ function run(command, args, options = {}) {
 
 /** Names of the release assets for a version. */
 function assetNames(version) {
-  return { archive: `agent-hub-${version}-linux-x86_64.tar.gz`, binary: 'agent-hub-linux-x86_64', notices: 'THIRD_PARTY_NOTICES.md' };
+  return { archive: `agent-hub-${version}-linux-x86_64.tar.gz` };
 }
 
 /** Parses an optional `--epoch SECONDS` for deterministic archive timestamps. */
@@ -131,95 +132,131 @@ function epochOption(args) {
   return value;
 }
 
-/** Builds the four release assets from a compiled executable. */
-function packageRelease(version, binary, outdir, epoch) {
-  const names = assetNames(version);
-  if (!existsSync(binary)) fail(`${binary} does not exist; run npm run build:binary in terminal/ first.`);
+/** Executables and supporting files in the release tree. */
+const binaries = ['bin/agent-hub', 'bin/hub-server', 'libexec/agent-hub-observer'];
+const supporting = ['LICENSE', 'THIRD_PARTY_NOTICES.md', 'etc/agent-hub/connections.json', 'share/systemd/agent-hub.service'];
+const observerTarget = resolve(root, process.env.CARGO_TARGET_DIR ?? 'server/observer/target');
+
+/** Assembles the built distribution with fixed archive ownership, times and modes. */
+function packageRelease(version, outdir, epoch) {
+  check(version);
+  const { archive } = assetNames(version);
   mkdirSync(outdir, { recursive: true });
   if (readdirSync(outdir).length > 0) fail(`${outdir} is not empty.`);
   const stage = mkdtempSync(join(outdir, '.stage-'));
   try {
-    const top = `agent-hub-${version}-linux-x86_64`;
-    mkdirSync(join(stage, top, 'etc', 'agent-hub'), { recursive: true });
-    copyFileSync(binary, join(stage, top, 'agent-hub'));
-    chmodSync(join(stage, top, 'agent-hub'), 0o755);
-    copyFileSync(join(root, 'LICENSE'), join(stage, top, 'LICENSE'));
-    copyFileSync(join(root, 'THIRD_PARTY_NOTICES.md'), join(stage, top, 'THIRD_PARTY_NOTICES.md'));
-    copyFileSync(join(root, 'packaging', 'etc', 'agent-hub', 'connections.json'), join(stage, top, 'etc', 'agent-hub', 'connections.json'));
-    for (const directory of [top, join(top, 'etc'), join(top, 'etc', 'agent-hub')]) chmodSync(join(stage, directory), 0o755);
-    for (const file of [join(top, 'LICENSE'), join(top, 'THIRD_PARTY_NOTICES.md'), join(top, 'etc', 'agent-hub', 'connections.json')]) chmodSync(join(stage, file), 0o644);
-    // Deterministic archive: sorted names, fixed owner and times, gzip without name or timestamp.
+    const top = archive.slice(0, -7);
+    const tree = join(stage, top);
+    const sources = [
+      'terminal/dist/agent-hub', 'server/dist/hub-server', join(observerTarget, 'release/agent-hub-observer'),
+      'LICENSE', 'THIRD_PARTY_NOTICES.md', 'packaging/etc/agent-hub/connections.json', 'server/systemd/agent-hub.service',
+    ];
+    [...binaries, ...supporting].forEach((file, index) => {
+      const target = join(tree, file);
+      mkdirSync(dirname(target), { recursive: true });
+      copyFileSync(resolve(root, sources[index]), target);
+      chmodSync(target, index < binaries.length ? 0o755 : 0o644);
+    });
+    cpSync(join(root, 'dist'), join(tree, 'share/web'), { recursive: true });
     const tarFile = join(stage, 'archive.tar');
-    run('tar', ['--sort=name', `--mtime=@${epoch}`, '--owner=0', '--group=0', '--numeric-owner', '--format=gnu', '-cf', tarFile, '-C', stage, top]);
+    run('tar', ['--sort=name', `--mtime=@${epoch}`, '--owner=0', '--group=0', '--numeric-owner',
+      '--mode=u+rwX,go+rX,go-w,a-s', '--format=gnu', '-cf', tarFile, '-C', stage, top]);
     const gzip = spawnSync('gzip', ['-n', '-9', '-c', tarFile], { maxBuffer: 1 << 30 });
-    if (gzip.status !== 0) fail(`gzip failed: ${gzip.stderr}`);
-    writeFileSync(join(outdir, names.archive), gzip.stdout);
+    if (gzip.status !== 0) fail(`gzip failed: ${gzip.error ?? gzip.stderr}`);
+    writeFileSync(join(outdir, archive), gzip.stdout);
   } finally {
     rmSync(stage, { recursive: true, force: true });
   }
-  copyFileSync(binary, join(outdir, names.binary));
-  chmodSync(join(outdir, names.binary), 0o755);
-  copyFileSync(join(root, 'THIRD_PARTY_NOTICES.md'), join(outdir, names.notices));
-  const sums = [names.archive, names.binary, names.notices].sort().map((name) => `${sha256(join(outdir, name))}  ${name}\n`).join('');
+  const sums = `${sha256(join(outdir, archive))}  ${archive}\n`;
   writeFileSync(join(outdir, 'SHA256SUMS'), sums);
   process.stdout.write(sums);
 }
 
-/** True when the buffer contains the ASCII needle. */
-function contains(buffer, needle) {
-  return buffer.includes(Buffer.from(needle));
-}
-
-/** Re-checks an asset directory: exact file set, hashes, executable version and no embedded build paths. */
+/** Checks exact release assets, archive contents, executable identity and forbidden build paths. */
 function verify(version, outdir, forbidden) {
-  const names = assetNames(version);
-  const expected = [names.archive, names.binary, names.notices, 'SHA256SUMS'].sort();
+  const { archive } = assetNames(version);
+  const expected = ['SHA256SUMS', archive];
   const actual = readdirSync(outdir).sort();
-  if (JSON.stringify(actual) !== JSON.stringify(expected)) fail(`Asset set mismatch: found [${actual.join(', ')}], expected [${expected.join(', ')}].`);
-  const listed = new Map(readFileSync(join(outdir, 'SHA256SUMS'), 'utf8').trim().split('\n').map((line) => {
-    const match = line.match(/^([0-9a-f]{64})  ([^/\s]+)$/);
-    if (!match) fail(`Malformed SHA256SUMS line: ${line}`);
-    return [match[2], match[1]];
-  }));
-  for (const name of expected.filter((entry) => entry !== 'SHA256SUMS')) {
-    if (listed.get(name) !== sha256(join(outdir, name))) fail(`SHA256SUMS does not match ${name}.`);
+  if (JSON.stringify(actual) !== JSON.stringify(expected)) fail(`Asset set mismatch: [${actual.join(', ')}].`);
+  const archivePath = join(outdir, archive);
+  if (readFileSync(join(outdir, 'SHA256SUMS'), 'utf8') !== `${sha256(archivePath)}  ${archive}\n`) {
+    fail('SHA256SUMS does not match the archive.');
   }
-  if (listed.size !== 3) fail('SHA256SUMS must list exactly the three assets.');
+  const prefix = archive.slice(0, -7) + '/';
+  const files = run('tar', ['-tzf', archivePath]).trimEnd().split('\n');
+  const allowed = new Set([...binaries, ...supporting, '', 'bin/', 'libexec/', 'etc/', 'etc/agent-hub/', 'share/', 'share/systemd/',
+    'share/web/', 'share/web/index.html', 'share/web/favicon.svg', 'share/web/assets/']);
+  if (new Set(files).size !== files.length || files.some(entry => {
+    const path = entry.slice(prefix.length);
+    return !entry.startsWith(prefix) || (!allowed.has(path) && !/^share\/web\/assets\/[\w.-]+$/.test(path) || path.endsWith('/..'));
+  })) fail('Unexpected archive entry.');
+  const required = [...binaries, ...supporting, 'share/web/index.html'];
+  if (required.some(path => !files.includes(prefix + path)) ||
+      !files.some(path => path.startsWith(prefix + 'share/web/assets/') && path.endsWith('.js')) ||
+      !files.some(path => path.startsWith(prefix + 'share/web/assets/') && path.endsWith('.css'))) fail('Archive is missing release files.');
+  const listing = run('tar', ['-tvzf', archivePath]).trimEnd().split('\n');
+  if (listing.length !== files.length || listing.some((entry, index) => {
+    const path = files[index].slice(prefix.length);
+    const mode = files[index].endsWith('/') ? 'drwxr-xr-x' : binaries.includes(path) ? '-rwxr-xr-x' : '-rw-r--r--';
+    return !entry.startsWith(mode + ' ');
+  })) fail('Archive contains a special file or unexpected permissions.');
   const scratch = mkdtempSync(join(outdir, '.verify-'));
   try {
-    run('tar', ['-xzf', join(outdir, names.archive), '-C', scratch]);
-    const top = join(scratch, `agent-hub-${version}-linux-x86_64`);
-    const files = run('tar', ['-tzf', join(outdir, names.archive)]).split('\n').filter(Boolean).sort();
-    const prefix = `agent-hub-${version}-linux-x86_64/`;
-    const want = ['', 'LICENSE', 'THIRD_PARTY_NOTICES.md', 'agent-hub', 'etc/', 'etc/agent-hub/', 'etc/agent-hub/connections.json'].map((entry) => prefix + entry).sort();
-    if (JSON.stringify(files) !== JSON.stringify(want)) fail(`Archive layout mismatch: [${files.join(', ')}].`);
-    if (sha256(join(top, 'agent-hub')) !== sha256(join(outdir, names.binary))) fail('The archived executable differs from the bare executable.');
-    for (const [label, file] of [['bare executable', join(outdir, names.binary)], ['archived notices', join(top, 'THIRD_PARTY_NOTICES.md')]]) {
-      const data = readFileSync(file);
-      for (const needle of label === 'bare executable' ? [...ALWAYS_FORBIDDEN, ...forbidden] : []) {
-        if (contains(data, needle)) fail(`The ${label} embeds "${needle}".`);
+    run('tar', ['--same-permissions', '-xzf', archivePath, '-C', scratch]);
+    const top = join(scratch, prefix);
+    const needles = [...ALWAYS_FORBIDDEN, ...forbidden].filter(Boolean);
+    for (const entry of files) {
+      if (entry.endsWith('/')) continue;
+      const path = join(scratch, entry);
+      const data = readFileSync(path);
+      for (const needle of needles) {
+        if (data.includes(Buffer.from(needle))) fail(`${entry} embeds "${needle}".`);
       }
     }
-    const output = run(join(outdir, names.binary), ['--version']).trim();
-    if (output !== `agent-hub ${version}`) fail(`--version printed "${output}", expected "agent-hub ${version}".`);
+    const output = run(join(top, 'bin/agent-hub'), ['--version']).trim();
+    if (output !== `agent-hub ${version}`) fail(`Unexpected TUI version: "${output}".`);
   } finally {
     rmSync(scratch, { recursive: true, force: true });
   }
   console.log(`Assets for ${version} are consistent.`);
 }
 
-const [command, ...rest] = process.argv.slice(2);
-if (command === 'prepare') prepare(versionArgument(rest[0]));
-else if (command === 'check') check(versionArgument(rest[0]));
-else if (command === 'notes') notes(versionArgument(rest[0]));
-else if (command === 'package') {
-  if (rest.length < 3) fail('Usage: package <version> <binary> <outdir> [--epoch SECONDS]');
-  packageRelease(versionArgument(rest[0]), resolve(rest[1]), resolve(rest[2]), epochOption(rest.slice(3)));
-} else if (command === 'verify') {
-  const forbidden = [];
-  for (let index = 2; index < rest.length; index += 1) {
-    if (rest[index] !== '--forbid') fail(`Unknown argument ${rest[index]}.`);
-    forbidden.push(rest[++index] ?? fail('--forbid needs a path'));
+/** Builds the locked Linux distribution with remapped native paths. */
+function buildRelease(outdir) {
+  if (process.platform !== 'linux' || process.arch !== 'x64' || !process.report.getReport().header.glibcVersionRuntime) {
+    fail('The release build requires Linux x86-64 with glibc.');
   }
-  verify(versionArgument(rest[0]), resolve(rest[1] ?? fail('Usage: verify <version> <outdir>')), forbidden);
-} else fail('Usage: release.mjs prepare|check|notes|package|verify (see the header of this file).');
+  if (/[\s]/.test(root) || /[\s]/.test(process.env.CARGO_HOME ?? '')) fail('Build paths must not contain whitespace for Rust path remapping.');
+  const version = versionArgument(JSON.parse(read('package.json')).version);
+  const cargoHome = resolve(process.env.CARGO_HOME ?? join(homedir(), '.cargo'));
+  const env = { ...process.env, CARGO_TARGET_DIR: observerTarget,
+    RUSTFLAGS: [process.env.RUSTFLAGS, `--remap-path-prefix=${root}=/build/agent-hub`, `--remap-path-prefix=${cargoHome}=/cargo`].filter(Boolean).join(' ') };
+  for (const script of ['server:build', 'terminal:build', 'web:build']) run('npm', ['run', script], { cwd: root, stdio: 'inherit' });
+  run('cargo', ['build', '--offline', '--locked', '--release', '--manifest-path', 'server/observer/Cargo.toml'], { cwd: root, stdio: 'inherit', env });
+  packageRelease(version, outdir, process.env.SOURCE_DATE_EPOCH ?? run('git', ['log', '-1', '--format=%ct'], { cwd: root }).trim());
+  verify(version, outdir, [root, cargoHome, process.env.TMPDIR]);
+}
+
+try {
+  const [command, ...rest] = process.argv.slice(2);
+  if (command === 'prepare') prepare(versionArgument(rest[0]));
+  else if (command === 'check') check(versionArgument(rest[0]));
+  else if (command === 'notes') notes(versionArgument(rest[0]));
+  else if (command === 'package') {
+    if (rest.length < 2) fail('Usage: package <version> <outdir> [--epoch SECONDS]');
+    packageRelease(versionArgument(rest[0]), resolve(rest[1]), epochOption(rest.slice(2)));
+  } else if (command === 'build') {
+    if (rest.length > 1) fail('Usage: build [outdir]');
+    buildRelease(resolve(rest[0] ?? join(root, '.tmp/release')));
+  } else if (command === 'verify') {
+    const forbidden = [];
+    for (let index = 2; index < rest.length; index += 1) {
+      if (rest[index] !== '--forbid') fail(`Unknown argument ${rest[index]}.`);
+      forbidden.push(rest[++index] ?? fail('--forbid needs a path'));
+    }
+    verify(versionArgument(rest[0]), resolve(rest[1] ?? fail('Usage: verify <version> <outdir>')), forbidden);
+  } else fail('Usage: release.mjs prepare|check|notes|build|package|verify (see the header of this file).');
+} catch (error) {
+  console.error(`release: ${error.message}`);
+  process.exitCode = 1;
+}

@@ -4,7 +4,8 @@ dist/
 *.local
 src-tauri/target/
 src-tauri/gen/
-terminal/observer/target/
+server/observer/target/
+.tmp/
 terminal/dist/
 terminal/node_modules/
 *.tsbuildinfo

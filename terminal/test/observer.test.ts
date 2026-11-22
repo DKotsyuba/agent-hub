@@ -1,5 +1,4 @@
 /** Exercises the real finite observer against isolated synthetic socket/CLI sources. */
-import { existsSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
 import { once } from 'node:events';
@@ -7,7 +6,6 @@ import { chmod, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promis
 import net from 'node:net';
 import path from 'node:path';
 import test from 'node:test';
-import { fileURLToPath } from 'node:url';
 import { createNativeClient, observerPath } from './native-observer-harness.ts';
 import type { Resource } from '../src/api.ts';
 
@@ -21,17 +19,16 @@ async function waitForFile(file: string): Promise<string> {
 
 type Json = Record<string, any>;
 
-const binary = process.env.AGENT_HUB_TEST_OBSERVER ?? fileURLToPath(new URL('../../server/observer/target/debug/agent-hub-observer', import.meta.url));
-const skip = (process.env.AGENT_HUB_TEST_OBSERVER || existsSync(binary)) ? false : 'relocated observer binary is not built';
+const binary = process.env.AGENT_HUB_TEST_OBSERVER ?? observerPath();
 
-test('closed observer reads, validates and cancels only its own sources', { skip }, async () => {
+test('closed observer reads, validates and cancels only its own sources', async () => {
   const temp = process.env.TMPDIR;
   assert.ok(binary && path.isAbsolute(binary));
   assert.ok(temp && path.isAbsolute(temp));
   assert.equal(observerPath(temp), path.join(temp, 'debug', process.platform === 'win32' ? 'agent-hub-observer.exe' : 'agent-hub-observer'));
   const directory = await mkdtemp(path.join(temp, 'hub-observer-test-'));
   const socket = path.join(directory, 'run.sock');
-  const helper = path.join(directory, 'bridge-fixture');
+  const helper = path.join(directory, 'bridge-fixture.cjs');
   const poolHelper = path.join(directory, 'pool-fixture');
   const poolConfig = path.join(directory, 'pool-observer.toml');
   const unconfiguredHelper = path.join(directory, 'bridge-unconfigured');
@@ -181,7 +178,8 @@ test('closed observer reads, validates and cancels only its own sources', { skip
     assert.equal(outside.outcome, 'invalid');
     assert.equal(outside.error?.code, 'resource_denied');
 
-    assert.equal((await client.read('bridge.overview')).outcome, 'ok');
+    const bridge = await client.read('bridge.overview');
+    assert.equal(bridge.outcome, 'ok', JSON.stringify(bridge));
     const malformed = await client.read('bridge.overview', { null_error: true });
     assert.equal(malformed.outcome, 'invalid');
     assert.equal(malformed.error?.code, 'source_envelope');
@@ -259,7 +257,7 @@ test('closed observer reads, validates and cancels only its own sources', { skip
   }
 });
 
-test('a FIFO config cannot keep the finite observer alive after its deadline', { timeout: 22_000, skip }, async () => {
+test('a FIFO config cannot keep the finite observer alive after its deadline', { timeout: 22_000 }, async () => {
   const temp = process.env.TMPDIR;
   assert.ok(temp && path.isAbsolute(temp));
   const directory = await mkdtemp(path.join(temp, 'hub-config-test-'));

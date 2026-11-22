@@ -15,7 +15,7 @@ Rust observer. A distribution bundle retains (all included in
   `FFMPEG-SOURCE.md` files, plus notices from the other runtime npm packages
   in `package-lock.json`.
 - Applicable notices from the locked Rust observer dependencies in
-  `terminal/observer/Cargo.lock`.
+  `server/observer/Cargo.lock`.
 
 The native OpenTUI package documents its static FFmpeg build, source URL,
 source hash and rebuild configuration in `FFMPEG-SOURCE.md`. Bun's license

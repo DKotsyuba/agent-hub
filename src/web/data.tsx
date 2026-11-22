@@ -3,7 +3,15 @@ import { createContext, useContext, useEffect, useState } from 'react';
 import type { HubEvent, Observation, Topic } from '@agent-hub/domain';
 import { createHubClient, HubHttpError } from './client';
 
-export const client = createHubClient();
+/** Uses same-origin requests and preserves the browser's finite-read error codes. */
+export const client = createHubClient({ fetch: async (input, options) => {
+  try {
+    return await fetch(input, { ...options, cache: 'no-store' });
+  } catch (error) {
+    if (options?.signal?.aborted) throw error;
+    throw new HubHttpError('network_unavailable', 0);
+  }
+} });
 
 /** Current subscription invalidations, source states and explicit refresh generation. */
 export const LiveContext = createContext<{
@@ -11,7 +19,7 @@ export const LiveContext = createContext<{
 }>({ visible: true, events: new Map(), observations: [], refresh: 0 });
 
 /** Closes the scoped stream on hide and revalidates through ready after reopening. */
-export function useLive(topics: readonly Topic[], interval: number) {
+export function useLive(topics: readonly Topic[], interval: 1 | 3 | 5 | 10) {
   const [visible, setVisible] = useState(!document.hidden);
   const [scope, setScope] = useState<{ key: string; events: Map<Topic, HubEvent>; observations: Observation[] }>({
     key: '', events: new Map(), observations: [],
@@ -40,6 +48,7 @@ export function useLive(topics: readonly Topic[], interval: number) {
       pending = undefined;
       setScope({ key, events: new Map(events), observations: [...observations.values()] });
     };
+    setConnection('connecting');
     void client.watch(key.split(',') as Topic[], interval, {
       event: event => {
         for (const topic of event.type === 'ready' ? event.topics : [event.topic]) events.set(topic, event);
@@ -71,7 +80,7 @@ export type Read<T> = { value: T | null; error: string | null; loading: boolean;
 
 /** Resolves a protocol code without surfacing browser or upstream diagnostic bodies. */
 export function errorCode(error: unknown) {
-  return error instanceof HubHttpError ? error.code : error instanceof Error && error.message === 'content_budget' ? error.message : 'invalid_projection';
+  return error instanceof HubHttpError && error.code !== 'http_error' ? error.code : error instanceof Error && error.message === 'content_budget' ? error.message : 'invalid_projection';
 }
 
 /** Latest-wins read keyed by the normalized request; hides previous-query data immediately. */

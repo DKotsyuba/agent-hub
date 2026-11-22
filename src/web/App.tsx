@@ -60,7 +60,7 @@ export default function App() {
   const { label, locale, setLocale } = useWebText();
   const [address, setAddress] = useState(() => location.pathname + location.search);
   const [theme, setTheme] = useState(savedTheme);
-  const [interval, setInterval] = useState(3);
+  const [interval, setInterval] = useState<1 | 3 | 5 | 10>(3);
   const [refresh, setRefresh] = useState(0);
   const [help, setHelp] = useState(false);
   const route = locationView();
@@ -216,7 +216,7 @@ export default function App() {
         <div className="web-preferences">
           <Choice label={label('Appearance')} value={theme} options={['system', 'light', 'dark'].map(value => [value, label(value)])} onChange={setTheme} />
           <Choice label={label('Language')} value={locale} options={[[ 'en', 'English'], ['ru', 'Русский']]} onChange={value => setLocale(value === 'ru' ? 'ru' : 'en')} />
-          <Choice label={label('Refresh cadence')} value={String(interval)} options={[1, 3, 5, 10].map(value => [String(value), value + ' ' + label('sec')])} onChange={value => setInterval(+value)} />
+          <Choice label={label('Refresh cadence')} value={String(interval)} options={[1, 3, 5, 10].map(value => [String(value), value + ' ' + label('sec')])} onChange={value => setInterval(Number(value) as 1 | 3 | 5 | 10)} />
           <Dialog open={help} onOpenChange={setHelp}><DialogTrigger asChild><Button variant="ghost" aria-label={label('Keyboard shortcuts')}><CircleHelp size={18} /></Button></DialogTrigger>
             <DialogContent className="settings-dialog">
               <DialogTitle>{label('Keyboard shortcuts')}</DialogTitle>

@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 /**
- * Generates THIRD_PARTY_NOTICES.md reproducibly for the standalone Linux x86-64 terminal executable.
+ * Generates THIRD_PARTY_NOTICES.md reproducibly for the Linux x86-64 distribution.
  *
  * Inputs (no network is used for npm and Rust, only for the pinned Bun license unless --bun-license is given):
- *   - package-lock.json and the terminal runtime packages installed by `npm ci --ignore-scripts` at the root
- *   - terminal/observer/Cargo.lock through `cargo metadata --locked --filter-platform x86_64-unknown-linux-gnu`
+ *   - package-lock.json and workspace runtime packages and web asset inputs installed by `npm ci --ignore-scripts` at the root
+ *   - server/observer/Cargo.lock through `cargo metadata --locked --filter-platform x86_64-unknown-linux-gnu`
  *     and the `.crate` archives in the Cargo registry cache (run `cargo fetch --locked` first)
  *   - the upstream Bun `LICENSE.md` at the pinned tag
  *
@@ -21,7 +21,6 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const terminal = join(root, 'terminal');
 const RUST_TARGET = 'x86_64-unknown-linux-gnu';
 /** Bun runtime embedded by `bun build --compile`; keep equal to the Bun pin in .github/workflows. */
 const BUN_VERSION = '1.4.4';
@@ -110,24 +109,37 @@ function lockedDependency(lock, owner, name) {
   return lock.packages[`node_modules/${name}`] ? `node_modules/${name}` : null;
 }
 
-/** Walks runtime and required peer edges reachable from Terminal, excluding platform optionals. */
-function terminalRuntimePackages(lock) {
+/** Walks runtime and required peer edges from all workspaces and the web asset inputs. */
+function workspaceRuntimePackages(lock) {
   const packages = new Map();
 
   /** Visits one package by its install location to preserve separately pinned nested dependencies. */
   function visit(owner, name) {
     const path = lockedDependency(lock, owner, name);
-    if (!path) fail(`Missing locked terminal dependency: ${name} from ${owner}.`);
+    if (!path) fail(`Missing locked runtime dependency: ${name} from ${owner}.`);
     if (packages.has(path)) return;
     const entry = lock.packages[path];
-    packages.set(path, { name: path.replace(/^node_modules\//, '').replaceAll('/node_modules/', '/'), path, version: entry.version, license: entry.license });
+    if (entry.link) {
+      for (const child of Object.keys(lock.packages[entry.resolved].dependencies ?? {})) visit(entry.resolved, child);
+      return;
+    }
+    packages.set(path, { name: path.split('node_modules/').at(-1), path, version: entry.version, license: entry.license });
     for (const child of Object.keys(entry.dependencies ?? {})) visit(path, child);
     for (const peer of Object.keys(entry.peerDependencies ?? {})) {
       if (!entry.peerDependenciesMeta?.[peer]?.optional) visit(path, peer);
     }
   }
 
-  for (const name of Object.keys(lock.packages.terminal.dependencies)) visit('terminal', name);
+  for (const [owner, manifest] of Object.entries(lock.packages)) {
+    if (owner.split('/').includes('node_modules')) continue;
+    for (const name of Object.keys(manifest.dependencies ?? {})) visit(owner || '.', name);
+  }
+  // Tailwind ships CSS inputs, and Vite can inject its module preload polyfill into the browser bundle.
+  for (const name of ['tailwindcss', 'vite']) {
+    const path = lockedDependency(lock, '.', name);
+    const entry = lock.packages[path];
+    packages.set(path, { name, path, version: entry.version, license: entry.license });
+  }
   return [...packages.values()];
 }
 
@@ -150,7 +162,7 @@ function openTuiSection(lock) {
     const unlisted = noticeFiles(directory).filter((file) => !files.includes(file));
     if (unlisted.length > 0) fail(`${name}@${version} has unlisted notice files: ${unlisted.join(', ')}. Review them and update OPENTUI_FILES.`);
     for (const file of files) {
-      lines.push(`### ${name}@${version}: \`${file}\``, '', fenced(normalize(readFileSync(join(directory, file), 'utf8'))), '');
+      lines.push(`### ${name}@${version}: \`${file}\``, '', fenced(normalize(readFileSync(join(directory, file), 'utf8'))).replace(/[ \t]+$/gm, ''), '');
     }
   }
   return lines;
@@ -158,12 +170,12 @@ function openTuiSection(lock) {
 
 /** Renders section 3: runtime npm packages other than OpenTUI, from the lockfile. */
 function npmSection(lock) {
-  const packages = terminalRuntimePackages(lock).filter(entry => entry.path !== lockedDependency(lock, 'terminal', OPENTUI_CORE));
+  const packages = workspaceRuntimePackages(lock).filter(entry => entry.path !== lockedDependency(lock, 'terminal', OPENTUI_CORE));
   packages.sort((left, right) => compare(left.name, right.name));
   const lines = [
     '## 3. Other npm runtime packages',
     '',
-    'Terminal runtime packages from the root `package-lock.json` installed for linux-x64, excluding the OpenTUI packages above.',
+    'Workspace runtime packages and web asset inputs from the root `package-lock.json` installed for linux-x64, excluding the OpenTUI packages above.',
     '',
     '| Package | Version | License |',
     '|---|---|---|',
@@ -174,8 +186,16 @@ function npmSection(lock) {
     const directory = join(root, entry.path);
     installedManifest(directory, entry.name, entry.version);
     const files = noticeFiles(directory);
-    if (files.length !== 1) fail(`${entry.name}@${entry.version}: expected exactly one license file, found [${files.join(', ')}].`);
-    lines.push(`### ${entry.name}@${entry.version} (${entry.license})`, '', fenced(normalize(readFileSync(join(directory, files[0]), 'utf8'))), '');
+    if (!files.length) {
+      const readme = readFileSync(join(directory, 'README.md'), 'utf8');
+      const license = readme.match(/^#+ License\s*\r?\n([A-Z][A-Z0-9.-]+)\s*$/im);
+      if (license?.[1] !== entry.license) fail(`${entry.name}@${entry.version} has no installed notice file.`);
+      lines.push(`### ${entry.name}@${entry.version} (${entry.license})`, '',
+        'The published npm package declares its license in README.md.', '', fenced(license[0].trim()), '');
+      continue;
+    }
+    lines.push(`### ${entry.name}@${entry.version} (${entry.license})`, '');
+    for (const file of files) lines.push(`**${file}**`, '', fenced(normalize(readFileSync(join(directory, file), 'utf8'))).replace(/[ \t]+$/gm, ''), '');
   }
   return lines;
 }
@@ -189,7 +209,7 @@ function crateArchive(name, version) {
       if (existsSync(candidate)) return candidate;
     }
   }
-  return fail(`${name}-${version}.crate is not in the Cargo registry cache; run cargo fetch --locked --manifest-path terminal/observer/Cargo.toml.`);
+  return fail(`${name}-${version}.crate is not in the Cargo registry cache; run cargo fetch --locked --manifest-path server/observer/Cargo.toml.`);
 }
 
 /** Reads the notice files at the top level of a published crate archive. */
@@ -204,7 +224,7 @@ function crateNotices(name, version) {
 
 /** Renders section 4: the normal and build dependency closure of the observer, with identical texts shown once. */
 function rustSection() {
-  const metadata = JSON.parse(run('cargo', ['metadata', '--locked', '--format-version', '1', '--filter-platform', RUST_TARGET, '--manifest-path', join(terminal, 'observer', 'Cargo.toml')]));
+  const metadata = JSON.parse(run('cargo', ['metadata', '--locked', '--format-version', '1', '--filter-platform', RUST_TARGET, '--manifest-path', join(root, "server", "observer", "Cargo.toml")]));
   const byId = new Map(metadata.packages.map((entry) => [entry.id, entry]));
   const nodes = new Map(metadata.resolve.nodes.map((node) => [node.id, node]));
   const included = new Set();
@@ -220,7 +240,7 @@ function rustSection() {
   const lines = [
     '## 4. Rust observer crates',
     '',
-    `Crates compiled for \`${RUST_TARGET}\` (normal and build dependencies, including procedural macros) from \`terminal/observer/Cargo.lock\`. License texts are taken from the published crate sources; identical texts are shown once.`,
+    `Crates compiled for \`${RUST_TARGET}\` (normal and build dependencies, including procedural macros) from \`server/observer/Cargo.lock\`. License texts are taken from the published crate sources; identical texts are shown once.`,
     '',
     '| Crate | Version | License expression |',
     '|---|---|---|',
@@ -254,15 +274,15 @@ async function generate(options) {
   const lines = [
     '# Third-party notices',
     '',
-    'Agent Hub itself is MIT-licensed (see `LICENSE`). The standalone Linux x86-64 executable (`agent-hub`) additionally embeds or ships the third-party components listed below. Each component remains under its own license; license texts are reproduced verbatim from the upstream packages or releases at the pinned versions.',
+    'Agent Hub itself is MIT-licensed (see `LICENSE`). The Linux x86-64 distribution embeds or ships the third-party components listed below. Each component remains under its own license; license texts are reproduced verbatim from the upstream packages or releases at the pinned versions.',
     '',
-    `This file is generated by \`node scripts/generate-notices.mjs\` from \`package-lock.json\`, the installed npm packages, \`terminal/observer/Cargo.lock\` (via \`cargo metadata --locked --filter-platform ${RUST_TARGET}\`) and the upstream Bun v${BUN_VERSION} \`LICENSE.md\`. Regenerate it whenever a lockfile or the pinned Bun version changes; \`--check\` verifies that it is current.`,
+    `This file is generated by \`node scripts/generate-notices.mjs\` from \`package-lock.json\`, the installed npm packages, \`server/observer/Cargo.lock\` (via \`cargo metadata --locked --filter-platform ${RUST_TARGET}\`) and the upstream Bun v${BUN_VERSION} \`LICENSE.md\`. Regenerate it whenever a lockfile or the pinned Bun version changes; \`--check\` verifies that it is current.`,
     '',
     'Contents: 1. Bun runtime, 2. OpenTUI, 3. other npm runtime packages, 4. Rust observer crates.',
     '',
     `## 1. Bun runtime ${BUN_VERSION}`,
     '',
-    `The standalone executable is produced by \`bun build --compile\` and embeds the Bun ${BUN_VERSION} runtime. Bun is MIT-licensed and statically links JavaScriptCore/WebKit (LGPL-2) and the libraries listed in its license file. Source: <https://github.com/oven-sh/bun/tree/bun-v${BUN_VERSION}>. Patched WebKit source: <https://github.com/oven-sh/webkit>. Upstream \`LICENSE.md\` at tag \`bun-v${BUN_VERSION}\`:`,
+    `The server and terminal executables are produced by \`bun build --compile\` and embeds the Bun ${BUN_VERSION} runtime. Bun is MIT-licensed and statically links JavaScriptCore/WebKit (LGPL-2) and the libraries listed in its license file. Source: <https://github.com/oven-sh/bun/tree/bun-v${BUN_VERSION}>. Patched WebKit source: <https://github.com/oven-sh/webkit>. Upstream \`LICENSE.md\` at tag \`bun-v${BUN_VERSION}\`:`,
     '',
     fenced(bun),
     '',

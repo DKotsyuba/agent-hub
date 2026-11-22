@@ -2604,13 +2604,15 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
           const member = object(value), binding = bindings.map(object).find(item => object(item.member).member_id === member.member_id);
           const background = index === poolMemberIndex ? C.selected : C.panel, seat = poolSeat(member);
           if (seat) {
-            const open = seat.runAgentId ? () => { poolMemberIndex = index; openSeatSession(seat.runAgentId!, memberSession(member)?.execution); } : () => { poolMemberIndex = index; alert = 'This seat has no Run agent yet.'; render(); };
+            const link = memberSession(member);
+            const agentId = link?.sessionId ?? seat.runAgentId;
+            const open = agentId ? () => { poolMemberIndex = index; openSeatSession(agentId, link?.execution); } : () => { poolMemberIndex = index; alert = 'This seat has no Run agent yet.'; render(); };
             lines.push({ text: '', bg: background, action: open });
             addWrapped(lines, `${index === poolMemberIndex ? '›' : ' '} ${shown(seat.seatId)} · ${shown(seat.profile)} · ${shown(member.state)}`, mainWidth, { bg: background, bold: true, action: open });
             addWrapped(lines, `  ${shown(member.task)}`, mainWidth, { bg: background, color: C.muted, action: open });
             addWrapped(lines, `  Admission: ${seat.admission} · ${seat.joined ? 'Joined chat' : 'Not joined'} · Execution: ${shown(member.runtime)}`, mainWidth, { bg: background, color: C.muted, action: open });
-            addWrapped(lines, seat.runAgentId ? `  Run agent: ${shown(seat.runAgentId)}` : `  Run agent: none yet · admission ${seat.admission}`, mainWidth, { bg: background, color: C.muted, action: open });
-            if (seat.runAgentId) addWrapped(lines, '  Open Run session →', mainWidth, { bg: background, color: C.accent, action: open });
+            addWrapped(lines, agentId ? `  Run agent: ${shown(agentId)}` : `  Run agent: none yet · admission ${seat.admission}`, mainWidth, { bg: background, color: C.muted, action: open });
+            if (agentId) addWrapped(lines, `  Open Run session · ${link?.match ?? 'unverified'} →`, mainWidth, { bg: background, color: C.accent, action: open });
             lines.push({ text: '', bg: background, action: open }, { text: '' });
             continue;
           }

@@ -1,17 +1,14 @@
 /** The real observer reads a synthetic Quota socket with explicit server-UID trust. */
-import { existsSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import net from 'node:net';
 import path from 'node:path';
 import test from 'node:test';
-import { fileURLToPath } from 'node:url';
-import { createNativeClient } from './native-observer-harness.ts';
+import { createNativeClient, observerPath } from './native-observer-harness.ts';
 
-const binary = process.env.AGENT_HUB_TEST_OBSERVER ?? fileURLToPath(new URL('../../server/observer/target/debug/agent-hub-observer', import.meta.url));
-const skip = (process.env.AGENT_HUB_TEST_OBSERVER || existsSync(binary)) ? false : 'relocated observer binary is not built';
+const binary = process.env.AGENT_HUB_TEST_OBSERVER ?? observerPath();
 
-test('observer validates Quota socket identity and envelope', { skip }, async () => {
+test('observer validates Quota socket identity and envelope', async () => {
   const directory = await mkdtemp(path.join(process.env.TMPDIR!, 'hub-quota-test-'));
   const socket = path.join(directory, 'quota.sock'), config = path.join(directory, 'connections.json');
   const snapshot = JSON.parse(await readFile(new URL('./fixtures/quota-snapshot-v2.json', import.meta.url), 'utf8'));

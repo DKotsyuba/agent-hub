@@ -1,47 +1,67 @@
 # Releasing Agent Hub
 
-A release is the Linux x86-64 (glibc) terminal Hub, published by `.github/workflows/release.yml` when a `vX.Y.Z` tag is pushed. The desktop (Tauri) application is parked and is never built or released, and the standalone build supports Linux x64 only, so there is no macOS asset.
+The Linux x86-64 release requires glibc 2.39 or newer. GitHub publishes
+`agent-hub-X.Y.Z-linux-x86_64.tar.gz` and `SHA256SUMS`. The archive contains
+`bin/hub-server`, `bin/agent-hub`, `libexec/agent-hub-observer`, the production
+browser build in `share/web/`, `share/systemd/agent-hub.service`, the connection
+template in `etc/agent-hub/`, `LICENSE` and `THIRD_PARTY_NOTICES.md`.
 
-## Assets
+The server finds the observer and web build beside the release's `bin/` directory.
+The TUI embeds the Bun and OpenTUI runtime and connects to the server over HTTP.
+The Tauri desktop application is parked.
 
-| Asset | Content |
-|---|---|
-| `agent-hub-X.Y.Z-linux-x86_64.tar.gz` | `agent-hub`, `LICENSE`, `THIRD_PARTY_NOTICES.md`, `etc/agent-hub/connections.json`; sorted entries, root ownership, commit-time mtimes, `gzip -n` |
-| `agent-hub-linux-x86_64` | the bare executable (identical to the archived one) |
-| `THIRD_PARTY_NOTICES.md` | license texts of the embedded Bun, OpenTUI, npm and Rust components |
-| `SHA256SUMS` | SHA-256 of the three files above; the attestation covers exactly these three listed files (`SHA256SUMS` is the inventory, not an attestation subject) |
+## Prepare and verify
 
-## Prepare
+1. Run `node scripts/release.mjs prepare X.Y.Z` on the release branch. Add a
+   dated `CHANGELOG.md` section and its GitHub release link.
+2. Prepare the pinned Node, Bun and Rust toolchains, then use
+   `npm ci --ignore-scripts` at the root and
+   `cargo fetch --locked --manifest-path server/observer/Cargo.toml`.
+3. Regenerate notices with `node scripts/generate-notices.mjs` when locked
+   dependencies, web asset inputs or the Bun pin change. The generator reads
+   the installed packages, cached Rust crates and pinned Bun license. Supply
+   `--bun-license FILE` for offline generation or checking.
+4. Run `node scripts/release.mjs check X.Y.Z` and the Linux CI gate before merging.
 
-1. Start from an up-to-date `main` on a release branch: `git switch -c release/vX.Y.Z origin/main`.
-2. `node scripts/release.mjs prepare X.Y.Z` bumps every version field (root and terminal `package.json`/lockfiles, observer and Tauri `Cargo.toml`/`Cargo.lock`, `tauri.conf.json`) with minimal in-place edits.
-3. Add `## [X.Y.Z] - YYYY-MM-DD` and its `[X.Y.Z]: https://github.com/DKotsyuba/agent-hub/releases/tag/vX.Y.Z` link to `CHANGELOG.md`; the section becomes the release notes.
-4. If `package-lock.json`, `terminal/observer/Cargo.lock` or the Bun pin changed, regenerate the notices (below).
-5. `node scripts/release.mjs check X.Y.Z` must pass; open a pull request and merge it into `main` after Linux CI passes.
-
-## Third-party notices
-
-`node scripts/generate-notices.mjs` rewrites `THIRD_PARTY_NOTICES.md` and `--check` verifies it is current (CI and the release gate run the check). It needs `npm ci --ignore-scripts --workspace agent-hub-terminal` at the root, `cargo fetch --locked --manifest-path terminal/observer/Cargo.toml` and network access for the pinned Bun `LICENSE.md` (or `--bun-license FILE`). The output depends only on those inputs: no timestamps or local paths. A new, unlisted notice file in an OpenTUI package, or a dependency without a license file, fails generation so that it is reviewed. `BUN_VERSION` in the script must equal the Bun pin in the workflows and `terminal/package.json`.
-
-## Publish
-
-1. Tag the merged `main` commit and push the tag (the owner signs it): `git tag -s vX.Y.Z -m "Agent Hub X.Y.Z" && git push origin vX.Y.Z`.
-2. The workflow runs three jobs. `check` (source gate: tag/version/changelog/main-ancestry consistency, notices up to date, typecheck, Rust fmt/clippy/tests, standalone build, Bun and Node suites) and `build` (no credentials) run in parallel. `publish` needs both, uses the `release` environment (configure required reviewers on it in the repository settings), attests the three files listed in `SHA256SUMS`, creates a **draft** release with the assets, downloads them again, re-checks the hashes and attestations, and only then publishes it.
-3. After publication, verify a download: `sha256sum --check --ignore-missing SHA256SUMS` and `gh attestation verify <asset> --repo DKotsyuba/agent-hub` for each of the three assets (for example `agent-hub-linux-x86_64`).
-
-## No local paths in binaries
-
-The build job sets `RUSTFLAGS` with `--remap-path-prefix` for the checkout (`/build/agent-hub`) and Cargo home (`/cargo`), and `release.mjs verify` fails when the executable contains `/home/`, `/Users/`, the checkout, the runner temporary directory or Cargo home. Reproduce locally:
+Set `TMPDIR`, `TMP`, `TEMP` and `npm_config_cache` to the designated task
+directories. The TUI needs an owned executable temporary directory outside
+`/tmp` with group and other write disabled.
 
 ```sh
-repository="$(git rev-parse --show-toplevel)"
-(cd terminal && RUSTFLAGS="--remap-path-prefix=$repository=/build/agent-hub --remap-path-prefix=${CARGO_HOME:-$HOME/.cargo}=/cargo" npm run build:binary)
-node scripts/release.mjs package X.Y.Z terminal/dist/agent-hub "$TMPDIR/payload" --epoch "$(git log -1 --format=%ct)"
-node scripts/release.mjs verify X.Y.Z "$TMPDIR/payload"
+node scripts/generate-notices.mjs --check
+npm run build:release -- "$TMPDIR/payload"
+mkdir "$TMPDIR/extracted"
+tar -xzf "$TMPDIR/payload/agent-hub-X.Y.Z-linux-x86_64.tar.gz" -C "$TMPDIR/extracted"
+python3 scripts/smoke-release.py "$TMPDIR/extracted/agent-hub-X.Y.Z-linux-x86_64"
 ```
 
-The Bun runtime build is not claimed to be bit-for-bit reproducible; only the archive packaging is deterministic for a given executable.
+The default output directory is `.tmp/release`. Pass an empty output directory
+for each build. `build:release` builds with locked dependencies, remaps the Rust
+checkout and Cargo paths, and verifies the archive layout, permissions, checksum,
+TUI version and absence of local build paths. Packaging uses sorted entries,
+fixed modes and numeric owners, commit-time mtimes (or `SOURCE_DATE_EPOCH`)
+and `gzip -n`. This makes packaging deterministic for identical build inputs.
 
-## Local helper commands
+The extracted smoke exercises a synthetic Run producer through the release
+observer and Unix listener, including health, a populated list, an SPA deep
+link, SSE and the real TUI in a PTY. The CI browser smoke uses the installed
+Chrome and ChromeDriver and the locked WebdriverIO dependency. These are fixture
+checks. Use the Dobi acceptance steps in the design for live qualification.
 
-`node scripts/release.mjs notes X.Y.Z` prints the release notes; `package` and `verify` take the arguments shown in the header of the script.
+## Publish and activate
+
+The owner signs and pushes the `vX.Y.Z` tag from `main`. The workflow checks tag
+ancestry and version fields and runs the source gate. An independent job builds
+and smoke-tests the exact payload. The reviewed `release` environment gates
+publication. The publish job attests the archive, uploads a draft, downloads
+both files, verifies the archive checksum and attestation, then publishes it.
+
+```sh
+sha256sum --check SHA256SUMS
+gh attestation verify agent-hub-X.Y.Z-linux-x86_64.tar.gz --repo DKotsyuba/agent-hub
+```
+
+Keep reviewed source configuration in `/etc/agent-hub/` outside the release.
+The supplied unit expects `/opt/agent-hub/current` to select a whole extracted
+release. Upgrade or roll back by selecting the complete release and restarting
+the unit under the operator's reviewed activation procedure.

@@ -1,13 +1,19 @@
 /** Framework-free labels shared by Hub Worktree views. */
-/** Strips the refs/heads/ prefix for display only. */
-export function branchLabel(row: { branch: string | null; detached: boolean | null; head: string | null }): string {
+/** Strips the Git ref prefix and optionally uses the browser’s localized detached label. */
+export function branchLabel(row: { branch: string | null; detached: boolean | null; head: string | null }, localized = false): string {
+  if (row.detached && localized) return ['Detached', row.head?.slice(0, 12)].filter(Boolean).join(' ');
   if (row.detached) return `detached ${row.head?.slice(0, 12) ?? 'Unknown'}`;
   return row.branch ? row.branch.replace(/^refs\/heads\//, '') : 'Unknown';
 }
 
-/** Formats a byte count with binary multiples (1 GB = 1024³ bytes, like `du -h`): 0 B, 640 KB, 1.2 GB, 12 GB. */
-export function formatBytes(bytes: number): string {
+/** Formats binary multiples using terminal defaults or a localized formatter with IEC labels. */
+export function formatBytes(bytes: number, format?: (value: number) => string): string {
   if (!Number.isFinite(bytes) || bytes < 0) return 'Unknown';
+  if (format) {
+    const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB'];
+    const unit = bytes > 0 ? Math.max(0, Math.min(units.length - 1, Math.floor(Math.log2(bytes) / 10))) : 0;
+    return format(bytes / 1024 ** unit) + ' ' + units[unit];
+  }
   if (bytes < 1024) return `${Math.round(bytes)} B`;
   const units = ['KB', 'MB', 'GB', 'TB'];
   let unit = 0, value = bytes / 1024;
