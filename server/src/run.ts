@@ -110,7 +110,12 @@ async function discover(ctx: ReadContext) {
   const capabilities = optionalObject(data.capabilities), methods = capabilities.read_methods;
   const exact = capabilities.schema_version === 1 && capabilities.product === 'agent-run' && Array.isArray(methods)
     && methods.some(method => optionalObject(method).name === 'transcript_exact');
-  return { identity, task: initialTaskCapability(data), exact, chunks: (identity.outcome === 'ok' || identity.outcome === 'partial') && supportsChunks(data) };
+  const tools = Array.isArray(data.tools) ? data.tools : optionalObject(data.tools).tools;
+  const usable = identity.outcome === 'ok' || identity.outcome === 'partial';
+  const chunks: NonNullable<Capabilities['verifiedResult']> = usable && supportsChunks(data) ? 'supported'
+    : identity.outcome === 'ok' && Array.isArray(tools) && tools.every(tool =>
+      typeof tool === 'string' || typeof optionalObject(tool).name === 'string') ? 'unsupported' : 'unknown';
+  return { identity, task: initialTaskCapability(data), exact, chunks };
 }
 
 /** Emits only top-level, nonnegative counts from a producer metric map. */
@@ -128,7 +133,8 @@ export async function sessionDetail(ctx: ReadContext, query: Input<'session'>) {
     initialTaskStrict: discovery.task?.modes.includes('strict') && pinned(result) && row.sequence === 1 ? 'supported' : 'unsupported',
     initialTaskCurrent: discovery.task?.modes.includes('current') ? 'supported' : 'unsupported',
     exactExport: discovery.exact && pinned(result) ? 'supported' : 'unsupported',
-    verifiedResult: discovery.chunks && result.execution && row.answerAvailable && result.agent.answerSha ? 'supported' : 'unsupported',
+    verifiedResult: discovery.chunks === 'supported' && (!result.execution || !row.answerAvailable || !result.agent.answerSha)
+      ? 'unsupported' : discovery.chunks,
   };
   const lineage = e ? {
     storeFenced: e.storeFenced, match: { sessionId: row.id, execution: result.execution, match: e.match },
@@ -245,7 +251,8 @@ export async function sessionResult(ctx: ReadContext, query: Input<'sessionResul
   const [result, discovery] = await Promise.all([selected(ctx, query), discover(ctx)]);
   const { agent, execution } = result;
   if (!execution || !agent.answerSha || agent.answerAvailable !== true) throw new HubError('not_found');
-  if (!discovery.chunks) throw new HubError('unsupported_capability');
+  if (discovery.chunks === 'unknown') throw new HubError('source_unavailable');
+  if (discovery.chunks === 'unsupported') throw new HubError('unsupported_capability');
   const envelope = await ctx.read('run.answer', { agent_id: query.id });
   const content = await answerText(requireData(envelope), query.id, agent.sequence, agent.answerSha,
     true, async params => requireData(await ctx.read('run.answer_chunk', params)), () => !ctx.signal.aborted, true);

@@ -567,27 +567,36 @@ test('overview receipts before a period are unknown and incomplete closed period
   } finally { await http.close(); }
 });
 
-test('answer metadata alone does not advertise verifiedResult or trigger an answer read', async () => {
+test('verifiedResult distinguishes unavailable discovery from explicit absence', async () => {
   const native = await producer();
-  let chunks = false;
+  let discovery: string = 'unavailable';
   let answerReads = 0;
   const http = handler({ close: native.close, async read(resource, params, signal) {
     const value = await native.read(resource, params, signal);
     if (resource === 'run.answer' || resource === 'run.answer_chunk') answerReads++;
-    return resource === 'run.identity' && !chunks
-      ? { ...value, data: { ...object(value.data), tools: [] } }
-      : value;
+    if (resource !== 'run.identity') return value;
+    if (discovery === 'unavailable') return envelope(resource, null, 'unavailable');
+    if (discovery === 'absent') return { ...value, data: { ...object(value.data), tools: [] } };
+    return value;
   } });
   try {
     const path = '/sessions/demo-finished';
-    const detail = await get(http, 'session', path);
-    assert.equal(detail.data.session.answerAvailable, true);
-    assert.equal(detail.capabilities?.verifiedResult, 'unsupported');
-    const result = await http.fetch(request(mount + path + '/result'));
-    assert.equal(result.status, 422);
-    assert.equal(apiError(await result.json()).error.code, 'unsupported_capability');
+    for (const scenario of [
+      { discovery: 'unavailable', capability: 'unknown', status: 503, code: 'source_unavailable', retryable: true },
+      { discovery: 'absent', capability: 'unsupported', status: 422, code: 'unsupported_capability', retryable: false },
+    ]) {
+      discovery = scenario.discovery;
+      const detail = await get(http, 'session', path);
+      assert.equal(detail.data.session.answerAvailable, true);
+      assert.equal(detail.capabilities?.verifiedResult, scenario.capability);
+      const result = await http.fetch(request(mount + path + '/result'));
+      assert.equal(result.status, scenario.status);
+      const { error } = apiError(await result.json());
+      assert.equal(error.code, scenario.code);
+      assert.equal(error.retryable, scenario.retryable);
+    }
     assert.equal(answerReads, 0);
-    chunks = true;
+    discovery = 'supported';
     assert.equal((await get(http, 'session', path)).capabilities?.verifiedResult, 'supported');
   } finally { await http.close(); }
 });
