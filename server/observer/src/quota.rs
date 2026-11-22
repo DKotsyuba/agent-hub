@@ -204,7 +204,7 @@ mod tests {
     /// The checked-in agent-quota contract fixture decodes without loss.
     #[test]
     fn decodes_reference_fixture() {
-        let fixture = include_str!("../../test/fixtures/quota-snapshot-v2.json");
+        let fixture = include_str!("../../../terminal/test/fixtures/quota-snapshot-v2.json");
         let value: Value = serde_json::from_str(fixture).unwrap();
         let decoded = decode(&line(value.clone()), "snapshot").unwrap();
         assert_eq!(decoded, value["result"]);
