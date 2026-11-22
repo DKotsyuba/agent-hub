@@ -1,9 +1,10 @@
-/** Browser/native entry point with explicit demo selection and a closed read-only Tauri boundary. */
+/** Browser entry point for the same-origin Agent Hub web application. */
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import App from './App';
+import App from './web/App';
 import { LocaleProvider } from './i18n';
 import './app.css';
+import './web/web.css';
 
 /** Required mount point supplied by the repository's index.html. */
 const root = document.getElementById('root');
