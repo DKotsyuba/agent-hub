@@ -4,6 +4,13 @@ All notable changes to Agent Hub are documented here. The format follows [Keep a
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-11-22
+
+### Changed
+
+- Pools tab now matches Sessions: a list on the left with a "Live" section for active pools (running spinner, seat count, latest event, warnings when a member finished or a notice was undeliverable) and a collapsed "Finished" section (`o`) for completed and closed pools; the right pane shows the selected pool's header and its chat history (authors, kinds, multipart messages merged, long bodies expandable, live follow). Private direct-message delivery rows stay hidden from group observers. Sessions rows of chat pool members show their pool name.
+- Quota tab shows readable account titles (Claude subscription, Codex (ChatGPT), Z.AI GLM, OpenCode Go, …) with the account ID as a muted subtitle; collector source names moved out of the card header.
+
 ## [0.1.2] - 2026-11-19
 
 ### Added
@@ -43,6 +50,7 @@ First public release: the terminal Hub for Linux x86-64 (standalone executable).
 
 - Archived Tasks and IDE sources are denied by the observer; the terminal has no Tasks, IDE or Run info tabs.
 
+[0.1.3]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.1.3
 [0.1.2]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.1.2
 [0.1.1]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.1.1
 [0.1.0]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.1.0
