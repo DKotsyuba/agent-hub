@@ -4,7 +4,7 @@ import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import net from 'node:net';
 import path from 'node:path';
 import test from 'node:test';
-import { createNativeClient } from '../src/client.ts';
+import { createNativeClient } from './native-observer-harness.ts';
 import { createDemoClient } from '../src/demo.ts';
 import { poolInventory, poolSection, poolWindow } from '../src/pool.ts';
 import type { Resource } from '../src/api.ts';

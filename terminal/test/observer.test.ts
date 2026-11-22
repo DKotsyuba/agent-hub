@@ -1,4 +1,5 @@
 /** Exercises the real finite observer against isolated synthetic socket/CLI sources. */
+import { existsSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
 import { once } from 'node:events';
@@ -7,7 +8,7 @@ import net from 'node:net';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { createNativeClient, observerPath } from '../src/client.ts';
+import { createNativeClient, observerPath } from './native-observer-harness.ts';
 import type { Resource } from '../src/api.ts';
 
 /** Waits for a fixture file without inspecting unrelated processes or sources. */
@@ -20,8 +21,10 @@ async function waitForFile(file: string): Promise<string> {
 
 type Json = Record<string, any>;
 
-test('closed observer reads, validates and cancels only its own sources', async () => {
-  const binary = process.env.AGENT_HUB_TEST_OBSERVER ?? fileURLToPath(new URL('../observer/target/debug/agent-hub-observer', import.meta.url));
+const binary = process.env.AGENT_HUB_TEST_OBSERVER ?? fileURLToPath(new URL('../../server/observer/target/debug/agent-hub-observer', import.meta.url));
+const skip = (process.env.AGENT_HUB_TEST_OBSERVER || existsSync(binary)) ? false : 'relocated observer binary is not built';
+
+test('closed observer reads, validates and cancels only its own sources', { skip }, async () => {
   const temp = process.env.TMPDIR;
   assert.ok(binary && path.isAbsolute(binary));
   assert.ok(temp && path.isAbsolute(temp));
@@ -233,7 +236,7 @@ test('closed observer reads, validates and cancels only its own sources', async 
     assert.throws(() => process.kill(pid, 0), { code: 'ESRCH' }, 'cancelled helper must be reaped');
 
     await rm(helperPid);
-    const clientUrl = new URL('../src/client.ts', import.meta.url).href;
+    const clientUrl = new URL('./native-observer-harness.ts', import.meta.url).href;
     const program = `import { createNativeClient } from ${JSON.stringify(clientUrl)}; const client = createNativeClient(${JSON.stringify(binary)}); process.on('SIGINT', () => { void client.close(); }); await client.read('bridge.overview', { hold: true });`;
     const frontend = spawn(process.execPath, ['--input-type=module', '-e', program], { stdio: 'ignore', detached: true, env: process.env });
     let secondPid: number | undefined;
@@ -256,8 +259,7 @@ test('closed observer reads, validates and cancels only its own sources', async 
   }
 });
 
-test('a FIFO config cannot keep the finite observer alive after its deadline', { timeout: 22_000 }, async () => {
-  const binary = process.env.AGENT_HUB_TEST_OBSERVER ?? fileURLToPath(new URL('../observer/target/debug/agent-hub-observer', import.meta.url));
+test('a FIFO config cannot keep the finite observer alive after its deadline', { timeout: 22_000, skip }, async () => {
   const temp = process.env.TMPDIR;
   assert.ok(temp && path.isAbsolute(temp));
   const directory = await mkdtemp(path.join(temp, 'hub-config-test-'));

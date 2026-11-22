@@ -18,7 +18,7 @@ test('standalone CLI uses and cleans a private runtime directory', { skip: exist
   mkdirSync(home, { mode: 0o700 });
   try {
     const env = { HOME: home, PATH: '', TMPDIR: runtime, TMP: runtime, TEMP: runtime, TERM: 'xterm-256color' };
-    for (const [args, status] of [[['--help'], 0], [['--invalid'], 2], [['--pool'], 2], [['--pool', 'invalid/id'], 2], [['--broker-uid', '1'], 2], [['--socket', '/run.sock', '--broker-uid', '-1'], 2], [['--demo'], 1], [['--demo', '--pool', 'demo-pool'], 1], [['--demo', '--pool=demo-pool', '.'], 1], [['--socket', '/run.sock', '--broker-uid', '1'], 1], [['--home', '.'], 1]] as const) {
+    for (const [args, status] of [[['--help'], 0], [['--invalid'], 2], [['--pool'], 2], [['--pool', 'invalid/id'], 2], [['--broker-uid', '1'], 2], [['--socket', '/run.sock', '--broker-uid', '-1'], 2], [['--demo'], 1], [['--demo', '--pool', 'demo-pool'], 1], [['--demo', '--pool=demo-pool', '.'], 1], [['--server', 'https://hub.example.test'], 1], [['--home', '.'], 2]] as const) {
       const result = spawnSync(binary, args, { cwd: directory, env, encoding: 'utf8', timeout: 10_000 });
       assert.equal(result.status, status, result.stderr);
       if (status === 0) assert.match(result.stdout, /Usage: agent-hub/);
