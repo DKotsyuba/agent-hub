@@ -6,7 +6,7 @@ import { Progress } from '../components/ui/progress';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import { Panel } from '../components/hub-primitives';
 import { client, usePagedRead, useRead } from './data';
-import { modelTitle, quotaAccountTitle, quotaAdviceKind, worktreeMeasurements } from './model';
+import { modelTitle, quotaAccountTitle, quotaAdviceKind, worktreeMeasurements, sessionTitle } from './model';
 import { accountTitle, branchLabel, formatBytes, projectQuotaSnapshot, projectQuotaStatus, quotaModelRemaining, quotaWindowForecast, windowSeconds, type QuotaAccount, type QuotaSnapshot } from '../../packages/view-model/src/index';
 import { CoverageLine, EmptyRows, Expand, Facts, href, Link, ReadState, relativeTime, sessionHref, SourceEvidence, Sources, StatusBadge, Text, useEvidence, useWebText } from './ui';
 
@@ -48,7 +48,7 @@ export function Overview({ query, filter, now }: { query: URLSearchParams; filte
         <Panel className="web-current" title={label('Current sessions')} extra={<Link className="web-link" href="/sessions">{label('All sessions')}</Link>}>
           <div className="web-panel-body">
             {data.run?.current.map(item => <Link className="web-inline-row" key={item.id + item.execution} href={sessionHref(item.id, item.execution)}>
-              <strong>{item.name ?? item.id}</strong><StatusBadge state={item.status} /></Link>)}
+              <strong title={item.id}>{sessionTitle(item) ?? item.id}</strong><StatusBadge state={item.status} /></Link>)}
             {data.run && <EmptyRows count={data.run.current.length} observations={observations.filter(item => item.source === 'run')} />}
             {!data.run && <p className="web-empty">{label('Session data unavailable')}</p>}
           </div>

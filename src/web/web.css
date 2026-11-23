@@ -2,10 +2,9 @@
 html, body, #root {
   position: fixed;
   inset: 0;
+  /* inset: 0 on a fixed box spans the full screen in standalone mode; 100dvh can stop short of the home-indicator area. */
   width: 100%;
   height: 100%;
-  height: -webkit-fill-available;
-  height: 100dvh;
   min-width: 0;
   overflow: hidden;
   overscroll-behavior: none;
@@ -39,7 +38,8 @@ html {
   height: 100%;
   overflow: hidden;
   /* Reserve device edges once so headers, tabs, lists and the footer share the same bounds. */
-  padding: var(--web-safe-top) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
+  /* Backgrounds run to the bottom edge; the home-indicator inset pads content inside the rail and main pane instead. */
+  padding: var(--web-safe-top) env(safe-area-inset-right, 0px) 0 env(safe-area-inset-left, 0px);
   background: var(--canvas);
 }
 /* A Safari tab already has browser chrome above its content. */
@@ -60,7 +60,7 @@ html {
 }
 .web-page:not(:has(> .web-split)):focus-visible,
 .web-list-pane:focus-visible, .web-detail-pane:focus-visible { outline-offset: -3px; }
-.web-rail { display: flex; flex-direction: column; gap: 30px; padding: 24px 16px; border-right: 1px solid var(--border); background: var(--rail); }
+.web-rail { display: flex; flex-direction: column; gap: 30px; padding: 24px 16px calc(24px + env(safe-area-inset-bottom, 0px)); border-right: 1px solid var(--border); background: var(--rail); }
 .web-rail-hint { display: none; }
 .web-title-line { display: flex; align-items: center; gap: 8px; }
 .web-brand { display: flex; align-items: center; gap: 12px; padding: 5px 6px; font-size: 1.17rem; }
@@ -374,3 +374,8 @@ html {
   .web-heading:has(.web-update) .web-header-controls { width: 100%; justify-content: flex-end; }
   .web-facts { grid-template-columns: repeat(auto-fit, minmax(min(100%, 125px), 1fr)); }
 }
+
+/* Keep the last content row above the home indicator while the pane itself reaches the screen edge. */
+.web-main { padding-bottom: calc(var(--web-main-bottom, 20px) + env(safe-area-inset-bottom, 0px)); }
+.web-shell[data-immersive] .web-main { padding-bottom: 0; }
+.web-shell[data-immersive] :is(.web-list-pane, .web-detail-pane) { padding-bottom: env(safe-area-inset-bottom, 0px); }
