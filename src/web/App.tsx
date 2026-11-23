@@ -123,6 +123,7 @@ export default function App() {
   const unreachable = health.error === 'network_unavailable' && live.connection !== 'connected';
   const connection = unreachable ? 'Server unreachable' : live.connection;
   const heading = useRef<HTMLHeadingElement>(null);
+  const page = useRef<HTMLDivElement>(null);
   const list = useRef<HTMLElement>(null);
   const detail = useRef<HTMLElement>(null);
   const restore = useRef<Snapshot | null>(null);
@@ -139,7 +140,7 @@ export default function App() {
   /** Saves the outgoing viewport using the current rendered document. */
   function capture() {
     const focus = document.activeElement instanceof HTMLElement ? document.activeElement.closest<HTMLElement>('[data-focus-key]')?.dataset.focusKey : undefined;
-    saved.current.set(current.current.key, { ...current.current, focus, scroll: window.scrollY, list: list.current?.scrollTop, detail: detailViewport()?.scrollTop });
+    saved.current.set(current.current.key, { ...current.current, focus, scroll: page.current?.scrollTop, list: list.current?.scrollTop, detail: detailViewport()?.scrollTop });
   }
 
   /** Navigates once, preserving modifier-click behavior in Link. */
@@ -225,7 +226,7 @@ export default function App() {
       const target = snapshot?.focus && Array.from(document.querySelectorAll<HTMLElement>('[data-focus-key]')).find(item => item.dataset.focusKey === snapshot.focus && item.getClientRects().length);
       if (snapshot?.focus && !target) return false;
       (target || heading.current)?.focus({ preventScroll: true });
-      window.scrollTo(0, snapshot?.scroll ?? 0);
+      if (page.current) page.current.scrollTop = snapshot?.scroll ?? 0;
       if (list.current) list.current.scrollTop = snapshot?.list ?? 0;
       const area = detailViewport();
       if (area) area.scrollTop = snapshot?.detail ?? 0;
@@ -360,12 +361,12 @@ export default function App() {
         {!immersive && header}
         {unreachable && <p className="web-warning web-offline" role="status">{label('Offline shell')}</p>}
         {appUpdate.error && <p className="web-warning" role="status">{label('Update failed')}</p>}
-        <div className="web-page">
+        <div ref={page} className="web-page" tabIndex={inventory ? undefined : 0}>
         {inventory ? <div className={'web-split' + (id ? ' web-has-detail' : '') + (immersive && !listVisible ? ' web-list-collapsed' : '')}>
-          <section id="web-inventory" ref={list} className="web-list-pane" aria-label={label(title)}>
+          <section id="web-inventory" ref={list} tabIndex={0} className="web-list-pane" aria-label={label(title)}>
             <InventoryList key={inventory} kind={inventory as Inventory} query={query} id={id} update={update} />
           </section>
-          {id && <section ref={detail} className="web-detail-pane" aria-label={label('Details')} key={kind + ':' + id + ':' + query.get('execution')}>
+          {id && <section ref={detail} tabIndex={immersive ? undefined : 0} className="web-detail-pane" aria-label={label('Details')} key={kind + ':' + id + ':' + query.get('execution')}>
             {inventory === 'sessions' ? <SessionDetails id={id} execution={query.get('execution')} tab={tab} tabs={tabs} heading={compactHeader} />
               : inventory === 'pools' ? <PoolDetails id={id} tab={tab} tabs={tabs} heading={compactHeader} proposal={query.get('proposal')} select={proposal => update({ proposal }, true)} />
               : <WorktreeDetails id={id} />}

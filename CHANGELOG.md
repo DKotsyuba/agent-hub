@@ -4,6 +4,12 @@ All notable changes to Agent Hub are documented here. The format follows [Keep a
 
 ## [Unreleased]
 
+## [0.2.5] - 2026-11-23
+
+### Changed
+
+- Native-feeling PWA on iOS/iPadOS: the installed app reserves exactly the system status-bar inset (plus side and home-indicator insets), the shell is fixed full-screen with no page-level scrolling, bounce or pull-to-refresh (only inner panes scroll, with contained overscroll), no pinch or double-tap zoom, ≥16 px inputs, no tap highlight or callouts on chrome while message text stays selectable.
+
 ## [0.2.4] - 2026-11-23
 
 ### Fixed
@@ -91,6 +97,7 @@ First public release: the terminal Hub for Linux x86-64 (standalone executable).
 
 - Archived Tasks and IDE sources are denied by the observer; the terminal has no Tasks, IDE or Run info tabs.
 
+[0.2.5]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.2.5
 [0.2.4]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.2.4
 [0.2.3]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.2.3
 [0.2.2]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.2.2
