@@ -23,6 +23,9 @@ pub enum Resource {
     /// One source-reported agent snapshot, addressed by its exact identity.
     #[serde(rename = "run.status")]
     RunStatus,
+    /// A single current agent view from the Run integration read.
+    #[serde(rename = "run.agent_integration")]
+    RunAgentIntegration,
     /// Producer-cursor transcript page.
     #[serde(rename = "run.transcript")]
     RunTranscript,
@@ -122,6 +125,7 @@ impl Resource {
             Self::RunIdentity
             | Self::RunAgents
             | Self::RunStatus
+            | Self::RunAgentIntegration
             | Self::RunTranscript
             | Self::RunTranscriptExact
             | Self::RunInitialTask
@@ -156,6 +160,7 @@ impl Resource {
             Self::RunIdentity => "ping",
             Self::RunAgents => "list_agents",
             Self::RunStatus => "status",
+            Self::RunAgentIntegration => "agent_integration",
             Self::RunTranscript => "transcript",
             Self::RunTranscriptExact => "transcript_exact",
             Self::RunInitialTask => "initial_task",
@@ -500,6 +505,15 @@ impl ReadError {
             outcome: Outcome::Unavailable,
         }
     }
+    /// Constructs a sanitized error for a producer-confirmed absent object.
+    pub(crate) fn missing(code: &'static str) -> Self {
+        Self {
+            code,
+            message: "Source reported that the requested object is absent.",
+            outcome: Outcome::Missing,
+        }
+    }
+
     /// Constructs a missing-capability error without falling back to another route.
     pub(crate) fn incompatible(code: &'static str) -> Self {
         Self {

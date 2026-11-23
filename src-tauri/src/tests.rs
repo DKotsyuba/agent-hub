@@ -172,7 +172,10 @@ fn renderer_params_and_authority_are_bounded() {
 #[test]
 fn run_frames_validate_identity_and_budgets() {
     let valid = b"{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"revision\":17,\"items\":[]}}\n";
-    assert_eq!(run::decode(valid, 1).expect("valid frame")["revision"], 17);
+    assert_eq!(
+        run::decode(valid, 1, "list_agents").expect("valid frame")["revision"],
+        17
+    );
     for invalid in [
         b"not json\n".as_slice(),
         b"{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{}}\n",
@@ -180,15 +183,15 @@ fn run_frames_validate_identity_and_budgets() {
         b"{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{}}",
         b"{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":null}\n",
     ] {
-        assert!(run::decode(invalid, 1).is_err());
+        assert!(run::decode(invalid, 1, "list_agents").is_err());
     }
     assert_eq!(
-        run::decode(&vec![b'x'; FRAME_LIMIT + 1], 1)
+        run::decode(&vec![b'x'; FRAME_LIMIT + 1], 1, "list_agents")
             .expect_err("budget")
             .code,
         "frame_budget"
     );
-    let unavailable = run::decode(b"{\"jsonrpc\":\"2.0\",\"id\":1,\"error\":{\"code\":-32601,\"message\":\"token=TOPSECRET\"}}\n", 1).expect_err("unsupported read");
+    let unavailable = run::decode(b"{\"jsonrpc\":\"2.0\",\"id\":1,\"error\":{\"code\":-32601,\"message\":\"token=TOPSECRET\"}}\n", 1, "list_agents").expect_err("unsupported read");
     assert_eq!(unavailable.outcome, Outcome::Incompatible);
     assert!(
         !serde_json::to_string(&unavailable)

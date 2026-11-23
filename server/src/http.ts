@@ -4,7 +4,7 @@ import { extname, join, sep } from 'node:path';
 import type { RunStatusRequest } from '../../terminal/src/run-status.ts';
 import { API_RESPONSES, API_VERSION, parseApiRequest } from '@agent-hub/domain';
 import { Cursors } from './cursor.ts';
-import { HubError, errorResponse } from './errors.ts';
+import { HubError, errorResponse, logSourceFailure } from './errors.ts';
 import { Events } from './events.ts';
 import type { ObservationClient } from './observer.ts';
 import { incidents, overview, quota, worktree, worktrees, type WorktreeCache } from './observations.ts';
@@ -80,6 +80,7 @@ export function createHttp(native: ObservationClient, options: HttpOptions) {
 
   /** Checks authority and input before any use of the observer. */
   async function fetch(request: Request, admitStream?: () => void): Promise<Response> {
+    const requestId = crypto.randomUUID();
     let admitted = false;
     try {
       const host = request.headers.get('host');
@@ -106,7 +107,8 @@ export function createHttp(native: ObservationClient, options: HttpOptions) {
         admitted = true;
       }
       const position = cursors.decode(query);
-      const ctx = new ReadContext(client, cursors, AbortSignal.any([request.signal, shutdown.signal, AbortSignal.timeout(30_000)]), bindings);
+      const ctx = new ReadContext(client, cursors, AbortSignal.any([request.signal, shutdown.signal, AbortSignal.timeout(30_000)]), bindings,
+        (resource, failure) => logSourceFailure(query.route, requestId, resource, failure));
       let result: unknown;
       switch (query.route) {
         case 'health': result = { ready: true, apiVersion: API_VERSION, release: options.release, mode: 'live' }; break;
@@ -132,7 +134,7 @@ export function createHttp(native: ObservationClient, options: HttpOptions) {
       const body = JSON.stringify(API_RESPONSES[query.route](result));
       if (Buffer.byteLength(body) > RESPONSE_LIMIT) throw new HubError('invalid_projection');
       return new Response(body, { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' } });
-    } catch (error) { return errorResponse(error); }
+    } catch (error) { return errorResponse(error, requestId); }
     finally { if (admitted) finite--; }
   }
 

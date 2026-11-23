@@ -82,13 +82,18 @@ export class ReadContext {
     readonly cursors: Cursors,
     readonly signal: AbortSignal,
     readonly bindings: Map<string, RunStatusRequest>,
+    private readonly reportFailure: (resource: Resource, failure: ReadResponse | 'read_rejected') => void,
   ) {}
 
-  /** Sends closed resource and server-constructed parameters only. */
+  /** Sends closed parameters and reports each failed source read once. */
   async read(resource: Resource, params: Record<string, unknown> = {}, caller?: AbortSignal): Promise<ReadResponse> {
     if (--this.remainingReads < 0 || this.remainingBytes < 0) throw new HubError('invalid_projection');
     const signal = caller ? AbortSignal.any([this.signal, caller]) : this.signal;
-    const response = await this.client.read(resource, params, signal);
+    const response = await this.client.read(resource, params, signal).catch((error: unknown) => {
+      this.reportFailure(resource, 'read_rejected');
+      throw error;
+    });
+    if (response.outcome !== 'ok' && response.outcome !== 'partial') this.reportFailure(resource, response);
     this.remainingBytes -= Buffer.byteLength(JSON.stringify(response.data));
     if (this.remainingBytes < 0) throw new HubError('invalid_projection');
     return response;

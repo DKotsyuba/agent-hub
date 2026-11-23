@@ -1,7 +1,7 @@
 /** Runtime-checked producer observations and proof/pagination helpers; never source mutations. */
 
 /** Closed Rust read resources; no caller-supplied method, executable, path reader or HTTP endpoint. */
-export type Resource = 'run.identity' | 'run.agents' | 'run.status' | 'run.transcript' | 'run.transcript_exact' | 'run.answer' | 'run.answer_chunk' | 'run.models' | 'run.limits' | 'run.initial_task' | 'run.pools' | 'run.pool' | 'quota.status' | 'quota.snapshot' | 'hub.repositories' | 'worktree.identity' | 'worktree.list' | 'worktree.inspect' | 'tasks.identity' | 'tasks.peek' | 'pool.identity' | 'pool.list' | 'pool.get' | 'pool.run_proof' | 'pool.inventory_snapshot' | 'pool.completion_get' | 'pool.enrollment_get' | 'bridge.identity' | 'bridge.overview' | 'bridge.deliveries' | 'bridge.incidents' | 'ide.identity' | 'ide.observe';
+export type Resource = 'run.identity' | 'run.agents' | 'run.status' | 'run.agent_integration' | 'run.transcript' | 'run.transcript_exact' | 'run.answer' | 'run.answer_chunk' | 'run.models' | 'run.limits' | 'run.initial_task' | 'run.pools' | 'run.pool' | 'quota.status' | 'quota.snapshot' | 'hub.repositories' | 'worktree.identity' | 'worktree.list' | 'worktree.inspect' | 'tasks.identity' | 'tasks.peek' | 'pool.identity' | 'pool.list' | 'pool.get' | 'pool.run_proof' | 'pool.inventory_snapshot' | 'pool.completion_get' | 'pool.enrollment_get' | 'bridge.identity' | 'bridge.overview' | 'bridge.deliveries' | 'bridge.incidents' | 'ide.identity' | 'ide.observe';
 /** Native classification, independent of any agent lifecycle. */
 export type Outcome = 'ok' | 'partial' | 'unavailable' | 'incompatible' | 'missing' | 'invalid';
 /** Exactly one read request; product argument validation remains authoritative in Rust/services. */
