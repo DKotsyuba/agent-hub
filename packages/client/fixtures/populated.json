@@ -1517,6 +1517,38 @@
     {
       "detail": {
         "pool": {
+          "id": "pool-live-demo",
+          "name": "Live planning pool",
+          "purposePreview": "Plan the next review",
+          "leader": "pool-chat-v1-owner",
+          "state": "open",
+          "kind": "chat",
+          "revision": "9",
+          "record": null
+        },
+        "proposalId": null,
+        "coverage": {
+          "scope": "retained",
+          "state": "complete"
+        }
+      },
+      "sections": {},
+      "history": {
+        "poolId": "pool-live-demo",
+        "format": "window",
+        "upperBound": null,
+        "items": [],
+        "coverage": {
+          "scope": "retained",
+          "state": "complete"
+        }
+      },
+      "content": [],
+      "records": []
+    },
+    {
+      "detail": {
+        "pool": {
           "id": "pool-managed-1",
           "name": "Legacy managed pool",
           "purposePreview": "Managed work",
@@ -1812,9 +1844,9 @@
   ],
   "poolTotals": {
     "revision": "42",
-    "retained": "2",
+    "retained": "3",
     "closed": "1",
-    "unknown": "2",
+    "unknown": "3",
     "open": null,
     "completed": null
   },

@@ -2511,6 +2511,9 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
     let selectedLine = 0;
     for (const [index, item] of groups.items.entries()) {
       if (index === groups.live.loaded) lines.push(finishedHeading());
+      if (groups.unknown.loaded && index === groups.items.length - groups.unknown.loaded) {
+        lines.push({ text: ` Unknown  ${groups.unknown.loaded}`, bold: true });
+      }
       const source = object(item.pool), id = String(source.pool_id), state = poolState(item), live = state === 'Live';
       const roster = inventoryRoster(item, poolTotals.value?.rows ?? []);
       const kind = poolKindLabel(poolFacts(item, source).kind);
@@ -2541,7 +2544,7 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
       if (seats?.some(member => member.notice_undeliverable === true)) lines.push({ text: '  ⚠ notice undeliverable', color: C.warn, bg, hover, action });
       lines.push({ text: '' });
     }
-    if (!finishedPoolsOpen || !groups.finished.loaded) lines.push(finishedHeading());
+    if (!groups.unknown.loaded && (!finishedPoolsOpen || !groups.finished.loaded)) lines.push(finishedHeading());
     if (!groups.items.length) lines.push({ text: pools.value ? 'No matching visible pools.' : pools.response && !usable(pools.response) ? `Pool source ${pools.response.outcome}.` : 'Loading pool observations…', color: C.muted });
     if (revealPoolSelection) {
       poolListTop = Math.min(poolListTop, selectedLine);
@@ -2599,7 +2602,7 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
         if (raw) {
           const summary = object(raw);
           addWrapped(lines, `Source snapshot r${shown(summary.revision)} · ${shown(summary.retained)} retained · ${shown(summary.closed)} closed`, mainWidth, { color: C.muted });
-          addWrapped(lines, `Open ${shown(summary.open)} · Completed ${shown(summary.completed)} · ${shown(summary.unknown)} unclassified`, mainWidth, { color: C.muted });
+          addWrapped(lines, `Live ${shown(summary.live)} · Completed ${shown(summary.completed)} · ${shown(summary.unknown)} unclassified`, mainWidth, { color: C.muted });
         } else lines.push({ text: 'Source-wide totals unavailable', color: C.muted });
       } else if (poolTotals.value) {
         const stale = poolTotals.response !== poolTotals.good;

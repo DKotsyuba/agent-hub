@@ -129,8 +129,10 @@ export function createHttpClient(server?: URL, injected?: ReturnType<typeof crea
       }
       if (resource === 'pool.list' || resource === 'pool.identity') {
         const after = typeof params.after === 'string' ? params.after : null, q = typeof params.query === 'string' && params.query.length <= 200 ? params.query : null;
-        const scope = ['pools', q];
-        const response = await http.get('pools', { query: { q, limit: 50, cursor: after === null ? null : continuation(cursors, scope, after) }, signal });
+        // Both sidebar groups share one cursor and source fence.
+        const state = 'all';
+        const scope = ['pools', state, q];
+        const response = await http.get('pools', { query: { state, q, limit: 50, cursor: after === null ? null : continuation(cursors, scope, after) }, signal });
         if (resource === 'pool.identity') return wrap(response, productPage('identity', { capabilities: poolCapabilities(response.capabilities) }));
         const items = response.data.items.map(row => ({ pool: poolRow(row), leader_id: row.leader ?? 'Unknown' }));
         const last = items.at(-1)?.pool.pool_id ?? after;

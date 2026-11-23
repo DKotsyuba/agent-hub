@@ -1,7 +1,7 @@
 /** Explicit fixture fetch transport. Serves the public v1 API without native observations. */
 import {
   API_RESPONSES, API_VERSION, type ApiRequest, type Capabilities, type HubEvent,
-  type Observation, type Page, type RouteName, type Topic, parseApiRequest, textChunk,
+  matchesPoolState, type Observation, type Page, type RouteName, type Topic, parseApiRequest, textChunk,
 } from '../../domain/src/index.ts';
 import metadata from '../../../package.json' with { type: 'json' };
 import { type FixtureCatalog, type FixtureScenario, loadCatalog } from './catalog.ts';
@@ -203,12 +203,17 @@ function handleFixture(catalog: FixtureCatalog, scenario: FixtureScenario, query
       return chunks(data.content, query, data.boundary, content => ({ ...data, content }));
     }
     case 'pools': {
-      const rows = catalog.pools.map(({ detail }) => detail.pool).filter(row =>
-        (query.state === 'all' || row.state === query.state) &&
+      const inventory = catalog.pools.map(({ detail }) => detail.pool);
+      const rows = inventory.filter(row =>
+        matchesPoolState(row, query.state) &&
         [row.id, row.name, row.purposePreview].some(value => value?.toLowerCase().includes(query.q.toLowerCase())),
       );
       const { items, page } = paginator(query, rows, catalog.poolTotals?.revision ?? 'pool-inventory');
-      return json({ items, totals: catalog.poolTotals }, page);
+      const totals = catalog.poolTotals && {
+        ...catalog.poolTotals,
+        live: catalog.poolTotals.retained === String(inventory.length) ? String(inventory.filter(row => matchesPoolState(row, 'live')).length) : null,
+      };
+      return json({ items, totals }, page);
     }
     case 'pool': return json(selectedPool(query.id).detail);
     case 'poolSection': {

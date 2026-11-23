@@ -12,6 +12,8 @@ import { createHttp } from '../src/http.ts';
 import { createHubClient } from '../../packages/client/src/index.ts';
 import { loadHttpExport, loadHttpInitialTask, loadHttpPoolExport, loadHttpResult } from '../../terminal/src/http-content.ts';
 import { createHttpClient } from '../../terminal/src/client.ts';
+import { groupPools } from '../../terminal/src/pool-list.ts';
+import { poolInventory } from '../../terminal/src/pool.ts';
 import type { NativeResponse, ObservationClient, ObserverResource } from '../src/observer.ts';
 
 const mount = '/api/v1';
@@ -807,4 +809,47 @@ test('verifiedResult distinguishes unavailable discovery from explicit absence',
     discovery = 'supported';
     assert.equal((await get(http, 'session', path)).capabilities?.verifiedResult, 'supported');
   } finally { await http.close(); }
+});
+
+test('pool lifecycle is filtered before paging while raw closure filters remain available', async () => {
+  const native = await producer();
+  const rows = [
+    { ...poolView.pool, pool_id: 'a-completed', kind: 'chat', completion_id: 'agreement-1' },
+    { ...poolView.pool, pool_id: 'b-live', kind: 'chat', completion_id: null },
+    { ...poolView.pool, pool_id: 'c-closed', closed: true },
+  ].map(pool => ({ pool: { ...pool, purpose: 'review' }, leader_id: 'leader', roster: [] }));
+  const http = handler({
+    ...native,
+    async read(resource, params, signal) {
+      if (resource === 'pool.identity') return envelope(resource, { schema_version: 1, kind: 'identity', data: { capabilities: ['inventory_snapshot_v1'] } });
+      if (resource === 'pool.inventory_snapshot') return envelope(resource, { schema_version: 1, kind: 'inventory_snapshot', data: {
+        source: { store_id: 's', read_epoch: 'e', revision: '4' },
+        totals: { total: '3', closed: '1', unknown: '0', open: '2', completed: '1' },
+        coverage: 'fixture', pools: rows, returned: rows.length, has_more: false, next_cursor: null, observed_at_unix_ms: now,
+      } });
+      return native.read(resource, params, signal);
+    },
+  });
+  const terminal = createHttpClient(undefined, transport(http));
+  try {
+    const live = await get(http, 'pools', '/pools?state=live&limit=1');
+    assert.deepEqual(live.data.items.map(row => row.id), ['b-live']);
+    assert.equal(live.page.next, null);
+    assert.equal(live.data.totals?.live, '1');
+    const finished = await get(http, 'pools', '/pools?state=finished&limit=1&q=review');
+    assert.deepEqual(finished.data.items.map(row => [row.id, row.state, row.record?.kind]), [['a-completed', 'open', 'agreement']]);
+    assert.ok(finished.page.next);
+    const next = await get(http, 'pools', '/pools?state=finished&limit=1&q=review&cursor=' + encodeURIComponent(finished.page.next));
+    assert.deepEqual(next.data.items.map(row => row.id), ['c-closed']);
+    assert.equal(next.page.next, null);
+    assert.deepEqual((await get(http, 'pools', '/pools?state=open')).data.items.map(row => row.id), ['a-completed', 'b-live']);
+    assert.deepEqual((await get(http, 'pools', '/pools?state=closed')).data.items.map(row => row.id), ['c-closed']);
+    const result = await terminal.read('pool.list');
+    const groups = groupPools(poolInventory(result.data, null).items, '');
+    assert.equal(groups.live.loaded, 1);
+    assert.equal(groups.finished.loaded, 2);
+  } finally {
+    await terminal.close();
+    await http.close();
+  }
 });

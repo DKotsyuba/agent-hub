@@ -1,5 +1,5 @@
 /** Standalone Pool projections with revision, watermark, and record fences. */
-import { type Capabilities, type Pool, type PoolMember } from '@agent-hub/domain';
+import { matchesPoolState, type Capabilities, type Pool, type PoolMember } from '@agent-hub/domain';
 import { integer, object, product, text } from '../../src/live/protocol.ts';
 import { groupPoolEvents, poolContentPage, poolFormerBinding, poolInventory, poolSection as checkSection, poolWindow, type PoolSection } from '../../terminal/src/pool.ts';
 import { poolFacts, poolSeat } from '../../terminal/src/pool-chat.ts';
@@ -37,7 +37,7 @@ function row(raw: Record<string, unknown>, data: Record<string, unknown>): Pool 
     id: String(raw.pool_id), name: text(raw.name), purposePreview: text(raw.purpose)?.slice(0, 2048) ?? null,
     leader: text(data.leader_id), state: raw.closed === true ? 'closed' : raw.closed === false ? 'open' : 'unknown',
     kind: facts.kind, revision: raw.revision == null ? null : decimalValue(raw.revision),
-    ...(facts.completionId === null ? { record: null } : facts.completionId && facts.kind ? {
+    ...(facts.completionId === null ? { record: null } : facts.completionId ? {
       record: { id: facts.completionId, kind: facts.kind === 'chat' ? 'agreement' : 'completion' },
     } : {}),
   };
@@ -77,12 +77,13 @@ export async function pools(ctx: ReadContext, query: Input<'pools'>, position: P
     if (complete) break;
   }
   if (complete && totals && BigInt(rows.length) !== BigInt(totals.retained)) throw new HubError('invalid_projection');
-  const items = [...new Map(rows.map(item => [item.id, item])).values()].filter(item =>
-    (query.state === 'all' || query.state === item.state) &&
+  const inventory = [...new Map(rows.map(item => [item.id, item])).values()];
+  const items = inventory.filter(item =>
+    matchesPoolState(item, query.state) &&
     (!query.q || [item.id, item.name, item.purposePreview].some(value => value?.toLowerCase().includes(query.q.toLowerCase()))));
   const page = ctx.cursors.slice(query, position, items, digest([sourceFence, items]), query.limit);
   const scope = coverage('retained', complete, snapshot ? 'snapshot' : 'offset_unfenced');
-  return { data: { items: page.items, totals }, page: page.page, observations: [observed(envelope, producerAt, scope)],
+  return { data: { items: page.items, totals: totals && { ...totals, live: complete ? String(inventory.filter(item => matchesPoolState(item, 'live')).length) : null } }, page: page.page, observations: [observed(envelope, producerAt, scope)],
     capabilities: { ...capabilities, completionTotals: totals?.completed == null ? 'unsupported' : 'supported' } };
 }
 

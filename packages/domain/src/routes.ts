@@ -119,7 +119,7 @@ function readRouteRequest(route: RouteName, params: Map<string, string>, query: 
       id: id(), execution: execution(), mode: get('mode', oneOf('retained', 'exact')) ?? 'retained', ...cursor(),
     });
     case 'pools': return done(route, {
-      state: get('state', oneOf('open', 'closed', 'all')) ?? 'all', q: get('q', search) ?? '', ...pagination(),
+      state: get('state', oneOf('live', 'finished', 'open', 'closed', 'all')) ?? 'all', q: get('q', search) ?? '', ...pagination(),
     });
     case 'pool': return done(route, { id: id() });
     case 'poolSection': {
