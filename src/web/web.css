@@ -387,3 +387,11 @@ html {
 }
 .web-standalone, .web-standalone body, .web-standalone #root { bottom: auto; height: calc(100% + env(safe-area-inset-top, 0px)); }
 .web-viewport-diag { font: 12px ui-monospace, monospace; color: var(--muted); white-space: pre-wrap; }
+
+/* iOS paints the strip below the standalone layout viewport (screen minus the translucent status bar) with the
+   document canvas only. Paint that canvas like the shell: the rail column on the left, the main canvas elsewhere. */
+html { --web-rail-w: 196px; background: linear-gradient(to right, var(--rail) calc(var(--web-rail-w) - 1px), var(--border) calc(var(--web-rail-w) - 1px) var(--web-rail-w), var(--canvas) var(--web-rail-w)); }
+html:has(.web-shell[data-sidebar=collapsed]) { --web-rail-w: 62px; }
+@media (max-width: 767px) { html { --web-rail-w: 0px; } }
+@media (max-width: 1023px) { html:has(.web-shell:has(.web-has-detail)) { --web-rail-w: 0px; } }
+body, #root { background: transparent; }
