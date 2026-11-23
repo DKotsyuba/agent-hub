@@ -1,13 +1,13 @@
 /** Overview, Bridge, Quota and Worktree presentation over v1 observations. */
 import type { ReactNode } from 'react';
-import type { Topic, Worktree } from '@agent-hub/domain';
+import type { Overview as OverviewData, Topic, Worktree } from '@agent-hub/domain';
 import { Button } from '../components/ui/button';
 import { Progress } from '../components/ui/progress';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import { Panel } from '../components/hub-primitives';
 import { client, usePagedRead, useRead } from './data';
 import { modelTitle, quotaAccountTitle, quotaAdviceKind, worktreeMeasurements } from './model';
-import { accountTitle, branchLabel, formatBytes, projectQuotaSnapshot, projectQuotaStatus, quotaModelRemaining, quotaWindowSample, windowSeconds, type QuotaAccount, type QuotaSnapshot } from '../../packages/view-model/src/index';
+import { accountTitle, branchLabel, formatBytes, projectQuotaSnapshot, projectQuotaStatus, quotaModelRemaining, quotaWindowForecast, windowSeconds, type QuotaAccount, type QuotaSnapshot } from '../../packages/view-model/src/index';
 import { CoverageLine, EmptyRows, Expand, Facts, href, Link, ReadState, relativeTime, sessionHref, SourceEvidence, Sources, StatusBadge, Text, useEvidence, useWebText } from './ui';
 
 /** URL period bounds are shared with the Bridge and failed execution drill-downs. */
@@ -33,7 +33,7 @@ export function Period({ query, update }: { query: URLSearchParams; update: (val
 }
 
 /** Source health and activity lead the dashboard; raw evidence stays expandable. */
-export function Overview({ query, filter }: { query: URLSearchParams; filter: ReactNode }) {
+export function Overview({ query, filter, now }: { query: URLSearchParams; filter: ReactNode; now: number }) {
   const { label, percent } = useWebText();
   const bounds = period(query);
   const read = useRead(JSON.stringify(bounds), signal => client.get('overview', { query: bounds, signal }), 'overview');
@@ -64,6 +64,7 @@ export function Overview({ query, filter }: { query: URLSearchParams; filter: Re
               {lowest && <div className="web-quota-min"><span>{label('Lowest remaining')}</span><strong>{percent(lowest.remaining)}</strong>
                 <span className="web-quota-min-model"><span>{account && account !== lowest.account ? label(account) + ' · ' : ''}{modelTitle(lowest.model)}</span>
                   {lowest.stale && <StatusBadge state="Stale" />}</span></div>}
+              {data.quota.exhaustion && <OverviewExhaustion forecast={data.quota.exhaustion} now={now} />}
               <Facts rows={[[ 'Accounts', data.quota.accounts], ['Exhausted', data.quota.exhausted], ['Stale', data.quota.stale], ['Unknown', data.quota.unknown]]} />
             </> : <p className="web-empty">{label('Quota data unavailable')}</p>}</div>
           </Panel>
@@ -110,31 +111,82 @@ export function Incidents({ query, next }: { query: URLSearchParams; next: (curs
   </>}</ReadState></>;
 }
 
+/** Rounds forecast durations to minutes or hours without changing their underlying estimates. */
+function forecastDuration(seconds: number, label: (key: string) => string, n: (amount: number) => string) {
+  return seconds < 3600 ? n(Math.max(1, Math.round(seconds / 60))) + ' ' + label('min short')
+    : n(Math.round(seconds / 3600)) + ' ' + label('hour short');
+}
+
+/** Identifies the deficit window separately from the model with the lowest balance. */
+function OverviewExhaustion({ forecast, now }: { forecast: NonNullable<NonNullable<OverviewData['quota']>['exhaustion']>; now: number }) {
+  const { label, clock, n } = useWebText();
+  if (forecast.atMs <= now || forecast.resetAtMs <= now || forecast.atMs > 8.64e15
+      || forecast.validUntilMs !== null && forecast.validUntilMs <= now) return null;
+  const account = accountTitle(forecast.account, forecast.provider ? [forecast.provider] : []);
+  const window = quotaWindowName(forecast, label, false);
+  return <p className="web-quota-overview-forecast">
+    <strong>{label('Expected exhaustion')}</strong>
+    <time dateTime={new Date(forecast.atMs).toISOString()} title={clock(forecast.atMs)}>
+      {label('Runs out in').replace('{time}', forecastDuration((forecast.atMs - now) / 1000, label, n))}
+    </time>
+    <span className="web-muted">{account === forecast.account ? window : label(account) + ' · ' + window}</span>
+  </p>;
+}
+
+/** A window forecast is shared with the TUI. The web renders it only while its evidence is usable. */
+type WindowForecast = ReturnType<typeof quotaWindowForecast> & { burn: number | null };
+
 /** Compact quota line keeps the measured value, reset time, and freshness together. */
-function QuotaRow({ title, value, reset, now, state, risk }: {
-  title: string; value: number | null; reset: number | null; now: number; state?: string; risk: string;
+function QuotaRow({ title, value, reset, now, state, risk, forecast }: {
+  title: string; value: number | null; reset: number | null; now: number; state?: string; risk: string; forecast?: WindowForecast;
 }) {
-  const { label, clock, percent, tag } = useWebText();
+  const { label, clock, percent, tag, n } = useWebText();
+  const usable = forecast?.known && !forecast.stale;
+  const pace = usable ? forecast.pace : null;
+  const burn = usable ? forecast.burn : null;
+  const note = usable ? label({
+    reserve: 'Quota pace reserve', deficit: 'Quota pace deficit', even: 'Quota on pace', unknown: 'Quota pace unknown',
+  }[forecast.note.kind]).replace('{amount}', percent(forecast.note.points)) : null;
+  const exhaustion = usable && forecast.exhaust.kind === 'runs_out' && forecast.exhaust.seconds !== null
+    ? label('Runs out in').replace('{time}', forecastDuration(forecast.exhaust.seconds, label, n))
+    : usable && forecast.exhaust.kind === 'lasts' ? label('Lasts until reset')
+      : usable && forecast.exhaust.kind === 'exhausted' ? label('Exhausted') : null;
+  const untilReset = usable && forecast.exhaust.kind === 'runs_out' && reset !== null && reset > now / 1000
+    ? label('Time until reset').replace('{time}', forecastDuration(reset - now / 1000, label, n)) : null;
+  const forecastText = forecast && (usable ? [note, exhaustion, untilReset].filter(Boolean).join(' · ') : label('Forecast unknown'));
+  const burnText = burn === null ? null : label(burn > 0 && burn < 0.1 ? 'Forecast tiny burn' : 'Forecast burn')
+    .replace('{rate}', n(burn > 0 && burn < 0.1 ? 0.1 : Math.round(burn * 10) / 10));
+  const riskVisible = forecast ? usable && ['low', 'medium', 'high'].includes(risk)
+    : value !== null && ['medium', 'high', 'critical'].includes(risk);
   const resetMs = reset !== null && Math.abs(reset * 1000) <= 8.64e15 ? reset * 1000 : null;
   return <div className="web-quota-row" data-stale={state === 'Stale' || undefined}>
     <div className="web-quota-row-heading"><strong>{title}</strong>
-      <span className="web-quota-value">{value !== null ? percent(value) : label('Unknown')}</span></div>
+      <span className="web-quota-reading">{riskVisible && <StatusBadge state={risk} />}
+        <span className="web-quota-value">{value !== null ? percent(value) : label('Unknown')}</span></span></div>
     {value === null ? <div className="web-quota-track" aria-hidden="true" /> :
-      <Progress value={Math.max(0, Math.min(value, 100))} aria-label={title + ' · ' + label('Remaining')} />}
+      <div className="web-quota-bar" data-tone={forecast?.tone}>
+        <Progress value={Math.max(0, Math.min(value, 100))} aria-label={title + ' · ' + label('Remaining')}
+          aria-valuetext={pace === null ? undefined : percent(value) + ' · ' + label('Expected remaining') + ' ' + percent(pace)} />
+        {pace !== null && <span className="web-quota-pace-marker" aria-hidden="true"
+          style={{ insetInlineStart: `clamp(1px, ${pace}%, calc(100% - 1px))` }}
+          title={label('Expected remaining') + ' ' + percent(pace)} />}
+      </div>}
+    {forecastText && <p className="web-quota-forecast" data-tone={usable ? forecast?.tone : undefined}
+      title={untilReset ? clock(resetMs) : undefined}>{forecastText}</p>}
     <div className="web-quota-row-meta">
-      {resetMs === null ? <span>{label('Reset unknown')}</span> :
-        <time dateTime={new Date(resetMs).toISOString()} title={clock(resetMs)}>{label('Reset')} · {relativeTime(resetMs, now, tag)}</time>}
+      {!untilReset && (resetMs === null ? <span>{label('Reset unknown')}</span> :
+        <time dateTime={new Date(resetMs).toISOString()} title={clock(resetMs)}>{label('Reset')} · {relativeTime(resetMs, now, tag)}</time>)}
       {state && <StatusBadge state={state} />}
-      {value !== null && ['medium', 'high', 'critical'].includes(risk) && <StatusBadge state={risk} />}
+      {burnText && <span>{burnText}</span>}
     </div>
   </div>;
 }
 
 /** Gives common quota windows localized names, with lane context when needed. */
-function quotaWindowName(window: QuotaAccount['windows'][number], label: (name: string) => string, distinguishLane: boolean) {
+function quotaWindowName(window: Pick<QuotaAccount['windows'][number], 'window' | 'lane'>, label: (name: string) => string, distinguishLane: boolean) {
   const length = windowSeconds(window.window);
   const name = length === 18000 ? label('Five-hour window') : length === 604800 ? label('Weekly window')
-    : length === 86400 ? label('Daily window') : window.window === 'monthly' ? label('Monthly window') : window.window.replaceAll('_', ' ');
+    : length === 86400 ? label('Daily window') : length === 36000 ? label('Ten-hour window') : window.window === 'monthly' ? label('Monthly window') : window.window.replaceAll('_', ' ');
   const model = window.lane.startsWith('model:') && window.lane.slice(6);
   return model ? `${model[0].toUpperCase()}${model.slice(1)} · ${name}` : distinguishLane ? name + ' · ' + label(window.lane) : name;
 }
@@ -146,7 +198,7 @@ function QuotaCard({ account, title, discriminator, now }: { account: QuotaAccou
   const pct = (value: number | null) => value === null ? null : percent(value);
   const windows = [...account.windows].sort((a, b) => Number(a.lane.startsWith('model:')) - Number(b.lane.startsWith('model:'))
     || (windowSeconds(a.window) ?? Infinity) - (windowSeconds(b.window) ?? Infinity));
-  const samples = windows.map(window => quotaWindowSample(window, now / 1000));
+  const samples = windows.map(window => ({ ...quotaWindowForecast(window, now / 1000), burn: window.burn }));
   const exhausted = account.latches.some(latch => latch.active) || account.models.some(model => model.state === 'exhausted')
     || samples.some((sample, i) => sample.remaining === 0 && !sample.stale && windows[i].validUntil !== null);
   return <Panel title={title} extra={<div className="web-panel-actions">
@@ -156,7 +208,7 @@ function QuotaCard({ account, title, discriminator, now }: { account: QuotaAccou
     <div className="web-panel-body">
       {windows.length === 0 && <p className="web-empty">{label('No account windows reported')}</p>}
       {windows.map((window, i) => <QuotaRow key={i} title={quotaWindowName(window, label, windows.some(other => other !== window && other.window === window.window && !other.lane.startsWith('model:')))}
-        value={samples[i].remaining} reset={samples[i].resetAt} now={now} risk={window.risk}
+        value={samples[i].remaining} reset={samples[i].resetAt} now={now} risk={window.risk} forecast={samples[i]}
         state={samples[i].stale ? 'Stale' : undefined} />)}
       {!!account.models.length && <Expand title={label('Models') + ' · ' + account.models.length}>
         {account.models.map((model, i) => <QuotaRow key={i} title={modelTitle(model.model)} value={quotaModelRemaining(model)} reset={model.state === 'unknown' ? null : model.resetAt} now={now}
@@ -192,6 +244,10 @@ export function Quota({ now }: { now: number }) {
   return <ReadState read={read}>{({ data, observations }) => {
     const status = data.status && projectQuotaStatus(data.status);
     const snapshot = data.snapshot && projectQuotaSnapshot(data.snapshot);
+    const hasPace = snapshot?.accounts.some(account => account.windows.some(window => {
+      const forecast = quotaWindowForecast(window, now / 1000);
+      return !forecast.stale && forecast.pace !== null;
+    }));
     const collected = snapshot?.coverage.lastCollectionAt ?? status?.lastCollectionAt;
     const titles = snapshot?.accounts.map(account => label(quotaAccountTitle(account, snapshot))) ?? [];
     const accountsByTitle = new Map<string, string[]>();
@@ -206,6 +262,7 @@ export function Quota({ now }: { now: number }) {
         {label('Last collection')} · {collected == null ? label('Unknown') : relativeTime(collected * 1000, now, tag)}
         {snapshot?.coverage.state === 'partial' && <StatusBadge state="partial" />}
       </p>}
+      {hasPace && <p className="web-muted web-quota-legend">{label('Pace marker legend')}</p>}
       {snapshot ? <>
         <EmptyRows count={snapshot.accounts.length} observations={observations.filter(item => item.resource !== 'quota.status')} />
         <div className="web-cards web-quota">{snapshot.accounts.map((account, i) => {

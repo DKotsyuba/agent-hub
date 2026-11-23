@@ -75,6 +75,20 @@
 .web-overview-period > .web-expand { margin: 0; }
 .web-quota-collected .web-status { margin-inline-start: 8px; }
 .web-quota-row[data-stale] [data-slot=progress-indicator], .web-quota-row[data-stale] [role=progressbar] > div { opacity: .55; }
+/* The marker crosses the rail so it remains visible in both the filled and empty portions. */
+.web-quota-bar { position: relative; margin-block: 3px; }
+.web-quota-pace-marker { position: absolute; inset-block: -3px; width: 2px; border-radius: 2px; transform: translateX(-50%);
+  background: var(--foreground); box-shadow: 0 0 0 1px var(--background); }
+.web-quota-bar[data-tone=good] [role=progressbar] > div { background: var(--success); }
+.web-quota-bar[data-tone=warn] [role=progressbar] > div { background: var(--warning); }
+.web-quota-bar[data-tone=error] [role=progressbar] > div { background: var(--danger); }
+.web-quota-legend { margin-block: 4px 0; }
+.web-quota-forecast { margin: 0; color: var(--muted); font-size: .813rem; }
+.web-quota-forecast[data-tone=good] { color: var(--success); }
+.web-quota-forecast[data-tone=warn] { color: var(--warning); }
+.web-quota-forecast[data-tone=error], .web-quota-overview-forecast time { color: var(--danger); }
+.web-quota-overview-forecast { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; margin-block: 10px; font-size: .875rem; }
+.web-quota-overview-forecast .web-muted { flex-basis: 100%; }
 .web-quota-track { height: 8px; border-radius: 999px; background: var(--secondary); }
 .web-evidence-title { margin-block: 8px 4px; font-size: .875rem; }
 .web-status { --status-color: var(--muted); vertical-align: middle; font-size: .75rem; color: var(--status-color);
@@ -100,6 +114,7 @@
 .web-quota-row + .web-quota-row { border-top: 1px solid var(--border); }
 .web-quota-row-heading, .web-quota-row-meta { display: flex; justify-content: space-between; align-items: baseline; gap: 6px 12px; flex-wrap: wrap; }
 .web-quota-row-meta { justify-content: flex-start; color: var(--muted); font-size: .813rem; }
+.web-quota-reading { display: inline-flex; align-items: center; gap: 8px; }
 .web-quota-value { font-variant-numeric: tabular-nums; font-weight: 650; }
 .web-quota-min { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0 12px; align-items: baseline; padding-block: 2px 10px; border-bottom: 1px solid var(--border); }
 .web-quota-min > :first-child { font-weight: 600; }

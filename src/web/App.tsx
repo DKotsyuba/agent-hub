@@ -286,7 +286,7 @@ export default function App() {
           </section>}
         </div> : <>
           {kind === 'incidents' && <Period query={query} update={update} />}
-          {kind === 'overview' ? <Overview query={query}
+          {kind === 'overview' ? <Overview query={query} now={Math.max(now, lastRead ?? 0)}
             filter={<div className="web-overview-period"><Expand title={label('Period filter') + (query.has('from') || query.has('to') ? ' · ' + label('Filtered') : '')}>
               <Period query={query} update={update} />
             </Expand></div>} /> : kind === 'incidents'

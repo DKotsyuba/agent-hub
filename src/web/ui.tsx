@@ -79,7 +79,7 @@ export function CoverageLine({ value }: { value?: Coverage }) {
 /** Uses the shared visual tones for session, source and quota states. */
 export function StatusBadge({ state }: { state: string }) {
   const { label } = useWebText();
-  const tone = ['ok', 'succeeded', 'ready'].includes(state) ? 'good'
+  const tone = ['ok', 'succeeded', 'ready', 'low'].includes(state) ? 'good'
     : ['running', 'starting', 'open'].includes(state) ? 'active'
     : ['failed', 'timed_out', 'exhausted', 'invalid', 'high', 'critical'].includes(state) ? 'error'
     : ['partial', 'unavailable', 'incompatible', 'missing', 'Stale', 'medium'].includes(state) ? 'warning' : 'neutral';

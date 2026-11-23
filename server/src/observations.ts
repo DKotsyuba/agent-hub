@@ -2,6 +2,7 @@
 import { worktreeDetail as decodeWorktreeDetail, type Coverage, type Observation, type Overview, type Quota, type Worktree, type WorktreeDetail } from '@agent-hub/domain';
 import { activeStatus, basename, bridgeData, integer, longestWorktree, object, text, usable, type LiveWorktree } from '../../src/live/protocol.ts';
 import { quotaSnapshot, quotaStatus } from '../../terminal/src/quota.ts';
+import { projectQuotaSnapshot, quotaWindowForecast } from '../../packages/view-model/src/index.ts';
 import { repositoriesData, worktreeDetail, worktreeFacts, worktreePage } from '../../terminal/src/worktree.ts';
 import { digest, type Position } from './cursor.ts';
 import { HubError } from './errors.ts';
@@ -26,6 +27,24 @@ function snapshot(value: unknown): NonNullable<Quota['snapshot']> {
       latches: account.latches.map(({ observedAt, resetAt, ...latch }) => ({ ...latch, observedAtMs: ms(observedAt), resetAtMs: ms(resetAt) })),
     })),
   };
+}
+
+/** Selects the earliest fresh window that is behind even pace and will run out before reset. */
+function earliestExhaustion(snapshot: NonNullable<Quota['snapshot']>, now: number): NonNullable<Overview['quota']>['exhaustion'] {
+  let earliest: NonNullable<Overview['quota']>['exhaustion'];
+  for (const account of projectQuotaSnapshot(snapshot).accounts) {
+    for (const window of account.windows) {
+      const { stale, note, exhaust, resetAt } = quotaWindowForecast(window, now / 1000);
+      if (stale || note.kind !== 'deficit' || exhaust.kind !== 'runs_out' || exhaust.seconds === null || resetAt === null) continue;
+      const atMs = Math.round(now + exhaust.seconds * 1000);
+      if (earliest && earliest.atMs <= atMs) continue;
+      const provider = account.models.find(model => window.models.includes(model.model))?.provider
+        ?? snapshot.coverage.sources.find(source => source.account === account.account)?.provider;
+      earliest = { account: account.account, provider, window: window.window, lane: window.lane, atMs,
+        resetAtMs: ms(resetAt)!, validUntilMs: ms(window.validUntil) };
+    }
+  }
+  return earliest;
 }
 
 /** Reads status and snapshot independently and keeps a useful sibling after a failure. */
@@ -185,7 +204,7 @@ export async function overview(ctx: ReadContext, query: Input<'overview'>) {
         .sort((a, b) => Number(a.stale) - Number(b.stale) || a.remaining! - b.remaining!)[0];
       data.quota = { accounts: snapshot.accounts.length, known: models.filter(model => model.state === 'known').length,
         unknown: models.filter(model => model.state === 'unknown').length, exhausted: models.filter(model => model.state === 'exhausted').length,
-        stale: models.filter(model => model.stale).length,
+        stale: models.filter(model => model.stale).length, exhaustion: earliestExhaustion(snapshot, now),
         lowest: lowest ? { account: lowest.account, model: lowest.model, remaining: lowest.remaining!, provider: lowest.provider, ...(lowest.stale ? { stale: true } : {}) } : null };
     }
   } else observations.push(failed('quota', quotaResult.reason));

@@ -1,11 +1,11 @@
 /** Presentation model of the Quota tab and Overview card: per-account blocks, per-window bars and pace.
  * Pure and renderer-independent: it maps the already validated snapshot to rows of toned spans.
  * Unknown stays Unknown (dim, empty bar) and is never converted to zero capacity. */
-import { accountTitle, quotaModelRemaining, quotaWindowSample, windowSeconds } from '../../packages/view-model/src/index.ts';
+import { accountTitle, quotaModelRemaining, quotaWindowForecast, windowSeconds } from '../../packages/view-model/src/index.ts';
 import stringWidth from 'string-width';
 import { span } from './quota.ts';
 import type { QuotaAccount, QuotaModel, QuotaSnapshot, QuotaSource, QuotaWindow, Tone } from './quota.ts';
-export { accountTitle, windowSeconds } from '../../packages/view-model/src/index.ts';
+export { accountTitle, exhaustion, paceNote, paceRemaining, windowSeconds } from '../../packages/view-model/src/index.ts';
 
 /** One run of identically styled text inside a row. */
 export interface Span { text: string; tone: Tone; bold?: boolean }
@@ -16,13 +16,6 @@ export type Badge = 'OK' | 'AT RISK' | 'EXHAUSTED' | 'UNKNOWN';
 
 /** Filled, empty and marker glyphs of a progress bar. */
 export const BAR_FILLED = '█', BAR_EMPTY = '░', BAR_PACE = '┃';
-/** A window is considered inconsistent when its reset is further away than the window length by this factor. */
-const PACE_TOLERANCE = 1.02;
-/** Exhaustion further away than this is not announced; the burn is effectively idle. */
-const FAR_SECONDS = 365 * 86400;
-/** Below this many percent left a known window is highlighted even when pace is fine. */
-const LOW_PERCENT = 10;
-
 /** Formats a window length such as 5h, 7d or 30m. */
 function shortDuration(seconds: number): string {
   if (seconds % 86400 === 0) return `${seconds / 86400}d`;
@@ -38,16 +31,6 @@ export function windowTitle(window: string, lane: string): string {
   const model = lane.startsWith('model:') && lane.length > 6 ? lane.slice(6) : null;
   const name = model ? `${capital(model)} ${base.toLowerCase()}` : base;
   return length === null ? name : `${name} (${shortDuration(length)})`;
-}
-
-/** Expected remaining percentage at an even burn rate: the window start is the reset minus its length.
- * Null when the length or the reset clock is unknown, the reset has passed, or the clock is inconsistent. */
-export function paceRemaining(window: string, resetAt: number | null, now: number): number | null {
-  const length = windowSeconds(window);
-  if (length === null || resetAt === null) return null;
-  const left = resetAt - now;
-  if (left <= 0 || left > length * PACE_TOLERANCE) return null;
-  return Math.min(100, Math.max(0, left / length * 100));
 }
 
 /** Cell layout of one bar: `filled` cells carry the remaining share, `marker` is the even-pace cell. */
@@ -94,31 +77,6 @@ export function percentLeft(value: number | null): string {
   return `${Math.min(99, Math.round(value))}%`;
 }
 
-/** Position relative to an even burn: reserve (ahead), deficit (behind), even, or unknown. */
-export interface PaceNote { kind: 'reserve' | 'deficit' | 'even' | 'unknown'; points: number; text: string }
-/** Compares what is left with what an even burn would have left now. */
-export function paceNote(remaining: number | null, pace: number | null): PaceNote {
-  if (remaining === null || pace === null) return { kind: 'unknown', points: 0, text: 'pace unknown' };
-  const delta = remaining - pace, points = Math.round(Math.abs(delta));
-  if (points === 0) return { kind: 'even', points: 0, text: 'on pace' };
-  return delta > 0 ? { kind: 'reserve', points, text: `${points}% in reserve` } : { kind: 'deficit', points, text: `${points}% in deficit` };
-}
-
-/** Projected exhaustion against the reset clock. */
-export interface Exhaustion { kind: 'exhausted' | 'runs_out' | 'lasts' | 'none'; seconds: number | null; text: string }
-/** Projects exhaustion from the measured burn: runs out before reset, lasts until reset, or nothing known. */
-export function exhaustion(remaining: number | null, burn: number | null, resetAt: number | null, now: number): Exhaustion {
-  if (remaining === null) return { kind: 'none', seconds: null, text: '' };
-  if (remaining <= 0) return { kind: 'exhausted', seconds: 0, text: 'exhausted' };
-  if (burn === null) return { kind: 'none', seconds: null, text: '' };
-  const untilReset = resetAt !== null && resetAt > now ? resetAt - now : null;
-  if (burn <= 0) return untilReset !== null ? { kind: 'lasts', seconds: null, text: 'lasts until reset' } : { kind: 'none', seconds: null, text: '' };
-  const seconds = remaining / burn * 3600;
-  if (untilReset !== null && seconds >= untilReset) return { kind: 'lasts', seconds, text: 'lasts until reset' };
-  if (seconds > FAR_SECONDS) return { kind: 'none', seconds, text: '' };
-  return { kind: 'runs_out', seconds, text: `runs out in ${span(seconds)}` };
-}
-
 /** Per-model row, shown only when a model's value differs from the window it is listed under. */
 export interface ModelRowView { model: string; text: string; tone: Tone }
 /** One provider window prepared for display. */
@@ -135,12 +93,6 @@ export interface AccountView {
 /** Tone severity used to pick the most constraining window. */
 const SEVERITY: Record<Tone, number> = { error: 3, warn: 2, accent: 1, text: 1, good: 0, muted: -1 };
 
-/** Colors a known window: red when it will run out or is exhausted, yellow at medium risk or behind pace, else green. */
-function windowTone(remaining: number, risk: string, note: PaceNote, exhaust: Exhaustion): Tone {
-  if (remaining <= 0 || risk === 'high' || exhaust.kind === 'runs_out' || exhaust.kind === 'exhausted') return 'error';
-  if (note.kind === 'deficit' || risk === 'medium' || remaining < LOW_PERCENT) return 'warn';
-  return 'good';
-}
 /** True when the model row repeats the window's own numbers. */
 function sameAsWindow(model: QuotaModel, window: QuotaWindow, known: boolean): boolean {
   if (model.state === 'exhausted') return false;
@@ -162,10 +114,7 @@ function limitedBy(model: QuotaModel, window: QuotaWindow): boolean {
 
 /** Prepares one window; `models` are the account's models for divergence checks. */
 function windowView(window: QuotaWindow, models: QuotaModel[], now: number): WindowView {
-  const { known, remaining, resetAt, passed, stale } = quotaWindowSample(window, now);
-  const pace = known ? paceRemaining(window.window, resetAt, now) : null;
-  const note = paceNote(remaining, pace), exhaust = exhaustion(remaining, window.burn, resetAt, now);
-  const tone: Tone = known ? windowTone(remaining!, window.risk, note, exhaust) : 'muted';
+  const { known, remaining, resetAt, passed, stale, pace, note, exhaust, tone } = quotaWindowForecast(window, now);
   const resetText = !known ? 'no usable sample' : resetAt === null ? 'no reset clock' : passed ? `reset passed ${span(now - resetAt!)} ago` : `Resets in ${span(resetAt - now)}`;
   const sub: Span[] = [];
   if (!known) sub.push({ text: window.observedAt === null ? 'never sampled' : `last sample ${span(Math.max(0, now - window.observedAt))} ago`, tone: 'muted' });
