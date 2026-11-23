@@ -1,5 +1,6 @@
 /** Safe HTTP error classification independent of producer diagnostic text. */
-import { ERROR_STATUS, type ErrorCode } from '@agent-hub/domain';
+import { ERROR_STATUS, type ErrorCode, type RouteName } from '@agent-hub/domain';
+import type { NativeResponse, ObserverResource } from './observer.ts';
 
 const messages: Record<ErrorCode, string> = {
   invalid_request: 'Invalid request.', not_found: 'Resource not found.',
@@ -15,12 +16,24 @@ export class HubError extends Error {
 }
 
 /** Produces a safe response even when an unexpected exception escaped a projection. */
-export function errorResponse(error: unknown): Response {
+export function errorResponse(error: unknown, requestId = crypto.randomUUID()): Response {
   const code = error instanceof HubError ? error.code : 'invalid_projection';
   const headers = new Headers({ 'Cache-Control': 'no-store' });
   if (code === 'method_not_allowed') headers.set('Allow', 'GET');
   return Response.json({ error: {
-    code, message: messages[code], requestId: crypto.randomUUID(),
+    code, message: messages[code], requestId,
     retryable: code === 'source_unavailable' || code === 'saturated' || code === 'stale_boundary',
   } }, { status: ERROR_STATUS[code], headers });
+}
+
+/** Logs a failed source read using only server-owned classifications and identifiers. */
+export function logSourceFailure(route: RouteName, requestId: string, resource: ObserverResource,
+  failure: NativeResponse | 'invalid_projection' | 'read_rejected'): void {
+  const code = typeof failure === 'string' ? failure : failure.error?.code;
+  const errorClass = typeof failure === 'string' ? failure : [
+    'run_inventory_storage', 'run_method_unavailable', 'run_source_error',
+    'run_agent_missing', 'client_timeout', 'observer_timeout', 'observer_exit',
+    'observer_start', 'observer_protocol',
+  ].find(known => known === code) ?? failure.outcome;
+  console.error(JSON.stringify({ event: 'source_failure', route, source: resource.split('.')[0], resource, errorClass, requestId }));
 }

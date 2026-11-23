@@ -1,24 +1,39 @@
 /** Run inventory, transcript windows and proof-checked content. */
 import { session, type Capabilities, type Session, type SessionHistory } from '@agent-hub/domain';
-import { activeStatus, answerText, collectPages, integer, object, runPage, sha256, supportsChunks, text, transcriptPage, type RunAgent, type TranscriptBlock } from '../../src/live/protocol.ts';
+import { activeStatus, answerText, collectPages, integer, object, runAgent, runPage, sha256, supportsChunks, text, transcriptPage, type RunAgent, type TranscriptBlock } from '../../src/live/protocol.ts';
 import { groupTranscript } from '../../terminal/src/transcript.ts';
 import { agentWorkdir, projectRoot } from '../../terminal/src/sessions.ts';
 import { initialTaskCapability, readInitialTask } from '../../terminal/src/initial-task.ts';
 import { exportExactHistory } from '../../terminal/src/export-exact.ts';
 import { parseRunStatus, runStatusRequest, validRunAgentId, type RunStatusRequest } from '../../terminal/src/run-status.ts';
 import { HubError } from './errors.ts';
+import type { NativeResponse } from './observer.ts';
 import { digest, type Position } from './cursor.ts';
 import { coverage, decimalValue, field, inPeriod, ms, noPage, observed, optionalObject, projectId, requireData, type Input, type ReadContext } from './projection.ts';
+
+/** Identifies a producer StorageError on an inventory read. */
+class RunInventoryStorageError extends HubError {
+  /** Keeps the public failure classification while allowing per-ID recovery. */
+  constructor() { super('source_unavailable'); }
+}
+
+/** Decodes a Run page while retaining the one inventory-specific recovery signal. */
+function inventoryPage(envelope: NativeResponse) {
+  if (envelope.outcome === 'unavailable' && envelope.error?.code === 'run_inventory_storage') {
+    throw new RunInventoryStorageError();
+  }
+  return runPage(requireData(envelope));
+}
 
 /** A bounded inventory with its native receipt and fencing revision. */
 export async function runInventory(ctx: ReadContext, active = false) {
   const params = { limit: 200, ...(active ? { active: true } : {}) };
   const envelope = await ctx.read('run.agents', { ...params, offset: 0 });
-  const first = runPage(requireData(envelope));
+  const first = inventoryPage(envelope);
   let complete = envelope.outcome === 'ok';
   const inventory = await collectPages(first, 5, async offset => {
     const receipt = await ctx.read('run.agents', { ...params, offset });
-    const next = runPage(requireData(receipt));
+    const next = inventoryPage(receipt);
     complete &&= receipt.outcome === 'ok';
     if (next.revision !== first.revision) throw new HubError('stale_boundary');
     return next;
@@ -54,6 +69,26 @@ export async function sessions(ctx: ReadContext, query: Input<'sessions'>, posit
   return { data: { items: page.items }, page: page.page, observations: [result.observation] };
 }
 
+/** Finds the latest agent row, recovering by ID when Run cannot project a whole inventory page. */
+async function currentSession(ctx: ReadContext, query: { id: string; execution: string | null }) {
+  try {
+    const inventory = await runInventory(ctx);
+    const agent = inventory.items.find(row => row.id === query.id);
+    if (!agent) throw new HubError(query.execution ? 'stale_boundary' : 'not_found');
+    return { agent, observation: inventory.observation };
+  } catch (error) {
+    if (!(error instanceof RunInventoryStorageError) || !validRunAgentId(query.id)) throw error;
+    const envelope = await ctx.read('run.agent_integration', { agent_id: query.id });
+    if (envelope.outcome === 'incompatible') throw error;
+    if (envelope.outcome === 'missing' && query.execution) throw new HubError('stale_boundary');
+    const data = object(requireData(envelope));
+    if (data.schema_version !== 1) throw new HubError('invalid_projection');
+    const agent = runAgent(data.agent);
+    if (agent.id !== query.id) throw new HubError('invalid_projection');
+    return { agent, observation: observed(envelope, ms(agent.observed)) };
+  }
+}
+
 /** Resolves a current Run row or a server-issued Pool binding. */
 async function selected(ctx: ReadContext, query: { id: string; execution: string | null }) {
   const binding = query.execution ? ctx.bindings.get(query.execution) : undefined;
@@ -64,9 +99,8 @@ async function selected(ctx: ReadContext, query: { id: string; execution: string
     if (evidence.match !== 'verified' || evidence.canonicalAgentId !== query.id || !evidence.view) throw new HubError('stale_boundary');
     return { agent: evidence.view.agent, observation: observed(envelope, ms(evidence.observedAt)), binding, evidence, execution: query.execution! };
   }
-  const result = await runInventory(ctx);
-  const agent = result.items.find(row => row.id === query.id);
-  if (!agent) throw new HubError(query.execution ? 'stale_boundary' : 'not_found');
+  const result = await currentSession(ctx, query);
+  const { agent } = result;
   if (query.execution && !/^ex1_[a-f0-9]{64}$/.test(query.execution) && query.execution !== agent.raw.execution_ref) throw new HubError('stale_boundary');
   let execution = text(agent.raw.execution_ref);
   let evidence = null;

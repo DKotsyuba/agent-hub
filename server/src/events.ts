@@ -3,7 +3,7 @@ import { event, type HubEvent, type Topic } from '@agent-hub/domain';
 import { bridgeData, poolDetail, poolPage, runPage, worktreePage } from '../../src/live/protocol.ts';
 import { quotaSnapshot, quotaStatus } from '../../terminal/src/quota.ts';
 import { digest } from './cursor.ts';
-import { HubError } from './errors.ts';
+import { HubError, logSourceFailure } from './errors.ts';
 import { observed } from './projection.ts';
 import type { ObservationClient, ObserverResource } from './observer.ts';
 
@@ -154,6 +154,7 @@ export class Events {
   private async poll(topic: Topic, state: TopicState): Promise<void> {
     const controller = new AbortController();
     state.controller = controller;
+    const requestId = crypto.randomUUID();
     try {
       const reads = probes(topic);
       const results = await Promise.allSettled(reads.map(([resource, params]) => this.client.read(resource, params, controller.signal)));
@@ -170,8 +171,15 @@ export class Events {
           try {
             validateProbe(resource, result.value.data);
             boundaries.push(sourceBoundary(result.value.data));
-          } catch { observation.outcome = 'invalid'; failed = true; }
-        } else failed = true;
+          } catch {
+            observation.outcome = 'invalid';
+            failed = true;
+            logSourceFailure('events', requestId, resource, 'invalid_projection');
+          }
+        } else {
+          failed = true;
+          logSourceFailure('events', requestId, resource, result.status === 'fulfilled' ? result.value : 'read_rejected');
+        }
         const prior = state.outcomes.get(resource);
         if (prior !== observation.outcome) {
           state.outcomes.set(resource, observation.outcome);

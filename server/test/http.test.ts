@@ -135,6 +135,79 @@ test('supported GET routes project native fixtures through the frozen contract',
   } finally { await http.close(); }
 });
 
+test('Run inventory StorageError recovers current session details through a correlated per-ID read', async t => {
+  const id = 'ag-20260101-010101-0123456789';
+  const status = 'succeeded', sampledAt = now / 1000 + 0.25;
+  const agent = { agent_id: id, sequence: 2, status, observed_at: sampledAt, answer_available: true };
+  const fact = { sequence: 2, raw_status: status, execution_ref: execution };
+  const errorLog = t.mock.method(console, 'error', () => {});
+  let inventoryCode = 'run_inventory_storage';
+  let integrationOutcome: NativeResponse['outcome'] = 'ok';
+  let integrationId = id;
+  let integrationReads = 0;
+  const http = handler({
+    async close() {},
+    async read(resource, params) {
+      switch (resource) {
+        case 'run.identity': return envelope(resource, { tools: [{ name: 'agent_integration' }] });
+        case 'run.agents':
+          assert.deepEqual(params, { limit: 200, offset: 0 });
+          return envelope(resource, null, 'unavailable', inventoryCode);
+        case 'run.agent_integration':
+          integrationReads++;
+          assert.deepEqual(params, { agent_id: id });
+          return integrationOutcome === 'ok'
+            ? envelope(resource, { schema_version: 1, agent: { ...agent, agent_id: integrationId },
+              communication: { state: 'unknown', reason: 'terminal' } })
+            : envelope(resource, null, integrationOutcome);
+        case 'run.status': {
+          const match = (params?.targets as Record<string, unknown>[])[0].execution_ref ? 'verified' : 'unverified';
+          const selector = { agent_id: id, sequence: 2, ...(match === 'verified' ? { execution_ref: execution } : {}) };
+          assert.deepEqual(params, { version: 1, targets: [selector], include_view: true });
+          return envelope(resource, { version: 1, store_id: store, observed_at: now / 1000,
+            items: [{ selector, canonical_agent_id: id, match, pin_id: null, pin_state: 'missing',
+              selected: fact, retained_latest: fact, coverage: 'unknown', restart_resume: 'unknown',
+              lineage_terminal: null, terminal_outcome: null, success_commit: 'unknown',
+              cleanup: { scope: 'lineage', state: 'unknown' } }],
+            view: { selector_index: 0, match, status_scope: 'selected_execution_raw', sampled_at: sampledAt, agent },
+          });
+        }
+        default: throw new Error('unexpected observation: ' + resource);
+      }
+    },
+  });
+  try {
+    const path = '/sessions/' + id;
+    const result = await get(http, 'session', path);
+    assert.equal(result.data.session.execution, execution);
+    assert.equal(result.data.session.status, 'succeeded');
+    assert.equal(result.data.lineage?.match.match, 'unverified');
+    assert.equal((await get(http, 'session', path + '?execution=' + execution)).data.lineage?.match.match, 'verified');
+    assert.equal(errorLog.mock.callCount(), 2);
+    const logged = JSON.parse(String(errorLog.mock.calls[0].arguments[0]));
+    assert.deepEqual(logged, { event: 'source_failure', route: 'session', source: 'run',
+      resource: 'run.agents', errorClass: 'run_inventory_storage', requestId: logged.requestId });
+    assert.match(logged.requestId, /^[0-9a-f-]{36}$/);
+
+    integrationId = 'ag-20260101-010101-012345678a';
+    assert.equal((await http.fetch(request(mount + path))).status, 502);
+    integrationOutcome = 'missing';
+    assert.equal((await http.fetch(request(mount + path))).status, 404);
+    assert.equal((await http.fetch(request(mount + path + '?execution=' + execution))).status, 409);
+    integrationOutcome = 'incompatible';
+    assert.equal((await http.fetch(request(mount + path))).status, 503);
+    assert.equal(integrationReads, 6);
+
+    inventoryCode = 'secret-unrecognized-error';
+    const failed = await http.fetch(request(mount + path));
+    assert.equal(failed.status, 503);
+    assert.equal(integrationReads, 6);
+    const body = apiError(await failed.json());
+    const last = JSON.parse(String(errorLog.mock.calls.at(-1)?.arguments[0]));
+    assert.deepEqual(last, { ...logged, errorClass: 'unavailable', requestId: body.error.requestId });
+  } finally { await http.close(); }
+});
+
 test('Pool agreement remains recorded and does not acquire a verified Run link', async () => {
   const http = handler(await producer());
   try {

@@ -170,6 +170,7 @@ async fn observe(
         Resource::RunIdentity
             | Resource::RunAgents
             | Resource::RunStatus
+            | Resource::RunAgentIntegration
             | Resource::RunTranscript
             | Resource::RunTranscriptExact
             | Resource::RunInitialTask
@@ -370,6 +371,19 @@ async fn read_run(
     } else {
         0
     };
+    if request.resource == Resource::RunAgentIntegration
+        && (request
+            .params
+            .as_object()
+            .is_none_or(|params| params.len() != 1)
+            || request
+                .params
+                .get("agent_id")
+                .and_then(Value::as_str)
+                .is_none_or(str::is_empty))
+    {
+        return Err(ReadError::invalid("run_agent_integration_params"));
+    }
     let operation = async {
         if request.resource == Resource::RunAnswerChunk {
             let tools = run::call(&config.socket, config.broker_uid, "tools", json!({})).await?;
