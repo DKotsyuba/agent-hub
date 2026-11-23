@@ -6,7 +6,7 @@ import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Choice } from '../components/hub-primitives';
 import { client, usePagedRead } from './data';
-import { modelTitle, worktreeMeasurements } from './model';
+import { modelTitle, poolTitle, sessionTitle, worktreeMeasurements } from './model';
 import { branchLabel, formatBytes } from '../../packages/view-model/src/index';
 import { Next, period, Period } from './catalog';
 import { EmptyRows, Expand, href, Link, ReadState, Sources, StatusBadge, useWebText } from './ui';
@@ -28,7 +28,7 @@ function Row({ id, target, selected, title, state, busy, children }: {
   id: string; target: string; selected: boolean; title: string; state?: string | null; busy?: boolean; children?: ReactNode;
 }) {
   return <Link href={target} data-focus-key={id} aria-current={selected ? 'page' : undefined} className="web-record">
-    <div className="web-record-heading"><strong>{title}</strong>{state && <span className="web-record-status">
+    <div className="web-record-heading"><strong title={title}>{title}</strong>{state && <span className="web-record-status">
       {busy && <LoaderCircle size={13} className="web-spin" aria-hidden="true" />}<StatusBadge state={state} /></span>}</div>
     <div className="web-record-copy">{children}</div>
   </Link>;
@@ -54,9 +54,12 @@ export function InventoryList({ kind, query, id, update }: {
   };
   return <>
     {kind !== 'worktrees' && <>
-      <div className={'web-controls web-list-filters' + (kind === 'sessions' ? ' web-session-filters' : '')}>
-        {keys.map(key => <Button size="sm" key={key} variant={selected === key ? 'secondary' : 'outline'} aria-pressed={selected === key}
-          onClick={() => update({ [groupKey]: key })}>{label(key === 'active' || key === 'open' ? 'Live' : key === 'closed' || key === 'finished' ? 'Finished' : key)}</Button>)}
+      <div className="web-list-filters" role="group" aria-label={label('Status')}>
+        {keys.map(key => {
+          const text = label(key === 'active' || key === 'open' ? 'Live' : key === 'closed' || key === 'finished' ? 'Finished' : key);
+          return <Button size="sm" key={key} variant="ghost" aria-label={text} title={text} aria-pressed={selected === key}
+            onClick={() => update({ [groupKey]: key })}>{key === 'finished' || key === 'closed' ? label('Finished short') : text}</Button>;
+        })}
       </div>
       <label className="web-search">{label('Search')}<Input type="search" maxLength={200} value={query.get('q') ?? ''} onChange={event => update({ q: event.target.value })} /></label>
       {kind === 'sessions' && <>
@@ -86,13 +89,13 @@ export function InventoryList({ kind, query, id, update }: {
         <div className="web-records">{shown.map(row => {
           if ('workdir' in row) return <Row key={row.id + ':' + row.execution} id={row.id + ':' + row.execution}
             target={detailUrl(row.id, row.execution)} selected={id === row.id && (!query.has('execution') || row.execution === query.get('execution'))}
-            title={row.name ?? row.id} state={row.status} busy={row.status === 'running'}>
+            title={sessionTitle(row) ?? label('Session detail')} state={row.status} busy={row.status === 'running'}>
             <span>{[row.model && modelTitle(row.model), row.workdir?.split('/').filter(Boolean).at(-1)].filter(Boolean).join(' · ')}</span>
-            <span className="web-record-preview">{row.lastAction ?? row.summary}</span>{row.failureKind && <span className="error-text">{row.failureKind}{row.failureText && ' · ' + row.failureText}</span>}
+            <span className="web-record-preview">{row.lastAction ?? (row.name ? row.summary : null)}</span>{row.failureKind && <span className="error-text">{row.failureKind}{row.failureText && ' · ' + row.failureText}</span>}
             <span>{clock(row.finishedAtMs ?? row.progressAtMs ?? row.createdAtMs)}{row.elapsedMs != null && ' · ' + duration(row.elapsedMs)}</span>
           </Row>;
-          if ('purposePreview' in row) return <Row key={row.id} id={row.id} target={detailUrl(row.id)} selected={id === row.id} title={row.name ?? row.id} state={row.state}>
-            <span>{row.kind && label(row.kind)}</span><span className="web-record-preview">{row.purposePreview}</span>
+          if ('purposePreview' in row) return <Row key={row.id} id={row.id} target={detailUrl(row.id)} selected={id === row.id} title={poolTitle(row) ?? label('Pool detail')} state={row.state}>
+            <span>{row.kind && label(row.kind)}</span><span className="web-record-preview">{row.name && row.purposePreview}</span>
           </Row>;
           const project = 'projects' in data && !request.project ? data.projects.find(item => item.id === row.projectId)?.name : null;
           const measurements = worktreeMeasurements(row, label, bytes => formatBytes(bytes, n));

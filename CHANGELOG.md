@@ -4,6 +4,12 @@ All notable changes to Agent Hub are documented here. The format follows [Keep a
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-11-23
+
+### Changed
+
+- iPad-first layout: collapsible sidebar (icon rail on tablets, remembered per device), compact one-line detail header with readable titles and copyable IDs, collapsible session/pool list, and the session history and pool chat as one full-height scroll surface with compact inline tool-call rows, condensed paging and a floating new-messages control.
+
 ## [0.2.2] - 2026-11-23
 
 ### Added
@@ -79,6 +85,7 @@ First public release: the terminal Hub for Linux x86-64 (standalone executable).
 
 - Archived Tasks and IDE sources are denied by the observer; the terminal has no Tasks, IDE or Run info tabs.
 
+[0.2.3]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.2.3
 [0.2.2]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.2.2
 [0.2.1]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.2.1
 [0.2.0]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.2.0

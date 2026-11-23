@@ -7,7 +7,7 @@ import { Choice } from '../components/hub-primitives';
 import { client, errorCode, LiveContext, usePagedRead, useRead } from './data';
 import { readPoolContent, readPoolExport, readPoolRecord, readSessionText } from './content';
 import { Discussion, Transcript } from './history';
-import { mergeChat, modelTitle } from './model';
+import { mergeChat, modelTitle, poolTitle, sessionTitle } from './model';
 import { CoverageLine, EmptyRows, Expand, Facts, Link, ReadState, sessionHref, Sources, StatusBadge, Text, type EvidenceScope, useWebText } from './ui';
 
 /** Clipboard output is only released after the complete read validates; Escape aborts the operation. */
@@ -97,45 +97,45 @@ function InitialTaskProof({ id, execution, capabilities }: { id: string; executi
 /** Tab selection is rendered through the shell's shareable detail navigation. */
 type DetailTabs = (tabs: string[], content: ReactNode, extra?: string[]) => ReactNode;
 
+/** The shell supplies actions and focus while details supply source-reported metadata. */
+export type DetailHeading = (name?: string, status?: ReactNode, model?: string) => ReactNode;
+
 /** Sessions display one selected execution, independent lineage evidence, and its retained transcript. */
-export function SessionDetails({ id, execution, tab, tabs }: { id: string; execution: string | null; tab: string; tabs: DetailTabs }) {
+export function SessionDetails({ id, execution, tab, tabs, heading }: { id: string; execution: string | null; tab: string; tabs: DetailTabs; heading: DetailHeading }) {
   const { label, clock, duration } = useWebText();
   const read = useRead(id + ':' + execution, signal => client.get('session', { params: { id }, query: { execution }, signal }), `session:${id}:detail`);
-  return <ReadState read={read}>{({ data, observations, capabilities }) => {
-    const row = data.session;
-    return <>
-      <h2>{row.name ?? row.id}</h2>
-      <div className="web-row-meta"><StatusBadge state={row.status} /><span>{[row.model && modelTitle(row.model), row.runtime].filter(Boolean).join(' · ')}</span></div>
-      {tabs(['history', 'result', 'details'], <>
-      {tab === 'history' && <>
-        <Transcript id={id} execution={execution} evidence={[{ title: 'Details', topic: `session:${id}:detail`, items: observations }]} />
-        <div className="web-controls">
-          <CopyAction title="Copy retained history" load={async signal => {
-            const value = await readSessionText('sessionExport', id, { execution, mode: 'retained' }, signal);
-            return label('Retained history') + ' · ' + label(value.coverage?.state ?? 'Unknown') + '\n\n' + value.text;
-          }} />
-          {capabilities?.exactExport === 'supported' && execution && data.lineage?.storeFenced && data.lineage.pinState === 'active' && <CopyAction title="Copy exact execution" load={async signal =>
-            (await readSessionText('sessionExport', id, { execution, mode: 'exact' }, signal)).text!} />}
-        </div>
-        <InitialTaskProof id={id} execution={execution} capabilities={capabilities} />
-      </>}
-      {tab === 'result' && (capabilities?.verifiedResult === 'supported' ? <SessionText id={id} execution={execution} initial={false} evidence={[{ title: 'Details', topic: `session:${id}:detail`, items: observations }]} />
-        : <p className="web-warning">{label('unsupported_capability')}</p>)}
-      {tab === 'details' && <>
-        <Text>{row.summary}</Text>
-        <Facts rows={[[ 'Execution', row.sequence], ['Project', row.projectId && row.projectId + (row.projectInferred ? ' · ' + label('Inferred') : '')],
-          ['Working directory', row.workdir], ['Created', clock(row.createdAtMs)], ['Finished', clock(row.finishedAtMs)], ['Observed', clock(row.observedAtMs)],
-          ['Last progress', clock(row.progressAtMs)], ['Elapsed', duration(row.elapsedMs)], ['Silence', duration(row.silenceMs)], ['Last action', row.lastAction],
-          ['Failure kind', row.failureKind], ['Failure', row.failureText], ['Delivery', data.delivery], ['Cleanup', data.cleanup],
-          ['History attribution', label(data.historyAttribution)], ['Answer attribution', label(data.answerAttribution)]]} />
-        {data.lineage && <Expand title="Execution lineage"><Lineage value={data.lineage} /></Expand>}
-        {(['executionUsage', 'cumulativeUsage', 'toolCounts'] as const).map(key => <Expand key={key} title={key}><Facts rows={data[key].map(item => [item.metric, item.count])} /></Expand>)}
-        <InitialTaskProof id={id} execution={execution} capabilities={capabilities} />
-      </>}
-      </>)}
-      {(tab === 'details' || tab === 'result' && capabilities?.verifiedResult !== 'supported') && <Sources items={observations} topic={`session:${id}:detail`} title="Details" />}
-    </>;
-  }}</ReadState>;
+  const session = read.value?.data.session;
+  return <>{heading(session && sessionTitle(session), session && <StatusBadge state={session.status} />,
+    session && [session.model && modelTitle(session.model), session.runtime].filter(Boolean).join(' · '))}
+    <ReadState read={read}>{({ data, observations, capabilities }) => {
+      const row = data.session;
+      return tabs(['history', 'result', 'details'], <>
+        {tab === 'history' && <Transcript id={id} execution={execution}
+          evidence={[{ title: 'Details', topic: `session:${id}:detail`, items: observations }]} actions={<>
+            <CopyAction title="Copy retained history" load={async signal => {
+              const value = await readSessionText('sessionExport', id, { execution, mode: 'retained' }, signal);
+              return label('Retained history') + ' · ' + label(value.coverage?.state ?? 'Unknown') + '\n\n' + value.text;
+            }} />
+            {capabilities?.exactExport === 'supported' && execution && data.lineage?.storeFenced && data.lineage.pinState === 'active' && <CopyAction title="Copy exact execution" load={async signal =>
+              (await readSessionText('sessionExport', id, { execution, mode: 'exact' }, signal)).text!} />}
+            <InitialTaskProof id={id} execution={execution} capabilities={capabilities} />
+          </>} />}
+        {tab === 'result' && (capabilities?.verifiedResult === 'supported' ? <SessionText id={id} execution={execution} initial={false} evidence={[{ title: 'Details', topic: `session:${id}:detail`, items: observations }]} />
+          : <p className="web-warning">{label('unsupported_capability')}</p>)}
+        {tab === 'details' && <>
+          <Text>{row.summary}</Text>
+          <Facts rows={[[ 'Execution', row.sequence], ['Project', row.projectId && row.projectId + (row.projectInferred ? ' · ' + label('Inferred') : '')],
+            ['Working directory', row.workdir], ['Created', clock(row.createdAtMs)], ['Finished', clock(row.finishedAtMs)], ['Observed', clock(row.observedAtMs)],
+            ['Last progress', clock(row.progressAtMs)], ['Elapsed', duration(row.elapsedMs)], ['Silence', duration(row.silenceMs)], ['Last action', row.lastAction],
+            ['Failure kind', row.failureKind], ['Failure', row.failureText], ['Delivery', data.delivery], ['Cleanup', data.cleanup],
+            ['History attribution', label(data.historyAttribution)], ['Answer attribution', label(data.answerAttribution)]]} />
+          {data.lineage && <Expand title="Execution lineage"><Lineage value={data.lineage} /></Expand>}
+          {(['executionUsage', 'cumulativeUsage', 'toolCounts'] as const).map(key => <Expand key={key} title={key}><Facts rows={data[key].map(item => [item.metric, item.count])} /></Expand>)}
+          <InitialTaskProof id={id} execution={execution} capabilities={capabilities} />
+        </>}
+        {(tab === 'details' || tab === 'result' && capabilities?.verifiedResult !== 'supported') && <Sources items={observations} topic={`session:${id}:detail`} title="Details" />}
+      </>);
+    }}</ReadState></>;
 }
 
 /** Member identity, seat admission and bound Run evidence are independent facts. */
@@ -224,48 +224,45 @@ function RecordView({ id, record, evidence }: { id: string; record: NonNullable<
 }
 
 /** Pool metadata stays above section tabs and retains proposal and record provenance. */
-export function PoolDetails({ id, tab, tabs, proposal, select }: {
-  id: string; tab: string; tabs: DetailTabs; proposal: string | null; select: (id: string | null) => void;
+export function PoolDetails({ id, tab, tabs, heading, proposal, select }: {
+  id: string; tab: string; tabs: DetailTabs; heading: DetailHeading; proposal: string | null; select: (id: string | null) => void;
 }) {
   const { label, clock } = useWebText();
   const read = useRead(id, signal => client.get('pool', { params: { id }, signal }), `pool:${id}:detail`);
-  return <ReadState read={read}>{({ data, observations, capabilities }) => {
-    const { pool, proposalId, coverage } = data;
-    const capable = capabilities?.bidirectionalHistory === 'supported';
-    const record = pool.record && (pool.record.kind === 'agreement' ? capabilities?.agreementRecord : capabilities?.completionRecord) === 'supported' ? pool.record : null;
-    const core = ['discussion', 'members', 'details'];
-    const sections = ['members', 'proposals', 'decisions', 'criteria', 'votes', 'deliveries'];
-    const extra = [...sections.slice(1), 'record'];
-    const evidence: EvidenceScope[] = [{ title: 'Details', topic: `pool:${id}:detail`, items: observations }];
-    return <>
-      <h2>{pool.name ?? pool.id}</h2>
-      <div className="web-row-meta"><StatusBadge state={pool.state} /><span>{pool.kind && label(pool.kind)}</span></div>
-      {tabs(pool.kind === 'chat' ? core : [...core, ...extra], <>
-      {tab === 'discussion' && <>
-        <Discussion id={id} bidirectional={capable} evidence={evidence} />
-        {capable && <CopyAction title="Copy discussion" load={async signal => {
-          const value = await readPoolExport(id, signal);
-          return [label('Retained history') + ' · ' + label(value.coverage?.state ?? 'Unknown'),
-            ...value.rows.reduce((items, page) => mergeChat(items, page), []).map(item =>
-              [item.authorId, clock(item.atMs), item.complete && item.valid ? null : label('Partial message'), item.parts.join('')].filter(Boolean).join(' · '))].join('\n\n');
-        }} />}
-      </>}
-      {tab === 'details' && <>
-        <Text>{pool.purposePreview}</Text><Facts rows={[[ 'Leader', pool.leader], ['Revision', pool.revision],
-          ['Proposal', proposalId], ['Record', pool.record === undefined ? label('Unreported') : pool.record?.id]]} />
-        <PoolContentView id={id} field="purpose" proposal={null} />
-        {(proposal ?? proposalId) && <PoolContentView id={id} field="snapshot" proposal={proposal ?? proposalId} />}
-      </>}
-      {tab === 'record' && (record ? <RecordView id={id} record={record} evidence={evidence} /> : <p>{label(pool.record === undefined ? 'Unreported' : pool.record ? 'unsupported_capability' : 'No records')}</p>)}
-      {sections.includes(tab) && <>
-        {proposal && tab !== 'members' && tab !== 'deliveries' && <Choice label={label('Proposal')} value={proposal}
-          options={[[proposal, proposal], ['all', label('All proposals')]]} onChange={value => { if (value === 'all') select(null); }} />}
-        {tab === 'proposals' && (proposal ?? proposalId) && <PoolContentView id={id} field="snapshot" proposal={proposal ?? proposalId} />}
-        <PoolSectionView key={tab + ':' + proposal} id={id} section={tab as PoolSection} capabilities={capabilities} evidence={evidence} proposal={tab === 'proposals' ? null : proposal} select={select} />
-      </>}
-      </>, pool.kind === 'chat' ? extra : undefined)}
-      {tab === 'details' && <CoverageLine value={coverage} />}
-      {(tab === 'details' || tab === 'record' && !record) && <Sources items={observations} topic={`pool:${id}:detail`} title="Details" />}
-    </>;
-  }}</ReadState>;
+  const selected = read.value?.data.pool;
+  return <>{heading(selected && poolTitle(selected), selected && <StatusBadge state={selected.state} />,
+    selected?.kind ? label(selected.kind) : undefined)}
+    <ReadState read={read}>{({ data, observations, capabilities }) => {
+      const { pool, proposalId, coverage } = data;
+      const capable = capabilities?.bidirectionalHistory === 'supported';
+      const record = pool.record && (pool.record.kind === 'agreement' ? capabilities?.agreementRecord : capabilities?.completionRecord) === 'supported' ? pool.record : null;
+      const core = ['discussion', 'members', 'details'];
+      const sections = ['members', 'proposals', 'decisions', 'criteria', 'votes', 'deliveries'];
+      const extra = [...sections.slice(1), 'record'];
+      const evidence: EvidenceScope[] = [{ title: 'Details', topic: `pool:${id}:detail`, items: observations }];
+      return tabs(core, <>
+        {tab === 'discussion' && <Discussion id={id} bidirectional={capable} evidence={evidence}
+          actions={capable && <CopyAction title="Copy discussion" load={async signal => {
+            const value = await readPoolExport(id, signal);
+            return [label('Retained history') + ' · ' + label(value.coverage?.state ?? 'Unknown'),
+              ...value.rows.reduce((items, page) => mergeChat(items, page), []).map(item =>
+                [item.authorId, clock(item.atMs), item.complete && item.valid ? null : label('Partial message'), item.parts.join('')].filter(Boolean).join(' · '))].join('\n\n');
+          }} />} />}
+        {tab === 'details' && <>
+          <Text>{pool.purposePreview}</Text><Facts rows={[[ 'Leader', pool.leader], ['Revision', pool.revision],
+            ['Proposal', proposalId], ['Record', pool.record === undefined ? label('Unreported') : pool.record?.id]]} />
+          <PoolContentView id={id} field="purpose" proposal={null} />
+          {(proposal ?? proposalId) && <PoolContentView id={id} field="snapshot" proposal={proposal ?? proposalId} />}
+        </>}
+        {tab === 'record' && (record ? <RecordView id={id} record={record} evidence={evidence} /> : <p>{label(pool.record === undefined ? 'Unreported' : pool.record ? 'unsupported_capability' : 'No records')}</p>)}
+        {sections.includes(tab) && <>
+          {proposal && tab !== 'members' && tab !== 'deliveries' && <Choice label={label('Proposal')} value={proposal}
+            options={[[proposal, proposal], ['all', label('All proposals')]]} onChange={value => { if (value === 'all') select(null); }} />}
+          {tab === 'proposals' && (proposal ?? proposalId) && <PoolContentView id={id} field="snapshot" proposal={proposal ?? proposalId} />}
+          <PoolSectionView key={tab + ':' + proposal} id={id} section={tab as PoolSection} capabilities={capabilities} evidence={evidence} proposal={tab === 'proposals' ? null : proposal} select={select} />
+        </>}
+        {tab === 'details' && <CoverageLine value={coverage} />}
+        {(tab === 'details' || tab === 'record' && !record) && <Sources items={observations} topic={`pool:${id}:detail`} title="Details" />}
+      </>, extra);
+    }}</ReadState></>;
 }

@@ -1,16 +1,17 @@
 /** Web-only Agent Hub shell, routing, preferences, and scoped stream ownership. */
 import type { ReactNode } from 'react';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Activity, ArrowLeft, Bot, Gauge, GitBranch, Layers3, LayoutDashboard, RefreshCw, Settings, Download } from 'lucide-react';
+import { Activity, ArrowLeft, Bot, Gauge, GitBranch, Layers3, LayoutDashboard, RefreshCw, Settings, Download, PanelLeft, List, Copy, Check } from 'lucide-react';
 import { version as webVersion } from '../../package.json';
 import type { Topic } from '@agent-hub/domain';
 import { Button } from '../components/ui/button';
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle, DialogTrigger } from '../components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../components/ui/tooltip';
 import { Choice } from '../components/hub-primitives';
 import { client, LiveContext, useLive, useRead } from './data';
 import { Incidents, Overview, Period, Quota, WorktreeDetails } from './catalog';
-import { PoolDetails, SessionDetails } from './details';
+import { PoolDetails, SessionDetails, type DetailHeading } from './details';
 import { InventoryList, inventoryHref } from './lists';
 import type { Inventory } from './lists';
 import { Expand, href, Link, Navigation, relativeTime, useWebText } from './ui';
@@ -45,6 +46,35 @@ function savedTheme() {
   catch { return 'system'; }
 }
 
+/** A stored override takes precedence over the desktop or tablet width default. */
+function savedSidebar() {
+  try {
+    const stored = localStorage.getItem('agent-hub-sidebar');
+    return stored === 'expanded' ? true : stored === 'collapsed' ? false : null;
+  } catch { return null; }
+}
+
+/** Adds a label to icon controls without placing it inside the rail. */
+function RailHint({ label, children }: { label: string; children: React.ReactElement }) {
+  return <Tooltip><TooltipTrigger asChild>{children}</TooltipTrigger>
+    <TooltipContent side="right" className="web-rail-hint">{label}</TooltipContent>
+  </Tooltip>;
+}
+
+/** Copies the route identifier with immediate, localized clipboard feedback. */
+function CopyId({ id }: { id: string }) {
+  const { label } = useWebText();
+  const [notice, setNotice] = useState('');
+  return <div className="web-identity">
+    <code title={id}>{id}</code>
+    <Button variant="ghost" size="icon" title={label('Copy ID')} aria-label={label('Copy ID')} onClick={async () => {
+      try { await navigator.clipboard.writeText(id); setNotice('Copied'); }
+      catch { setNotice('Copy failed'); }
+    }}>{notice === 'Copied' ? <Check size={13} /> : <Copy size={13} />}</Button>
+    <span className={notice === 'Copy failed' ? 'web-caution' : 'sr-only'} role="status">{notice && label(notice)}</span>
+  </div>;
+}
+
 /** Picks only the inventory and visible detail topics, plus its metadata dependencies. */
 function topicsFor(kind: ReturnType<typeof locationView>['kind'], id: string | null, tab: string): Topic[] {
   if (!id) return [kind];
@@ -62,6 +92,17 @@ export default function App() {
   const { label, locale, setLocale, tag, clock } = useWebText();
   const [address, setAddress] = useState(() => location.pathname + location.search);
   const [theme, setTheme] = useState(savedTheme);
+  const [sidebar, setSidebar] = useState(savedSidebar);
+  const [wide, setWide] = useState(() => matchMedia('(min-width: 1280px)').matches);
+  const [listVisible, setListVisible] = useState(true);
+  const expanded = sidebar ?? wide;
+  useEffect(() => {
+    const media = matchMedia('(min-width: 1280px)');
+    const resize = () => setWide(media.matches);
+    media.addEventListener('change', resize);
+    resize();
+    return () => media.removeEventListener('change', resize);
+  }, []);
   const [interval, setInterval] = useState<1 | 3 | 5 | 10>(3);
   const [refresh, setRefresh] = useState(0);
   const [settings, setSettings] = useState(false);
@@ -70,6 +111,8 @@ export default function App() {
   const appUpdate = useAppUpdate();
   const route = locationView();
   const { id, kind, query, tab, inventory } = route;
+  const immersive = !!id && (kind === 'sessions' || kind === 'pools');
+  const showHistory = immersive && (tab === 'history' || tab === 'discussion');
   const live = useLive(topicsFor(kind, id, tab), interval);
   const health = useRead('health:' + refresh + ':' + (live.connection === 'connected'), signal => client.get('health', { signal }), undefined, 30_000);
   const [serverRelease, setServerRelease] = useState<string>();
@@ -88,10 +131,15 @@ export default function App() {
   const saved = useRef(new Map<string, Snapshot>());
   const parent = inventory ? inventoryHref(inventory, query) : href('/', { from: query.get('from'), to: query.get('to') });
 
+  /** Only one element owns the currently visible detail scroll position. */
+  function detailViewport() {
+    return detail.current?.querySelector<HTMLElement>('.web-transcript, .web-detail-scroll') ?? detail.current;
+  }
+
   /** Saves the outgoing viewport using the current rendered document. */
   function capture() {
     const focus = document.activeElement instanceof HTMLElement ? document.activeElement.closest<HTMLElement>('[data-focus-key]')?.dataset.focusKey : undefined;
-    saved.current.set(current.current.key, { ...current.current, focus, scroll: window.scrollY, list: list.current?.scrollTop, detail: detail.current?.scrollTop });
+    saved.current.set(current.current.key, { ...current.current, focus, scroll: window.scrollY, list: list.current?.scrollTop, detail: detailViewport()?.scrollTop });
   }
 
   /** Navigates once, preserving modifier-click behavior in Link. */
@@ -130,13 +178,16 @@ export default function App() {
       if (!(event.metaKey || event.ctrlKey || event.altKey || event.shiftKey)) { event.preventDefault(); selectTab(value); }
     }}>{label(value)}</Link>;
     const visible = extra.includes(tab) ? [...items, tab] : items;
-    return <Tabs value={tab} onValueChange={selectTab}>
-      <TabsList className="web-tabs" aria-label={label('Detail sections')}>
-        {visible.map(item => <TabsTrigger key={item} value={item} asChild>{tabLink(item)}</TabsTrigger>)}
-      </TabsList>
-      <TabsContent value={tab}>{content}</TabsContent>
-      {!!extra.length && <Expand title="More sections"><div className="web-more-links">{extra.map(item =>
-        <span className="web-link" key={item}>{tabLink(item, item === tab)}</span>)}</div></Expand>}
+    return <Tabs value={tab} onValueChange={selectTab} className="web-detail-tabs" activationMode="manual">
+      <div className="web-detail-nav">
+        <TabsList className="web-tabs" aria-label={label('Detail sections')}>
+          {visible.map(item => <TabsTrigger key={item} value={item} asChild>{tabLink(item)}</TabsTrigger>)}
+        </TabsList>
+        {!!extra.length && <Choice label={label('More sections')} value="sections"
+          options={[['sections', label('More')], ...extra.map(item => [item, label(item)] as [string, string])]}
+          onChange={value => { if (value !== 'sections') selectTab(value); }} />}
+      </div>
+      <TabsContent className={showHistory ? 'web-history-tab' : 'web-detail-scroll'} value={tab}>{content}</TabsContent>
     </Tabs>;
   }
 
@@ -176,7 +227,8 @@ export default function App() {
       (target || heading.current)?.focus({ preventScroll: true });
       window.scrollTo(0, snapshot?.scroll ?? 0);
       if (list.current) list.current.scrollTop = snapshot?.list ?? 0;
-      if (detail.current) detail.current.scrollTop = snapshot?.detail ?? 0;
+      const area = detailViewport();
+      if (area) area.scrollTop = snapshot?.detail ?? 0;
       return true;
     };
     if (apply()) return;
@@ -206,7 +258,7 @@ export default function App() {
   useEffect(() => {
     const key = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey || settings
-          || (event.target instanceof HTMLElement && event.target.closest('input,select,textarea,[contenteditable=true],[role=combobox]'))) return;
+          || (event.target instanceof HTMLElement && event.target.closest('input,select,textarea,[contenteditable=true],[role=combobox],[role=dialog]'))) return;
       const destination = /^[0-4]$/.test(event.key) ? navigation[+event.key] : undefined;
       if (destination) go(destination[1]);
       if (event.key === 'r') setRefresh(value => value + 1);
@@ -221,39 +273,73 @@ export default function App() {
   }, [address, inventory, settings]);
 
   const title = kind === 'incidents' ? 'Bridge incidents' : navigation.find(item => item[0] === kind)![2];
+  const fallbackTitle = label(kind === 'sessions' ? 'Session detail' : kind === 'pools' ? 'Pool detail' : 'Worktree detail');
+  const backLink = (id || kind === 'incidents') && <Link href={parent} data-focus-key="back" className="web-back web-link" onClick={event => {
+    if (!(event.metaKey || event.ctrlKey || event.altKey || event.shiftKey)) { event.preventDefault(); back(); }
+  }} aria-label={label('Back')} title={label('Back')}><ArrowLeft size={18} aria-hidden="true" /><span>{label('Back')}</span></Link>;
+  const sidebarToggle = <Button variant="ghost" size="icon" className="web-sidebar-toggle"
+    aria-expanded={expanded} aria-controls="web-sidebar" aria-label={label('Sidebar')} title={label(expanded ? 'Collapse sidebar' : 'Expand sidebar')}
+    onClick={() => {
+      setSidebar(!expanded);
+      try { localStorage.setItem('agent-hub-sidebar', expanded ? 'collapsed' : 'expanded'); } catch { /* Keep the in-memory choice. */ }
+    }}><PanelLeft size={18} /></Button>;
+  const headerControls = <div className="web-controls web-header-controls">
+    {updateAvailable && <Button className="web-update" size="sm" disabled={appUpdate.updating} onClick={() => void appUpdate.activate()}
+      aria-label={label(appUpdate.updating ? 'Updating app' : 'Update app')} title={label(appUpdate.updating ? 'Updating app' : 'Update app')}>
+      <Download size={16} aria-hidden="true" /><span>{label(appUpdate.updating ? 'Updating app' : 'Update app')}</span>
+    </Button>}
+    <span className="web-connection" title={label(connection)}><span className={live.connection === 'connected' ? 'online' : ''} /><span>{label(connection)}</span></span>
+    <Button variant="ghost" size="icon" onClick={() => setRefresh(value => value + 1)}
+      aria-label={label('Refresh data')} title={label('Refresh data')}><RefreshCw size={16} /></Button>
+  </div>;
+  const fixtureBadge = health.value?.mode === 'fixture' && <span className="web-fixture">{label('Fixture data')}</span>;
+
+  /** Aligns the current record name, status and actions above both detail views. */
+  const compactHeader: DetailHeading = (name, status, model) => <header className="web-detail-header">
+    <div className="web-detail-heading">
+      <div className="web-detail-actions">
+        {sidebarToggle}
+        <Button variant="ghost" size="icon" className="web-list-toggle"
+          aria-expanded={listVisible} aria-controls="web-inventory" aria-label={label('Inventory')}
+          title={label(listVisible ? 'Hide list' : 'Show list')} onClick={() => setListVisible(value => !value)}><List size={18} /></Button>
+        {backLink}
+      </div>
+      <h1 ref={heading} tabIndex={-1} title={name}>{name || fallbackTitle}</h1>
+      {status}
+      {model && <span className="web-heading-model" title={model}>{model}</span>}
+      {headerControls}
+    </div>
+    <div className="web-detail-identity">
+      {id && <CopyId key={id} id={id} />}
+      {model && <span className="web-mobile-model" title={model}>{model}</span>}
+      {fixtureBadge}
+    </div>
+  </header>;
   const header = <div className={id ? 'web-heading web-heading-detail' : 'web-heading'}>
     <div className="web-heading-title">
-      {(id || kind === 'incidents') && <Link href={parent} data-focus-key="back" className="web-back web-link" onClick={event => {
-        if (!(event.metaKey || event.ctrlKey || event.altKey || event.shiftKey)) { event.preventDefault(); back(); }
-      }}><ArrowLeft size={16} />{label('Back')}</Link>}
-      <h1 ref={heading} tabIndex={-1}>{id ? label(kind === 'sessions' ? 'Session detail' : kind === 'pools' ? 'Pool detail' : 'Worktree detail') : label(title)}</h1>
-      {health.value?.mode === 'fixture' && <span className="web-fixture">{label('Fixture data')}</span>}
+      {backLink}
+      <div className="web-title-line">{sidebarToggle}<h1 ref={heading} tabIndex={-1}>{id ? fallbackTitle : label(title)}</h1></div>
+      {fixtureBadge}
     </div>
-    <div className="web-controls web-header-controls">
-      {updateAvailable && <Button className="web-update" size="sm" disabled={appUpdate.updating} onClick={() => void appUpdate.activate()}>
-        <Download size={14} aria-hidden="true" />{label(appUpdate.updating ? 'Updating app' : 'Update app')}
-      </Button>}
-      <span className="web-connection"><span className={live.connection === 'connected' ? 'online' : ''} />{label(connection)}</span>
-      <Button variant="outline" size="icon" onClick={() => setRefresh(value => value + 1)} aria-label={label('Refresh data')}><RefreshCw size={16} /></Button>
-    </div>
+    {headerControls}
   </div>;
 
   return <Navigation.Provider value={go}><LiveContext.Provider value={{ ...live, refresh, unreachable, reportRead }}>
-    <div className="web-shell">
+    <div className="web-shell" data-sidebar={expanded ? 'expanded' : 'collapsed'} data-immersive={immersive || undefined}>
       <a className="skip-link" href="#web-main">{label('Skip to content')}</a>
-      <aside className="web-rail">
-        <Link className="web-brand" href="/" data-focus-key="brand"><span><Activity size={20} /></span><strong>Agent Hub</strong></Link>
+      <TooltipProvider delayDuration={250}><aside className="web-rail" id="web-sidebar">
+        <RailHint label="Agent Hub"><Link className="web-brand" href="/" aria-label="Agent Hub" data-focus-key="brand"><span><Activity size={20} /></span><strong>Agent Hub</strong></Link></RailHint>
         <nav aria-label={label('Navigation')}>
-          {navigation.map(([key, path, name, Icon]) => <Link href={path} key={key} data-focus-key={key}
+          {navigation.map(([key, path, name, Icon]) => <RailHint key={key} label={label(name)}><Link href={path} data-focus-key={key} aria-label={label(name)}
             aria-current={key === kind || (key === 'overview' && kind === 'incidents') ? 'page' : undefined}>
-            <Icon size={18} aria-hidden="true" />{label(name)}
-          </Link>)}
+            <Icon size={18} aria-hidden="true" /><span>{label(name)}</span>
+          </Link></RailHint>)}
         </nav>
         <div className="web-preferences">
           <Dialog open={settings} onOpenChange={setSettings}>
-            <DialogTrigger asChild><Button className="web-settings-trigger" variant="ghost" aria-label={label('Settings')}>
+            <RailHint label={label('Settings')}><DialogTrigger asChild><Button className="web-settings-trigger" variant="ghost" aria-label={label('Settings')}>
               <Settings size={18} aria-hidden="true" /><span>{label('Settings')}</span>
-            </Button></DialogTrigger>
+            </Button></DialogTrigger></RailHint>
             <DialogContent className="settings-dialog">
               <DialogTitle>{label('Settings')}</DialogTitle>
               <DialogDescription>{label('Keyboard shortcuts')} · {label('0–4 Switch screen · R Refresh · / Search · ? Help')}</DialogDescription>
@@ -269,19 +355,19 @@ export default function App() {
             </DialogContent>
           </Dialog>
         </div>
-      </aside>
+      </aside></TooltipProvider>
       <main id="web-main" className="web-main" tabIndex={-1}>
-        {header}
+        {!immersive && header}
         {unreachable && <p className="web-warning web-offline" role="status">{label('Offline shell')}</p>}
         {appUpdate.error && <p className="web-warning" role="status">{label('Update failed')}</p>}
         <div className="web-page">
-        {inventory ? <div className={'web-split' + (id ? ' web-has-detail' : '')}>
-          <section ref={list} className="web-list-pane" aria-label={label(title)}>
+        {inventory ? <div className={'web-split' + (id ? ' web-has-detail' : '') + (immersive && !listVisible ? ' web-list-collapsed' : '')}>
+          <section id="web-inventory" ref={list} className="web-list-pane" aria-label={label(title)}>
             <InventoryList key={inventory} kind={inventory as Inventory} query={query} id={id} update={update} />
           </section>
           {id && <section ref={detail} className="web-detail-pane" aria-label={label('Details')} key={kind + ':' + id + ':' + query.get('execution')}>
-            {inventory === 'sessions' ? <SessionDetails id={id} execution={query.get('execution')} tab={tab} tabs={tabs} />
-              : inventory === 'pools' ? <PoolDetails id={id} tab={tab} tabs={tabs} proposal={query.get('proposal')} select={proposal => update({ proposal }, true)} />
+            {inventory === 'sessions' ? <SessionDetails id={id} execution={query.get('execution')} tab={tab} tabs={tabs} heading={compactHeader} />
+              : inventory === 'pools' ? <PoolDetails id={id} tab={tab} tabs={tabs} heading={compactHeader} proposal={query.get('proposal')} select={proposal => update({ proposal }, true)} />
               : <WorktreeDetails id={id} />}
           </section>}
         </div> : <>
@@ -293,13 +379,13 @@ export default function App() {
             ? <Incidents query={query} next={cursor => update({ cursor }, true)} /> : <Quota now={Math.max(now, lastRead ?? 0)} />}
         </>}
         </div>
-        <footer className="web-footer">
+        {!immersive && <footer className="web-footer">
           <span>Hub {webVersion}</span>
           <span>{label('Server version')} {serverRelease ?? '—'}</span>
           <span>{label(connection)}</span>
           <span title={lastRead ? clock(lastRead) : undefined}>{label('Updated')} {lastRead ?
             relativeTime(lastRead, Math.max(now, lastRead), tag) : '—'}</span>
-        </footer>
+        </footer>}
       </main>
     </div>
   </LiveContext.Provider></Navigation.Provider>;
