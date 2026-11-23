@@ -1,7 +1,8 @@
 /** Web-only Agent Hub shell, routing, preferences, and scoped stream ownership. */
 import type { ReactNode } from 'react';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Activity, ArrowLeft, Bot, CircleHelp, Gauge, GitBranch, Layers3, LayoutDashboard, RefreshCw } from 'lucide-react';
+import { Activity, ArrowLeft, Bot, Gauge, GitBranch, Layers3, LayoutDashboard, RefreshCw, Settings, Download } from 'lucide-react';
+import { version as webVersion } from '../../package.json';
 import type { Topic } from '@agent-hub/domain';
 import { Button } from '../components/ui/button';
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle, DialogTrigger } from '../components/ui/dialog';
@@ -12,7 +13,8 @@ import { Incidents, Overview, Period, Quota, WorktreeDetails } from './catalog';
 import { PoolDetails, SessionDetails } from './details';
 import { InventoryList, inventoryHref } from './lists';
 import type { Inventory } from './lists';
-import { href, Link, Navigation, Sources, useWebText } from './ui';
+import { Expand, href, Link, Navigation, relativeTime, Sources, useWebText } from './ui';
+import { useAppUpdate } from './pwa';
 
 /** Primary screens and their stable addresses. */
 const navigation = [
@@ -57,16 +59,26 @@ function topicsFor(kind: ReturnType<typeof locationView>['kind'], id: string | n
 
 /** Renders the same selected URL in a desktop split or phone full-screen detail. */
 export default function App() {
-  const { label, locale, setLocale } = useWebText();
+  const { label, locale, setLocale, tag, clock } = useWebText();
   const [address, setAddress] = useState(() => location.pathname + location.search);
   const [theme, setTheme] = useState(savedTheme);
   const [interval, setInterval] = useState<1 | 3 | 5 | 10>(3);
   const [refresh, setRefresh] = useState(0);
-  const [help, setHelp] = useState(false);
+  const [settings, setSettings] = useState(false);
+  const [now, setNow] = useState(Date.now);
+  const [lastRead, reportRead] = useState<number>();
+  const appUpdate = useAppUpdate();
   const route = locationView();
   const { id, kind, query, tab, inventory } = route;
   const live = useLive(topicsFor(kind, id, tab), interval);
-  const health = useRead('health', signal => client.get('health', { signal }));
+  const health = useRead('health:' + refresh + ':' + (live.connection === 'connected'), signal => client.get('health', { signal }), undefined, 30_000);
+  const [serverRelease, setServerRelease] = useState<string>();
+  useEffect(() => {
+    if (health.value) setServerRelease(health.value.release);
+  }, [health.value]);
+  const updateAvailable = appUpdate.waiting || (!!serverRelease && serverRelease !== webVersion);
+  const unreachable = health.error === 'network_unavailable' && live.connection !== 'connected';
+  const connection = unreachable ? 'Server unreachable' : live.connection;
   const heading = useRef<HTMLHeadingElement>(null);
   const list = useRef<HTMLElement>(null);
   const detail = useRef<HTMLElement>(null);
@@ -110,18 +122,33 @@ export default function App() {
     go(location.pathname + (next.size ? '?' + next : ''), true, false);
   }
 
-  /** Routes tab choices through both browser history and keyboard tab semantics. */
-  function tabs(items: string[], content: ReactNode) {
+  /** Keeps primary tabs prominent and retains directly addressable secondary tabs. */
+  function tabs(items: string[], content: ReactNode, extra: string[] = []) {
     const target = (value: string) => '/' + kind + '/' + id + '/' + value + location.search;
-    return <Tabs value={tab} onValueChange={value => go(target(value), true, false)}>
+    const selectTab = (value: string) => go(target(value), true, false);
+    const tabLink = (value: string, current = false) => <Link href={target(value)} aria-current={current ? 'page' : undefined} onClick={event => {
+      if (!(event.metaKey || event.ctrlKey || event.altKey || event.shiftKey)) { event.preventDefault(); selectTab(value); }
+    }}>{label(value)}</Link>;
+    const visible = extra.includes(tab) ? [...items, tab] : items;
+    return <Tabs value={tab} onValueChange={selectTab}>
       <TabsList className="web-tabs" aria-label={label('Detail sections')}>
-        {items.map(item => <TabsTrigger key={item} value={item} asChild><Link href={target(item)} onClick={event => {
-          if (!(event.metaKey || event.ctrlKey || event.altKey || event.shiftKey)) { event.preventDefault(); go(target(item), true, false); }
-        }}>{label(item)}</Link></TabsTrigger>)}
+        {visible.map(item => <TabsTrigger key={item} value={item} asChild>{tabLink(item)}</TabsTrigger>)}
       </TabsList>
       <TabsContent value={tab}>{content}</TabsContent>
+      {!!extra.length && <Expand title="More sections"><div className="web-more-links">{extra.map(item =>
+        <span className="web-link" key={item}>{tabLink(item, item === tab)}</span>)}</div></Expand>}
     </Tabs>;
   }
+
+  useEffect(() => {
+    const tick = () => { if (!document.hidden) setNow(Date.now()); };
+    const timer = window.setInterval(tick, 15_000);
+    document.addEventListener('visibilitychange', tick);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', tick);
+    };
+  }, []);
 
   useEffect(() => {
     history.scrollRestoration = 'manual';
@@ -163,7 +190,13 @@ export default function App() {
 
   useEffect(() => {
     const media = matchMedia('(prefers-color-scheme: dark)');
-    const apply = () => document.documentElement.classList.toggle('dark', theme === 'dark' || (theme === 'system' && media.matches));
+    const apply = () => {
+      const dark = theme === 'dark' || (theme === 'system' && media.matches);
+      document.documentElement.classList.toggle('dark', dark);
+      for (const meta of document.querySelectorAll('meta[name=theme-color]')) meta.setAttribute('content', dark ? '#141c29' : '#f7f8fa');
+      const manifest = document.querySelector('link[rel=manifest]');
+      manifest?.setAttribute('href', dark ? '/manifest-dark.webmanifest' : '/manifest.webmanifest');
+    };
     apply();
     media.addEventListener('change', apply);
     try { localStorage.setItem('agent-hub-theme', theme); } catch { /* Preference remains available in memory. */ }
@@ -172,12 +205,12 @@ export default function App() {
 
   useEffect(() => {
     const key = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey || help
+      if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey || settings
           || (event.target instanceof HTMLElement && event.target.closest('input,select,textarea,[contenteditable=true],[role=combobox]'))) return;
       const destination = /^[0-4]$/.test(event.key) ? navigation[+event.key] : undefined;
       if (destination) go(destination[1]);
       if (event.key === 'r') setRefresh(value => value + 1);
-      if (event.key === '?') setHelp(true);
+      if (event.key === '?') setSettings(true);
       if (event.key === '/' && inventory) {
         const search = list.current?.querySelector<HTMLInputElement>('input[type=search]');
         if (search?.getClientRects().length) { event.preventDefault(); search.focus(); }
@@ -185,10 +218,10 @@ export default function App() {
     };
     window.addEventListener('keydown', key);
     return () => window.removeEventListener('keydown', key);
-  }, [address, inventory, help]);
+  }, [address, inventory, settings]);
 
   const title = kind === 'incidents' ? 'Bridge incidents' : navigation.find(item => item[0] === kind)![2];
-  const header = <div className="web-heading">
+  const header = <div className={id ? 'web-heading web-heading-detail' : 'web-heading'}>
     <div>
       {(id || kind === 'incidents') && <Link href={parent} data-focus-key="back" className="web-back web-link" onClick={event => {
         if (!(event.metaKey || event.ctrlKey || event.altKey || event.shiftKey)) { event.preventDefault(); back(); }
@@ -197,12 +230,15 @@ export default function App() {
     </div>
     <div className="web-controls">
       {health.value?.mode === 'fixture' && <span className="web-fixture">{label('Fixture data')}</span>}
-      <span className="web-connection"><span className={live.connection === 'connected' ? 'online' : ''} />{label(live.connection)}</span>
-      <Button variant="outline" size="icon" onClick={() => setRefresh(value => value + 1)} aria-label={label('Refresh')}><RefreshCw size={16} /></Button>
+      {updateAvailable && <Button className="web-update" size="sm" disabled={appUpdate.updating} onClick={() => void appUpdate.activate()}>
+        <Download size={14} aria-hidden="true" />{label(appUpdate.updating ? 'Updating app' : 'Update app')}
+      </Button>}
+      <span className="web-connection"><span className={live.connection === 'connected' ? 'online' : ''} />{label(connection)}</span>
+      <Button variant="outline" size="icon" onClick={() => setRefresh(value => value + 1)} aria-label={label('Refresh data')}><RefreshCw size={16} /></Button>
     </div>
   </div>;
 
-  return <Navigation.Provider value={go}><LiveContext.Provider value={{ ...live, refresh }}>
+  return <Navigation.Provider value={go}><LiveContext.Provider value={{ ...live, refresh, unreachable, reportRead }}>
     <div className="web-shell">
       <a className="skip-link" href="#web-main">{label('Skip to content')}</a>
       <aside className="web-rail">
@@ -214,13 +250,21 @@ export default function App() {
           </Link>)}
         </nav>
         <div className="web-preferences">
-          <Choice label={label('Appearance')} value={theme} options={['system', 'light', 'dark'].map(value => [value, label(value)])} onChange={setTheme} />
-          <Choice label={label('Language')} value={locale} options={[[ 'en', 'English'], ['ru', 'Русский']]} onChange={value => setLocale(value === 'ru' ? 'ru' : 'en')} />
-          <Choice label={label('Refresh cadence')} value={String(interval)} options={[1, 3, 5, 10].map(value => [String(value), value + ' ' + label('sec')])} onChange={value => setInterval(Number(value) as 1 | 3 | 5 | 10)} />
-          <Dialog open={help} onOpenChange={setHelp}><DialogTrigger asChild><Button variant="ghost" aria-label={label('Keyboard shortcuts')}><CircleHelp size={18} /></Button></DialogTrigger>
+          <Dialog open={settings} onOpenChange={setSettings}>
+            <DialogTrigger asChild><Button className="web-settings-trigger" variant="ghost" aria-label={label('Settings')}>
+              <Settings size={18} aria-hidden="true" /><span>{label('Settings')}</span>
+            </Button></DialogTrigger>
             <DialogContent className="settings-dialog">
-              <DialogTitle>{label('Keyboard shortcuts')}</DialogTitle>
-              <DialogDescription>{label('0–4 Switch screen · R Refresh · / Search · ? Help')}</DialogDescription>
+              <DialogTitle>{label('Settings')}</DialogTitle>
+              <DialogDescription>{label('Keyboard shortcuts')} · {label('0–4 Switch screen · R Refresh · / Search · ? Help')}</DialogDescription>
+              <div className="web-settings-fields">
+                <span>{label('Appearance')}</span>
+                <Choice label={label('Appearance')} value={theme} options={['system', 'light', 'dark'].map(value => [value, label(value)])} onChange={setTheme} />
+                <span>{label('Language')}</span>
+                <Choice label={label('Language')} value={locale} options={[[ 'en', 'English'], ['ru', 'Русский']]} onChange={value => setLocale(value === 'ru' ? 'ru' : 'en')} />
+                <span>{label('Refresh cadence')}</span>
+                <Choice label={label('Refresh cadence')} value={String(interval)} options={[1, 3, 5, 10].map(value => [String(value), value + ' ' + label('sec')])} onChange={value => setInterval(Number(value) as 1 | 3 | 5 | 10)} />
+              </div>
               <div><DialogClose asChild><Button>{label('Done')}</Button></DialogClose></div>
             </DialogContent>
           </Dialog>
@@ -228,6 +272,9 @@ export default function App() {
       </aside>
       <main id="web-main" className="web-main" tabIndex={-1}>
         {header}
+        {unreachable && <p className="web-warning web-offline" role="status">{label('Offline shell')}</p>}
+        {appUpdate.error && <p className="web-warning" role="status">{label('Update failed')}</p>}
+        <div className="web-page">
         {inventory ? <div className={'web-split' + (id ? ' web-has-detail' : '')}>
           <section ref={list} className="web-list-pane" aria-label={label(title)}>
             <InventoryList key={inventory} kind={inventory as Inventory} query={query} id={id} update={update} />
@@ -238,11 +285,22 @@ export default function App() {
               : <WorktreeDetails id={id} />}
           </section>}
         </div> : <>
-          {(kind === 'overview' || kind === 'incidents') && <Period query={query} update={update} />}
-          {kind === 'overview' ? <Overview query={query} /> : kind === 'incidents'
-            ? <Incidents query={query} next={cursor => update({ cursor }, true)} /> : <Quota />}
+          {kind === 'incidents' && <Period query={query} update={update} />}
+          {kind === 'overview' ? <Overview query={query} live={live.visible ? live.observations : []}
+            filter={<div className="web-overview-period"><Expand title={label('Period filter') + (query.has('from') || query.has('to') ? ' · ' + label('Filtered') : '')}>
+              <Period query={query} update={update} />
+            </Expand></div>} /> : kind === 'incidents'
+            ? <Incidents query={query} next={cursor => update({ cursor }, true)} /> : <Quota now={Math.max(now, lastRead ?? 0)} />}
         </>}
-        {live.visible && <Sources items={live.observations.filter(item => item.outcome !== 'ok' && item.staleSinceMs == null)} />}
+        {kind !== 'overview' && live.visible && <Sources items={live.observations.filter(item => item.outcome !== 'ok' && item.staleSinceMs == null)} />}
+        </div>
+        <footer className="web-footer">
+          <span>Hub {webVersion}</span>
+          <span>{label('Server version')} {serverRelease ?? '—'}</span>
+          <span>{label(connection)}</span>
+          <span title={lastRead ? clock(lastRead) : undefined}>{label('Updated')} {lastRead ?
+            relativeTime(lastRead, Math.max(now, lastRead), tag) : '—'}</span>
+        </footer>
       </main>
     </div>
   </LiveContext.Provider></Navigation.Provider>;

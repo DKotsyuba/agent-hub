@@ -1,5 +1,19 @@
 /** Russian translations for v1-specific chrome and normalized producer enum values. */
 export const translations: Record<string, string> = {
+  Settings: 'Настройки', 'Source health': 'Состояние источников', 'All sessions': 'Все сессии', 'Session data unavailable': 'Данные сессий недоступны',
+  'Quota data unavailable': 'Данные квот недоступны',
+  'Period filter': 'Период', Filtered: 'Задан', 'Reset unknown': 'Сброс неизвестен', 'No account windows reported': 'Данные об окнах не поступили',
+  'Five-hour window': 'Окно 5 ч', 'Weekly window': 'Окно 7 дн.', 'Daily window': 'Суточное окно', 'Monthly window': 'Месячное окно',
+  'Collection and service': 'Сбор данных и сервис', primary: 'Основное', secondary: 'Дополнительное',
+  low: 'Низкий', medium: 'Средний', high: 'Высокий', critical: 'Критический', stale: 'Устарело', fresh: 'Актуально', Stale: 'Устарело',
+  'Server version': 'Сервер', 'Server unreachable': 'Сервер недоступен', 'Update app': 'Обновить', 'Updating app': 'Обновление…',
+  'Update failed': 'Не удалось обновить приложение. Попробуйте ещё раз.',
+  'Offline shell': 'Сервер недоступен. Актуальные данные появятся после восстановления связи.',
+  'More sections': 'Другие разделы', 'Direct to': 'Личное сообщение →', 'Unknown recipient': 'Неизвестный участник', 'Unknown sender': 'Неизвестный отправитель',
+  pool_created: 'Пул создан', member_joined: 'Участник добавлен', vote_recorded: 'Голос записан', vote_check: 'Проверка критерия',
+  pool_completed: 'Пул завершён', proposal_opened: 'Предложение открыто', proposal_accepted: 'Предложение принято', member: 'Участник',
+  service: 'Сервис', integration_unknown: 'Статус интеграции не определён', agent: 'Агент', owner: 'Владелец', idle_candidate: 'Возможно неактивна', ancestor_merged: 'Ветка объединена',
+  'Effort': 'Усилие', 'Refresh data': 'Обновить данные',
   'Claude subscription': 'Подписка Claude', Live: 'Активные', initial_current: 'Подтверждена текущая сохранённая задача', network_unavailable: 'Нет соединения', content_budget: 'Превышен допустимый размер текста',
   Sessions: 'Сессии', Worktree: 'Рабочие копии', Quota: 'Квоты', 'Bridge incidents': 'Инциденты Bridge',
   'Session detail': 'Сведения о сессии', 'Pool detail': 'Сведения о пуле', 'Worktree detail': 'Рабочая копия',
@@ -78,6 +92,9 @@ export const translations: Record<string, string> = {
 
 /** Human-readable v1 machine codes and English labels for normalized UI values. */
 export const english: Record<string, string> = {
+  'Server version': 'Server', 'Update failed': 'The app could not update. Try again.',
+  'Offline shell': 'The server is unreachable. Current data will return when the connection is restored.',
+  'Updating app': 'Updating…', idle_candidate: 'Possibly idle', ancestor_merged: 'Branch merged',
   invalid_request: 'Invalid request', not_found: 'Record not found', stale_boundary: 'Page boundary expired',
   unsupported_capability: 'Capability is not supported', saturated: 'Source is busy', invalid_projection: 'Invalid response',
   source_unavailable: 'Source unavailable', network_unavailable: 'Connection unavailable', content_budget: 'Text exceeds the read limit',

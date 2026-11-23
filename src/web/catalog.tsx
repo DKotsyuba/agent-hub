@@ -1,16 +1,14 @@
 /** Overview, Bridge, Quota and Worktree presentation over v1 observations. */
 import type { ReactNode } from 'react';
-import type { Topic, Worktree } from '@agent-hub/domain';
-import { Badge } from '../components/ui/badge';
+import type { Observation, Topic, Worktree } from '@agent-hub/domain';
 import { Button } from '../components/ui/button';
 import { Progress } from '../components/ui/progress';
-import { Separator } from '../components/ui/separator';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import { Panel } from '../components/hub-primitives';
 import { client, usePagedRead, useRead } from './data';
-import { quotaAccountTitle, worktreeMeasurements } from './model';
-import { branchLabel, formatBytes, projectQuotaSnapshot, projectQuotaStatus } from '../../packages/view-model/src/index';
-import { CoverageLine, EmptyRows, Expand, Facts, href, Link, ReadState, sessionHref, Sources, Text, useWebText } from './ui';
+import { modelTitle, quotaAccountTitle, worktreeMeasurements } from './model';
+import { accountTitle, branchLabel, formatBytes, projectQuotaSnapshot, projectQuotaStatus, windowSeconds, type QuotaAccount, type QuotaSnapshot } from '../../packages/view-model/src/index';
+import { CoverageLine, EmptyRows, Expand, Facts, href, Link, ReadState, relativeTime, sessionHref, Sources, StatusBadge, Text, useWebText } from './ui';
 
 /** URL period bounds are shared with the Bridge and failed execution drill-downs. */
 export function period(query: URLSearchParams) {
@@ -34,34 +32,57 @@ export function Period({ query, update }: { query: URLSearchParams; update: (val
   </div>;
 }
 
-/** Source summary and drill-downs share the selected observation period. */
-export function Overview({ query }: { query: URLSearchParams }) {
-  const { label } = useWebText();
+/** Source health and activity lead the dashboard; raw evidence stays expandable. */
+export function Overview({ query, live, filter }: { query: URLSearchParams; live: Observation[]; filter: ReactNode }) {
+  const { label, percent } = useWebText();
   const bounds = period(query);
   const read = useRead(JSON.stringify(bounds), signal => client.get('overview', { query: bounds, signal }), 'overview');
-  return <ReadState read={read}>{({ data, observations }) => <>
-    <div className="web-cards">
-      <Panel title={label('Sessions')} extra={<Link className="web-link" href={href('/sessions', { ...bounds, status: 'failed' })}>{label('Failed executions')}</Link>}>
-        {data.run ? <div className="web-metrics">{(['active', 'started', 'succeeded', 'failed', 'finished'] as const).map(key => <Metric key={key} name={key} value={data.run![key]} />)}</div> : <p>{label('Unknown')}</p>}
-      </Panel>
-      <Panel title="Bridge" extra={<Link className="web-link" href={href('/incidents', bounds)}>{label('Incidents')}</Link>}>
-        {data.bridge ? <div className="web-metrics">{(['accepted', 'pending', 'incidents'] as const).map(key => <Metric key={key} name={key} value={data.bridge![key]} />)}</div> : <p>{label('Unknown')}</p>}
-      </Panel>
-      <Panel title={label('Quota')} extra={<Link className="web-link" href="/quota">{label('Accounts')}</Link>}>
-        {data.quota ? <Facts rows={[
-          ['Accounts', data.quota.accounts], ['Known', data.quota.known], ['Unknown', data.quota.unknown],
-          ['Exhausted', data.quota.exhausted], ['Stale', data.quota.stale],
-          ['Lowest remaining', data.quota.lowest && `${data.quota.lowest.account} · ${data.quota.lowest.model} · ${data.quota.lowest.remaining}%`],
-        ]} /> : <p>{label('Unknown')}</p>}
-      </Panel>
-      <Panel title={label('Current sessions')}>
-        {data.run?.current.map(item => <Link className="web-inline-row" key={item.id + item.execution} href={sessionHref(item.id, item.execution)}>
-          <strong>{item.name ?? item.id}</strong><Badge variant="outline">{label(item.status)}</Badge></Link>)}
-        {data.run && <EmptyRows count={data.run.current.length} observations={observations.filter(item => item.source === 'run')} />}
-      </Panel>
-    </div>
-    <Separator className="my-4" /><Sources items={observations} />
-  </>}</ReadState>;
+  const sources = [...read.value?.observations ?? []];
+  for (const item of live) {
+    const match = sources.findIndex(other => other.source === item.source && other.resource === item.resource);
+    if (match < 0) sources.push(item);
+    else if (sources[match].observedAtMs <= item.observedAtMs) sources[match] = item;
+  }
+  const bridgeLink = <Link className="web-link" href={href('/incidents', bounds)}>{label('Incidents')}</Link>;
+  return <>
+    <Sources items={sources} strip bridgeLink={bridgeLink} />
+    <ReadState read={read}>{({ data, observations }) => {
+      const lowest = data.quota?.lowest;
+      const account = lowest ? accountTitle(lowest.account, lowest.provider ? [lowest.provider] : []) : null;
+      const bridge = data.bridge;
+      return <>
+        <Panel className="web-current" title={label('Current sessions')} extra={<Link className="web-link" href="/sessions">{label('All sessions')}</Link>}>
+          <div className="web-panel-body">
+            {data.run?.current.map(item => <Link className="web-inline-row" key={item.id + item.execution} href={sessionHref(item.id, item.execution)}>
+              <strong>{item.name ?? item.id}</strong><StatusBadge state={item.status} /></Link>)}
+            {data.run && <EmptyRows count={data.run.current.length} observations={observations.filter(item => item.source === 'run')} />}
+            {!data.run && <p className="web-empty">{label('Session data unavailable')}</p>}
+          </div>
+        </Panel>
+        {filter}
+        <div className="web-cards">
+          <Panel title={label('Sessions')} extra={<Link className="web-link" href={href('/sessions', { ...bounds, status: 'failed' })}>{label('Failed executions')}</Link>}>
+            <div className="web-panel-body">{data.run ? <div className="web-metrics">
+              {(['active', 'started', 'succeeded', 'failed', 'finished'] as const).map(key => <Metric key={key} name={key} value={data.run![key]} />)}
+            </div> : <p className="web-empty">{label('Session data unavailable')}</p>}</div>
+          </Panel>
+          <Panel title={label('Quota')} extra={<Link className="web-link" href="/quota">{label('Accounts')}</Link>}>
+            <div className="web-panel-body">{data.quota ? <>
+              {lowest && <div className="web-quota-min"><span>{label('Lowest remaining')}</span><strong>{percent(lowest.remaining)}</strong>
+                <span>{account && account !== lowest.account ? label(account) + ' · ' : ''}{modelTitle(lowest.model)}</span></div>}
+              <Facts rows={[[ 'Accounts', data.quota.accounts], ['Exhausted', data.quota.exhausted], ['Stale', data.quota.stale], ['Unknown', data.quota.unknown]]} />
+            </> : <p className="web-empty">{label('Quota data unavailable')}</p>}</div>
+          </Panel>
+          {bridge && Object.values(bridge).some(value => value.value !== null) &&
+            <Panel title="Bridge" extra={bridgeLink}>
+              <div className="web-panel-body"><div className="web-metrics">
+                {(['accepted', 'pending', 'incidents'] as const).map(key => <Metric key={key} name={key} value={bridge[key]} />)}
+              </div></div>
+            </Panel>}
+        </div>
+      </>;
+    }}</ReadState>
+  </>;
 }
 
 /** A route-controlled continuation preserves incident filters. */
@@ -87,7 +108,7 @@ export function Incidents({ query, next }: { query: URLSearchParams; next: (curs
           <TableCell><strong>#{item.id}</strong><Text>{item.detail}</Text>
             <Facts rows={[[ 'Publisher', item.publisher], ['Event ID', item.eventId], ['Created', clock(item.createdAtMs)], ['Updated', clock(item.updatedAtMs)]]} />
           </TableCell>
-          <TableCell><Badge variant="outline">{label(item.state)}</Badge><Facts rows={[[ 'Closed', item.closed]]} /></TableCell>
+          <TableCell><StatusBadge state={item.state} /><Facts rows={[[ 'Closed', item.closed]]} /></TableCell>
         </TableRow>)}</TableBody>
       </Table>
     </div>}
@@ -95,64 +116,106 @@ export function Incidents({ query, next }: { query: URLSearchParams; next: (curs
   </>}</ReadState></>;
 }
 
-/** Known percentage labels preserve the producer value even if the bar must be clamped. */
-function PercentBar({ value, title }: { value: number | null; title: string }) {
-  const { label, percent } = useWebText();
-  return <div className="web-percent"><strong>{value == null ? label('Unknown') : percent(value)}</strong>
-    {value != null && <Progress value={Math.max(0, Math.min(value, 100))} aria-label={title} />}</div>;
+/** Compact quota line keeps the measured value, reset time, and freshness together. */
+function QuotaRow({ title, value, reset, now, state, risk }: {
+  title: string; value: number | null; reset: number | null; now: number; state?: string; risk: string;
+}) {
+  const { label, clock, percent, tag } = useWebText();
+  const resetMs = reset !== null && Math.abs(reset * 1000) <= 8.64e15 ? reset * 1000 : null;
+  return <div className="web-quota-row">
+    <div className="web-quota-row-heading"><strong>{title}</strong>
+      <span className="web-quota-value">{value !== null ? percent(value) : label('Unknown')}</span></div>
+    {value !== null && <Progress value={Math.max(0, Math.min(value, 100))} aria-label={title + ' · ' + label('Remaining')} />}
+    <div className="web-quota-row-meta">
+      {resetMs === null ? <span>{label('Reset unknown')}</span> :
+        <time dateTime={new Date(resetMs).toISOString()} title={clock(resetMs)}>{label('Reset')} · {relativeTime(resetMs, now, tag)}</time>}
+      {state && <StatusBadge state={state} />}
+      {['medium', 'high', 'critical'].includes(risk) && <StatusBadge state={risk} />}
+    </div>
+  </div>;
 }
 
-/** Quota status and snapshot retain independent availability and per-account window evidence. */
-export function Quota() {
+/** Gives common quota windows localized names, with lane context when needed. */
+function quotaWindowName(window: QuotaAccount['windows'][number], label: (name: string) => string, distinguishLane: boolean) {
+  const length = windowSeconds(window.window);
+  const name = length === 18000 ? label('Five-hour window') : length === 604800 ? label('Weekly window')
+    : length === 86400 ? label('Daily window') : window.window === 'monthly' ? label('Monthly window') : window.window.replaceAll('_', ' ');
+  const model = window.lane.startsWith('model:') && window.lane.slice(6);
+  return model ? `${model[0].toUpperCase()}${model.slice(1)} · ${name}` : distinguishLane ? name + ' · ' + label(window.lane) : name;
+}
+
+/** Renders one account with compact samples, a model disclosure and a single evidence section. */
+function QuotaCard({ account, snapshot, now }: { account: QuotaAccount; snapshot: QuotaSnapshot; now: number }) {
   const { label, clock, percent } = useWebText();
+  const quotaClock = (seconds: number | null) => clock(seconds === null ? null : seconds * 1000);
+  const pct = (value: number | null) => value === null ? null : percent(value);
+  const windows = [...account.windows].sort((a, b) => Number(a.lane.startsWith('model:')) - Number(b.lane.startsWith('model:'))
+    || (windowSeconds(a.window) ?? Infinity) - (windowSeconds(b.window) ?? Infinity));
+  const exhausted = account.latches.some(latch => latch.active) || account.models.some(model => model.state === 'exhausted')
+    || windows.some(window => window.lastRemaining === 0 && window.validUntil !== null && window.validUntil * 1000 > now);
+  return <Panel title={label(quotaAccountTitle(account, snapshot))} extra={exhausted && <StatusBadge state="exhausted" />}>
+    <div className="web-panel-body">
+      {windows.length === 0 && <p className="web-empty">{label('No account windows reported')}</p>}
+      {windows.map((window, i) => <QuotaRow key={i} title={quotaWindowName(window, label, windows.some(other => other !== window && other.window === window.window && !other.lane.startsWith('model:')))}
+        value={window.lastRemaining} reset={window.lastResetAt} now={now} risk={window.risk}
+        state={window.lastRemaining !== null && window.validUntil !== null && window.validUntil * 1000 <= now ? 'Stale' : undefined} />)}
+      {!!account.models.length && <Expand title={label('Models') + ' · ' + account.models.length}>
+        {account.models.map((model, i) => <QuotaRow key={i} title={modelTitle(model.model)} value={model.remaining} reset={model.resetAt} now={now}
+          state={model.state === 'exhausted' ? model.state : model.evidence === 'stale' ? 'Stale' : undefined} risk={model.risk} />)}
+      </Expand>}
+      {account.advice.map((advice, i) => <Text key={i}>{advice}</Text>)}
+      <Expand title="Technical evidence">
+        <Facts rows={[[ 'Account', account.account]]} />
+        {windows.map((window, i) => <section className="web-subcard" key={i}><h3>{[window.pool, window.source, window.window].join(' · ')}</h3>
+          <Facts rows={[[ 'Last sample', quotaClock(window.observedAt)], ['Valid until', quotaClock(window.validUntil)],
+            ['Projected reserve', pct(window.projected)], ['Sustainable reserve', pct(window.sustainable)],
+            ['Burn', window.burn != null ? window.burn + ' ' + label('pp/hour') : null], ['Risk', label(window.risk)],
+            ['Models', window.models.join(', ')], ['Forecast known', window.forecastKnown], ['Marker', window.marker]]} /></section>)}
+        {account.models.map((model, i) => <section className="web-subcard" key={i}><h3>{modelTitle(model.model)}</h3>
+          <Facts rows={[[ 'Native model', model.nativeModel ?? model.model], ['Provider', model.provider], ['Score', model.score],
+            ['Evidence', label(model.evidence)], ['Last sample', quotaClock(model.newestObservedAt)], ['Exhausted until', quotaClock(model.exhaustedUntil)],
+            ['Validity', model.validity.kind === 'until' ? quotaClock(model.validity.at) : label(model.validity.kind)],
+            ['Burn', model.burn != null ? model.burn + ' ' + label('pp/hour') : null], ['Risk', label(model.risk)], ['Pools', model.pools.join(', ')],
+            ['Window', model.window && [model.window.pool, model.window.source, model.window.window].join(' · ')]]} /></section>)}
+        {account.latches.map((latch, i) => <p className="web-warning" key={i}>{label('Exhaustion latch')} · {latch.window} · {label(latch.active ? 'active' : 'Inactive')} · {quotaClock(latch.observedAt)} → {quotaClock(latch.resetAt)}</p>)}
+      </Expand>
+    </div>
+  </Panel>;
+}
+
+/** Account samples lead the page; service and coverage diagnostics follow in one disclosure. */
+export function Quota({ now }: { now: number }) {
+  const { label, clock, tag } = useWebText();
   const read = useRead('quota', signal => client.get('quota', { signal }), 'quota');
-  const pct = (value: number | null) => value == null ? null : percent(value);
-  const quotaClock = (seconds: number | null) => clock(seconds === null ? null : Math.round(seconds * 1000));
+  const quotaClock = (seconds: number | null) => clock(seconds === null ? null : seconds * 1000);
   return <ReadState read={read}>{({ data, observations }) => {
     const status = data.status && projectQuotaStatus(data.status);
     const snapshot = data.snapshot && projectQuotaSnapshot(data.snapshot);
+    const collected = snapshot?.coverage.lastCollectionAt ?? status?.lastCollectionAt;
     return <>
-    {status && <Panel title={label('Service status')}><Facts rows={[[ 'Status', label(status.status)], ['Started', quotaClock(status.startedAt)],
-      ['Last collection', quotaClock(status.lastCollectionAt)], ['Collection successful', status.lastCollectionOk], ['Sources', status.sourceCount]]} />
-      {!!status.external.length && <Expand title="External collections">{status.external.map((entry, i) => <Facts key={i} rows={[
-        ['Account', entry.account], ['Provider', entry.provider], ['Source', entry.source], ['Accepted', quotaClock(entry.acceptedAt)], ['Revision', entry.revision],
-      ]} />)}</Expand>}
-    </Panel>}
-    {snapshot && <>
-      <EmptyRows count={snapshot.accounts.length} observations={observations} />
-      <div className="web-cards web-quota">{snapshot.accounts.map(account => <Panel key={account.account} title={label(quotaAccountTitle(account, snapshot))}>
-        {quotaAccountTitle(account, snapshot) !== account.account && <p className="web-muted">{account.account}</p>}
-        {account.models.map((model, i) => <article className="web-subcard" key={model.provider + model.model + i}>
-          <header className="web-row-meta"><strong>{model.model}</strong><Badge variant="outline">{label(model.state)}</Badge><span>{model.provider}</span></header>
-          <PercentBar value={model.remaining} title={model.model + ' ' + label('Remaining')} />
-          <Facts rows={[[ 'Reset', quotaClock(model.resetAt)], ['Validity', model.validity.kind === 'until' ? quotaClock(model.validity.at) : label(model.validity.kind)],
-            ['Burn', model.burn != null ? model.burn + ' ' + label('pp/hour') : null], ['Risk', label(model.risk)]]} />
-          <Expand title="Technical evidence"><Facts rows={[
-            ['Native model', model.nativeModel], ['Score', model.score], ['Evidence', model.evidence], ['Last sample', quotaClock(model.newestObservedAt)],
-            ['Exhausted until', quotaClock(model.exhaustedUntil)], ['Pools', model.pools.join(', ')], ['Window', model.window && [model.window.pool, model.window.source, model.window.window].join(' · ')],
-          ]} /></Expand>
-        </article>)}
-        {account.windows.map((window, i) => <article key={i} className="web-subcard">
-          <header className="web-row-meta"><strong>{window.window}</strong><span>{[window.lane, window.runtime, window.pool].join(' · ')}</span></header>
-          <PercentBar value={window.lastRemaining} title={window.window + ' ' + label('Last sample')} />
-          <Facts rows={[[ 'Last sample', quotaClock(window.observedAt)], ['Reset', quotaClock(window.lastResetAt)], ['Valid until', quotaClock(window.validUntil)],
-            ['Projected reserve', pct(window.projected)], ['Sustainable reserve', pct(window.sustainable)],
-            ['Burn', window.burn != null ? window.burn + ' ' + label('pp/hour') : null], ['Risk', label(window.risk)]]} />
-          <Expand title="Technical evidence"><Facts rows={[[ 'Source', window.source], ['Models', window.models.join(', ')], ['Forecast known', window.forecastKnown], ['Marker', window.marker]]} /></Expand>
-        </article>)}
-        {account.latches.map((latch, i) => <p className="web-warning" key={i}>{label('Exhaustion latch')} · {latch.window} · {label(latch.active ? 'active' : 'Inactive')} · {quotaClock(latch.observedAt)} → {quotaClock(latch.resetAt)}</p>)}
-        {account.advice.map((advice, i) => <Text key={i}>{advice}</Text>)}
-      </Panel>)}</div>
-      <Panel title={label('Collection coverage')}><Facts rows={[[ 'Status', label(snapshot.coverage.state)], ['Evaluated', quotaClock(snapshot.evaluatedAt)],
-        ['Last collection', quotaClock(snapshot.coverage.lastCollectionAt)], ['Collection successful', snapshot.coverage.lastCollectionOk],
-        ['Unobserved', snapshot.coverage.unobserved.join(', ') || '—']]} />
-        {snapshot.coverage.sources.map((entry, i) => <Expand key={i} title={entry.source + ' · ' + entry.account}><Facts rows={[
-          ['Status', label(entry.status)], ['Provider', entry.provider], ['Windows', entry.windows], ['Issues', entry.issues.join(', ') || '—'],
-        ]} /></Expand>)}
-      </Panel>
-    </>}
-    <Sources items={observations} />
-  </>;
+      {collected != null && <p className="web-muted web-quota-collected">{label('Last collection')} · {relativeTime(collected * 1000, now, tag)}</p>}
+      {snapshot ? <>
+        <EmptyRows count={snapshot.accounts.length} observations={observations.filter(item => item.resource !== 'quota.status')} />
+        <div className="web-cards web-quota">{snapshot.accounts.map(account => <QuotaCard key={account.account} account={account} snapshot={snapshot} now={now} />)}</div>
+      </> : <p className="web-warning" role="status">{label('Quota data unavailable')}</p>}
+      {(status || snapshot) && <Expand title="Collection and service">
+        {status && <><h2>{label('Service status')}</h2><Facts rows={[[ 'Status', label(status.status)], ['Started', quotaClock(status.startedAt)],
+          ['Last collection', quotaClock(status.lastCollectionAt)], ['Collection successful', status.lastCollectionOk], ['Sources', status.sourceCount]]} />
+          {!!status.external.length && <Expand title="External collections">{status.external.map((entry, i) => <Facts key={i} rows={[
+            ['Account', label(accountTitle(entry.account, [entry.provider]))], ['Provider', entry.provider], ['Source', entry.source],
+            ['Accepted', quotaClock(entry.acceptedAt)], ['Revision', entry.revision],
+          ]} />)}</Expand>}
+        </>}
+        {snapshot && <><h2>{label('Collection coverage')}</h2><Facts rows={[[ 'Status', label(snapshot.coverage.state)],
+          ['Evaluated', quotaClock(snapshot.evaluatedAt)], ['Last collection', quotaClock(snapshot.coverage.lastCollectionAt)],
+          ['Collection successful', snapshot.coverage.lastCollectionOk], ['Unobserved', snapshot.coverage.unobserved.join(', ') || '—']]} />
+          {snapshot.coverage.sources.map((entry, i) => <Expand key={i} title={entry.source + ' · ' + label(accountTitle(entry.account, [entry.provider]))}><Facts rows={[
+            ['Status', label(entry.status)], ['Provider', entry.provider], ['Windows', entry.windows], ['Issues', entry.issues.join(', ') || '—'],
+          ]} /></Expand>)}
+        </>}
+      </Expand>}
+      <Sources items={observations} />
+    </>;
   }}</ReadState>;
 }
 
@@ -161,10 +224,8 @@ export function WorktreeFacts({ row }: { row: Worktree }) {
   const { clock, label, n } = useWebText();
   const facts = row.facts;
   const measurements = worktreeMeasurements(row, label, bytes => formatBytes(bytes, n));
-  return <Facts rows={[[ 'Branch', row.branch], ['Class', label(row.class)], ['Path', row.path], ['Head', row.head], ['Detached', row.detached],
-    ['Activity', row.activity && label(row.activity)], ['mtime-derived', row.mtimeBased], ['Integration', row.integration && label(row.integration)],
-    ['Changes', measurements.changes], ['Size', measurements.size],
-    ['Measured', clock(facts.observedAtMs)], ['Expires', clock(facts.expiresAtMs)], ['Removal started', row.removalStarted], ['Creator', row.creator]]} />;
+  return <Facts rows={[[ 'Changes', measurements.changes], ['Size', measurements.size], ['Class', label(row.class)],
+    ['Measured', clock(facts.observedAtMs)], ['Expires', clock(facts.expiresAtMs)]]} />;
 }
 
 /** Inspects only the selected Worktree and exposes the independent bounded probe evidence. */
@@ -173,12 +234,17 @@ export function WorktreeDetails({ id }: { id: string }) {
   const [topic, key]: [Topic, string] = [`worktree:${id}:detail`, id];
   const read = useRead(key, signal => client.get('worktree', { params: { id }, signal }), topic);
   return <ReadState read={read}>{({ data, observations }) => <>
-    <h2>{label(branchLabel(data.worktree, true))}</h2><WorktreeFacts row={data.worktree} />
-    {data.warnings.map((warning, i) => <p className="web-warning" key={i}>{warning.message ?? warning.code}</p>)}
+    <h2>{label(branchLabel(data.worktree, true))}</h2>
+    <div className="web-row-meta">{data.worktree.integration && <StatusBadge state={data.worktree.integration} />}{data.worktree.activity && <StatusBadge state={data.worktree.activity} />}</div>
+    <WorktreeFacts row={data.worktree} />
+    {data.warnings.map((warning, i) => <p className="web-warning" key={i}>{warning.message ?? label(warning.code)}</p>)}
     <CoverageLine value={data.coverage} />
     {data.worktree.sessions.map((item, i) => <Link className="web-inline-row web-link" key={i}
       href={sessionHref(item.sessionId, item.execution)}>{item.sessionId} · {label(item.match)}</Link>)}
     <Expand title="Technical evidence"><Facts rows={[
+      ['Branch', data.worktree.branch], ['Path', data.worktree.path], ['Head', data.worktree.head], ['Detached', data.worktree.detached],
+      ['Activity', data.worktree.activity && label(data.worktree.activity)], ['mtime-derived', data.worktree.mtimeBased],
+      ['Integration', data.worktree.integration && label(data.worktree.integration)], ['Removal started', data.worktree.removalStarted], ['Creator', data.worktree.creator],
       ['Repository path', data.repositoryPath], ['Inspected', clock(data.inspectedAtMs)],
       ['HEAD mtime', clock(data.activitySignals?.headMtimeMs)], ['Index mtime', clock(data.activitySignals?.indexMtimeMs)],
       ['Reflog time', clock(data.activitySignals?.reflogAtMs)],

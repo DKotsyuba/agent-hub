@@ -1,0 +1,15 @@
+# Agent Hub web UI review
+
+Reviewed the owner’s iPhone Overview and Quota captures and the live 0.2.0 web app at 390×844 and 1440×900 in both themes. The live Sessions and Pools captures include the running session and chat canaries.
+
+| Screen | Findings on 0.2.0 | Phone layout | Desktop layout |
+| --- | --- | --- | --- |
+| Overview | High. Flush card bodies, duplicated source disclosures, standalone unknown Bridge value and quota IDs obscure the operational summary. | Source health in one strip, active sessions, then run and quota summaries. Filters and evidence open on demand. | Same priority with paired summary cards and a single horizontal source strip. |
+| Sessions | Medium. Multi-row header and empty search/filter area push active rows below the fold. Paths and prose compete with names. | Compact navigation, filters and search, then named status rows with short task previews. | Same list hierarchy. Keep filters visible when the list shares the screen with detail. |
+| Session detail | Medium. Generic heading, raw model tokens and history controls compete with the session title. | Full-screen detail with Back, session name and status, then history. Result and metadata remain tabbed. | Keep the selected row and its scroll position beside the independently scrolling detail. |
+| Pools | Medium. Snapshot counts and long purpose previews bury the live pool names. | Compact state filters and search with readable pool cards. Put retained totals behind a disclosure. | Keep list and detail together when selected. |
+| Pool detail and chat | High. Review controls dominate a chat; UUIDs conceal authors and direct recipients. | Prioritize discussion, participants and details. Keep long messages wrapped and identify direct recipients. | Keep the transcript beside the list; preserve review tabs for review pools and direct links. |
+| Quota | High. Service boilerplate and repeated model diagnostics dominate; window labels and risk mix raw codes and human text. | One named account card with window, remaining percentage and reset together. Models and technical evidence expand on demand. | Two account columns. Service and collection evidence follow the account cards. |
+| Worktree | Medium. Full paths, large project buttons and raw probe states compete with branches. | Project selector, branch and state rows, then full-screen detail with Back. Group paths, hashes and probe evidence in details. | Project selector stays in the list pane. Branch and measurements lead in the selected pane. |
+
+Use a mobile-first 4 px spacing scale with at least 16 px page and card insets, safe areas and longer line breaks. Use heading size and weight for scan order, compact badges with the same tones and text across screens, and Russian labels for known status codes. Keep producer names where supplied and show raw identifiers in evidence when a readable name is available. Give empty results, unobserved data and unreachable sources distinct wording. Preserve keyboard access, focus return and the 1024 px split-view breakpoint. Show release, connection and update age in a quiet footer, with installation and update behavior owned by the web shell.

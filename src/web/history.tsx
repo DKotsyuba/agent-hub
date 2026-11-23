@@ -3,7 +3,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { Page, Coverage, Observation, Topic, SessionHistory, PoolHistory } from '@agent-hub/domain';
 import { Button } from '../components/ui/button';
-import { client, errorCode, useReadSignal } from './data';
+import { useRead, client, errorCode, useReadSignal } from './data';
 import { CoverageLine, EmptyRows, Expand, Sources, Text, useWebText } from './ui';
 import { mergeChat, mergeTranscript } from './model';
 import { appendHistoryWindow, readHistoryBoundary, retainPausedHistory } from './history-window';
@@ -167,12 +167,27 @@ export function Transcript({ id, execution }: { id: string; execution?: string |
 /** Pool discussion defaults according to the producer capability and merges multipart messages. */
 export function Discussion({ id, bidirectional }: { id: string; bidirectional: boolean }) {
   const { label, clock } = useWebText();
+  const roster = useRead(id, signal => client.get('poolSection', { params: { id, section: 'members' }, signal }), `pool:${id}:members`);
+  const data = roster.value?.data;
+  const members = data?.section === 'members' ? data.items : [];
+  const names = new Map<string, string>();
+  for (const [index, member] of members.entries()) {
+    const shared = member.name === null || members.some(other => other !== member && other.name === member.name);
+    const name = shared ? `${label('Member')} ${index + 1}` : member.name!;
+    names.set(member.id, name);
+    if (member.seat) names.set(member.seat.id, name);
+  }
   return <History<PoolHistory['items'][number]> topic={`pool:${id}:history`} initial={bidirectional ? 'tail' : 'start'}
     identity={item => item.id + ':' + (item.partRange?.first ?? '')} merge={mergeChat} size={item => textBytes(item.parts)} load={async (position, signal) => {
       const { data, page, observations } = await client.get('poolHistory', { params: { id }, query: { ...position, limit: 6 }, signal });
       return { items: data.items, page, observations, coverage: data.coverage, format: data.format };
     }} render={item => <article className="web-message">
-      <header className="web-row-meta"><strong>{item.authorId ?? item.authorKind ?? label('Unknown')}</strong><span>{item.kind}</span><span>{clock(item.atMs)}</span></header>
+      <header className="web-chat-meta">
+        <strong title={item.authorId ?? undefined}>{(item.authorId && names.get(item.authorId)) ?? label(item.authorKind ?? 'Unknown sender')}</strong>
+        {item.atMs !== null && <span>{clock(item.atMs)}</span>}
+        {item.kind === 'direct_message' && item.recipientId && <span className="web-chat-direct" title={item.recipientId}>{label('Direct to')} {names.get(item.recipientId) ?? label('Unknown recipient')}</span>}
+        {!['message', 'direct_message'].includes(item.kind) && <span>{label(item.kind)}</span>}
+      </header>
       {(!item.complete || !item.valid) && <p className="web-caution">{label(!item.valid ? 'Invalid message' : 'Partial message')}</p>}
       <Text>{item.parts.join('')}</Text>
     </article>} />;

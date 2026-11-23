@@ -181,7 +181,7 @@ export async function overview(ctx: ReadContext, query: Input<'overview'>) {
       data.quota = { accounts: snapshot.accounts.length, known: models.filter(model => model.state === 'known').length,
         unknown: models.filter(model => model.state === 'unknown').length, exhausted: models.filter(model => model.state === 'exhausted').length,
         stale: models.filter(model => model.evidence === 'stale').length,
-        lowest: lowest ? { account: lowest.account, model: lowest.model, remaining: lowest.remaining! } : null };
+        lowest: lowest ? { account: lowest.account, model: lowest.model, remaining: lowest.remaining!, provider: lowest.provider } : null };
     }
   } else observations.push(failed('quota', quotaResult.reason));
   if (!data.run && !data.bridge && !data.quota && quotaResult.status === 'rejected') {

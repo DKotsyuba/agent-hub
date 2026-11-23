@@ -15,7 +15,7 @@ export const client = createHubClient({ fetch: async (input, options) => {
 
 /** Current subscription invalidations, source states and explicit refresh generation. */
 export const LiveContext = createContext<{
-  visible: boolean; events: ReadonlyMap<Topic, HubEvent>; observations: Observation[]; refresh: number;
+  visible: boolean; events: ReadonlyMap<Topic, HubEvent>; observations: Observation[]; refresh: number; unreachable?: boolean; reportRead?: (at: number) => void;
 }>({ visible: true, events: new Map(), observations: [], refresh: 0 });
 
 /** Closes the scoped stream on hide and revalidates through ready after reopening. */
@@ -84,22 +84,38 @@ export function errorCode(error: unknown) {
 }
 
 /** Latest-wins read keyed by the normalized request; hides previous-query data immediately. */
-export function useRead<T>(key: string, load: (signal: AbortSignal) => Promise<T>, topic?: Topic): Read<T> {
+export function useRead<T>(key: string, load: (signal: AbortSignal) => Promise<T>, topic?: Topic, pollMs?: number): Read<T> {
   const [state, setState] = useState<Read<T> & { key: string }>({ key, value: null, error: null, loading: true });
   const { visible, matched, refresh } = useReadSignal(topic);
+  const { reportRead } = useContext(LiveContext);
+  const [poll, setPoll] = useState(0);
+  useEffect(() => {
+    if (!pollMs) return;
+    const update = () => { if (!document.hidden) setPoll(value => value + 1); };
+    const timer = window.setInterval(update, pollMs);
+    document.addEventListener('visibilitychange', update);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', update);
+    };
+  }, [pollMs]);
   useEffect(() => {
     if (!visible) return;
     const controller = new AbortController();
     setState(old => old.key === key ? { ...old, loading: true } : { key, value: null, error: null, loading: true });
     void load(controller.signal).then(value => {
-      if (!controller.signal.aborted) setState({ key, value, error: null, loading: false });
+      if (!controller.signal.aborted) {
+        const updatedAt = Date.now();
+        setState({ key, value, error: null, loading: false });
+        reportRead?.(updatedAt);
+      }
     }, error => {
       if (!controller.signal.aborted) setState(old => ({ key, value: old.key === key ? old.value : null,
         loading: false, error: errorCode(error), failedAt: old.key === key && old.failedAt ? old.failedAt : Date.now() }));
     });
     return () => controller.abort();
     // The key encodes all resource/filter inputs; the inline reader need not be memoized.
-  }, [key, visible, matched, refresh]);
+  }, [key, visible, matched, refresh, poll, reportRead]);
   return state.key === key ? state : { value: null, error: null, loading: true };
 }
 

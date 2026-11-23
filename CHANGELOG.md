@@ -4,6 +4,17 @@ All notable changes to Agent Hub are documented here. The format follows [Keep a
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-11-23
+
+### Changed
+
+- Web UI redesign after the owner's phone review: page and card padding with safe-area insets, compact top navigation, one source-health strip on Overview (no duplicates), running sessions first, readable account and model names, one compact card per Quota account (window bars, relative resets, models and diagnostics collapsed, Russian labels), cleaner Sessions, Pools, Pool chat and Worktree layouts. Review: docs/design/web-ui-review.md.
+
+### Added
+
+- Installable PWA: manifests for light and dark, icons incl. maskable and apple-touch-icon, a build-fingerprinted service worker (`/sw.js`) that precaches the app shell and assets, keeps API and SSE network-only, and shows a clear offline state.
+- Muted footer with web and server versions, connection state and refresh age; a header "Обновить" indicator when a new service worker is waiting or the server release differs, which activates the update and reloads.
+
 ## [0.2.0] - 2026-11-22
 
 ### Added
@@ -62,6 +73,7 @@ First public release: the terminal Hub for Linux x86-64 (standalone executable).
 
 - Archived Tasks and IDE sources are denied by the observer; the terminal has no Tasks, IDE or Run info tabs.
 
+[0.2.1]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.2.1
 [0.2.0]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.2.0
 [0.1.3]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.1.3
 [0.1.2]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.1.2

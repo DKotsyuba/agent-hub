@@ -1,7 +1,7 @@
 /** Package B acceptance tests with deterministic producer-shaped reads. */
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mkdtemp, mkdir, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, rm, symlink, utimes, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { API_RESPONSES, apiError, event, type ApiResponse } from '@agent-hub/domain';
 import { createDemoClient } from '../../terminal/src/demo.ts';
@@ -224,12 +224,17 @@ test('malformed sources and isolated outages never become fixture or healthy-emp
   } finally { await http.close(); }
 });
 
-test('serves a deep link and hashed assets while bounding files to the build root', async () => {
+test('serves deep links, hashed assets and root-scope PWA files within the build root', async () => {
   const directory = await mkdtemp(join(process.env.TMPDIR!, 'http-test-'));
   const web = join(directory, 'web');
   await mkdir(join(web, 'assets'), { recursive: true });
   await writeFile(join(web, 'index.html'), '<title>fixture app</title>');
   await writeFile(join(web, 'assets', 'page-C3rrC30X.js'), 'export {};');
+  await writeFile(join(web, 'sw.js'), 'self.addEventListener("fetch", () => {});');
+  await writeFile(join(web, 'manifest.webmanifest'), '{"name":"Agent Hub"}');
+  await writeFile(join(web, 'manifest-dark.webmanifest'), '{"name":"Agent Hub","theme_color":"#141c29"}');
+  await writeFile(join(web, 'icon-192.png'), new Uint8Array([137, 80, 78, 71]));
+  await writeFile(join(web, 'private.js'), 'private build output');
   await writeFile(join(directory, 'outside.txt'), 'outside the build');
   await symlink(join(directory, 'outside.txt'), join(web, 'outside.txt'));
   const http = handler(await producer(), web);
@@ -239,6 +244,42 @@ test('serves a deep link and hashed assets while bounding files to the build roo
     assert.equal(entry.headers.get('Cache-Control'), 'no-cache');
     const asset = await http.fetch(request('/assets/page-C3rrC30X.js'));
     assert.match(asset.headers.get('Cache-Control') ?? '', /immutable/);
+    const worker = await http.fetch(request('/sw.js'));
+    assert.equal(worker.status, 200);
+    assert.equal(worker.headers.get('Content-Type'), 'text/javascript; charset=utf-8');
+    assert.equal(worker.headers.get('Cache-Control'), 'no-cache');
+    assert.equal(worker.headers.get('Service-Worker-Allowed'), '/');
+    assert.match(await worker.text(), /self\.addEventListener/);
+    const revalidated = await http.fetch(request('/sw.js', { headers: { 'If-None-Match': worker.headers.get('ETag')! } }));
+    assert.equal(revalidated.status, 304);
+    assert.equal(revalidated.headers.get('Cache-Control'), 'no-cache');
+    const swPath = join(web, 'sw.js');
+    const swStat = await stat(swPath);
+    await writeFile(swPath, 'self.addEventListener("fetch", () => 0); ');
+    await utimes(swPath, swStat.atime, swStat.mtime);
+    assert.equal((await stat(swPath)).size, swStat.size);
+    const revision = await http.fetch(request('/sw.js', { headers: { 'If-None-Match': worker.headers.get('ETag')! } }));
+    assert.equal(revision.status, 200);
+    assert.notEqual(revision.headers.get('ETag'), worker.headers.get('ETag'));
+    for (const name of ['manifest.webmanifest', 'manifest-dark.webmanifest']) {
+      const manifest = await http.fetch(request('/' + name));
+      assert.equal(manifest.status, 200);
+      assert.equal(manifest.headers.get('Content-Type'), 'application/manifest+json');
+      assert.equal(manifest.headers.get('Cache-Control'), 'no-cache');
+      assert.equal((await manifest.json()).name, 'Agent Hub');
+    }
+    const icon = await http.fetch(request('/icon-192.png'));
+    assert.equal(icon.status, 200);
+    assert.equal(icon.headers.get('Content-Type'), 'image/png');
+    assert.equal((await http.fetch(request('/private.js'))).status, 404);
+    assert.equal((await http.fetch(request('/sw.js', { method: 'POST' }))).status, 405);
+    const loopback = '127.0.0.1:4173';
+    const local = createHttp(await producer(), { localHost: loopback, release: 'test', webRoot: web });
+    try {
+      const script = (origin: string) => local.fetch(new Request('http://' + loopback + '/sw.js', { headers: { Host: loopback, Origin: origin } }));
+      assert.equal((await script('http://' + loopback)).status, 200);
+      assert.equal((await script('http://127.0.0.1:4174')).status, 400);
+    } finally { await local.close(); }
     assert.equal((await http.fetch(request('/outside.txt'))).status, 404);
     assert.equal((await http.fetch(request('/administration'))).status, 404);
     assert.equal((await http.fetch(request('/api/v9/health'))).status, 404);
