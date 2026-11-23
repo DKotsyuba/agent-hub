@@ -4,6 +4,12 @@ All notable changes to Agent Hub are documented here. The format follows [Keep a
 
 ## [Unreleased]
 
+## [0.2.6] - 2026-11-23
+
+### Fixed
+
+- Installed PWA: the home-indicator inset is applied inside the rail and panes instead of the whole shell, so backgrounds reach the bottom of the area iPadOS gives the web app (the remaining strip below it is system-owned). Overview current sessions show readable titles.
+
 ## [0.2.5] - 2026-11-23
 
 ### Changed
@@ -97,6 +103,7 @@ First public release: the terminal Hub for Linux x86-64 (standalone executable).
 
 - Archived Tasks and IDE sources are denied by the observer; the terminal has no Tasks, IDE or Run info tabs.
 
+[0.2.6]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.2.6
 [0.2.5]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.2.5
 [0.2.4]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.2.4
 [0.2.3]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.2.3
