@@ -2,10 +2,11 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { Page, Coverage, Observation, Topic, SessionHistory, PoolHistory } from '@agent-hub/domain';
-import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Pause, Play } from 'lucide-react';
+import { ArrowDown, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Info, Pause, Play, Wrench, X } from 'lucide-react';
 import { Button } from '../components/ui/button';
+import { Dialog, DialogContent, DialogDescription, DialogTitle, DialogTrigger } from '../components/ui/dialog';
 import { useRead, client, errorCode, useReadSignal } from './data';
-import { CoverageLine, EmptyRows, Expand, Sources, Text, type EvidenceScope, useWebText } from './ui';
+import { CoverageLine, EmptyRows, Sources, Text, type EvidenceScope, useWebText } from './ui';
 import { mergeChat, mergeTranscript } from './model';
 import { appendHistoryWindow, readHistoryBoundary, retainPausedHistory } from './history-window';
 
@@ -16,13 +17,13 @@ type WindowPage<T> = { items: T[]; page: Page; coverage: Coverage; observations:
 type Position = { edge: 'start' | 'tail'; cursor?: string | null; direction?: 'older' | 'newer' };
 
 /** Commands control only the local projection and scrolling position. */
-type Command = 'start' | 'tail' | 'older' | 'newer';
+type Command = 'start' | 'tail' | 'older' | 'newer' | 'follow';
 
 /** Maintains separate live and older cursors and never moves a paused reader during catch-up. */
-function History<T>({ topic, initial, load, merge, render, identity, size, evidence = [], compact = false }: {
+function History<T>({ topic, initial, load, merge, render, identity, size, evidence = [], actions }: {
   topic: Topic; initial: Position['edge']; load: (position: Position, signal: AbortSignal) => Promise<WindowPage<T>>;
   merge: (previous: T[], incoming: T[], older: boolean) => T[]; render: (item: T) => ReactNode;
-  identity: (item: T) => string; size: (item: T) => number; evidence?: EvidenceScope[]; compact?: boolean;
+  identity: (item: T) => string; size: (item: T) => number; evidence?: EvidenceScope[]; actions?: ReactNode;
 }) {
   const { label } = useWebText();
   const { visible, matched, refresh } = useReadSignal(topic);
@@ -55,10 +56,10 @@ function History<T>({ topic, initial, load, merge, render, identity, size, evide
     const replacing = !saved || action === 'start' || action === 'tail';
     const paused = !action && !!saved && (!following || !!viewport.current && viewport.current.scrollHeight - viewport.current.clientHeight - viewport.current.scrollTop >= 26);
     const cursor = replacing ? null : action === 'older' ? saved.value.page.previous
-      : action === 'newer' ? saved.value.page.next ?? saved.value.page.resume : paused ? saved.live : saved.value.page.resume;
+      : (action === 'newer' || action === 'follow') ? saved.value.page.next ?? saved.value.page.resume : paused ? saved.live : saved.value.page.resume;
     const run = async () => {
       const area = viewport.current;
-      const pending = action === 'newer' || !action && !paused ? recovered.current : null;
+      const pending = action === 'newer' || action === 'follow' || !action && !paused ? recovered.current : null;
       const recoveryEdge = saved?.value.format === 'legacy_raw' || saved?.value.format === 'legacy_forward' ? 'start' : paused ? 'tail' : edge;
       const result = pending ? { value: pending.value, reset: true }
         : await readHistoryBoundary(cursor, token => load({ edge: token ? edge : recoveryEdge, cursor: token, direction: token ? direction : undefined }, controller.signal), controller.signal);
@@ -67,7 +68,7 @@ function History<T>({ topic, initial, load, merge, render, identity, size, evide
       const resolvedEdge = pending?.edge ?? (result.reset ? recoveryEdge : edge);
       let reset = replacing || result.reset;
       // Drain a limited burst while keeping a bounded buffer and its real page boundaries.
-      if (!action && saved && !result.reset) {
+      if ((!action || action === 'follow') && saved && !result.reset) {
         const seen = new Set<string>();
         while (page.page.next && seen.size < 16) {
           const next = page.page.next;
@@ -102,10 +103,10 @@ function History<T>({ topic, initial, load, merge, render, identity, size, evide
       const stillAtTail = !!area && area.scrollHeight - area.clientHeight - area.scrollTop < 26;
       const anchor = Array.from(area?.children ?? []).find(item => item.getBoundingClientRect().bottom > area!.getBoundingClientRect().top) as HTMLElement | undefined;
       adjustment.current = { anchor, top: anchor?.getBoundingClientRect().top,
-        tail: action === 'tail' || (!saved && edge === 'tail') || (following && stillAtTail && action !== 'older'),
-        start: action === 'start' || (joined.moved && action === 'newer') };
+        tail: action === 'tail' || action === 'follow' || (!saved && edge === 'tail') || (!!saved && following && stillAtTail && action !== 'older'),
+        start: action === 'start' || !saved || (joined.moved && action === 'newer') };
       const next = { ...page, items: joined.items, page: joined.page };
-      if (action === 'tail' || action === 'newer') setUnread(0);
+      if (action === 'tail' || action === 'follow' || action === 'newer') setUnread(0);
       consumed.current = command;
       applied.current = { value: next, edge: resolvedEdge, live: action === 'older' && !result.reset ? saved?.live ?? null : fresh };
       setCurrent(next);
@@ -115,39 +116,118 @@ function History<T>({ topic, initial, load, merge, render, identity, size, evide
     return () => controller.abort();
   }, [visible, matched, refresh, command, following]);
   const legacy = current?.format === 'legacy_raw' || current?.format === 'legacy_forward';
-  const followLabel = label(following ? 'Pause follow' : 'Follow');
+  /** Resumes from the newest supported edge, or consumes the forward continuation on legacy sources. */
+  function resume() {
+    setFollowing(true);
+    if (!legacy || current?.page.next || current?.page.resume || recovered.current) {
+      setCommand({ action: legacy ? 'follow' : 'tail' });
+    } else if (viewport.current) {
+      viewport.current.scrollTop = viewport.current.scrollHeight;
+      setUnread(0);
+    }
+  }
   const controls = [
-    { title: label('Beginning'), short: label('History first'), icon: ChevronsLeft, run: () => { setFollowing(false); setCommand({ action: 'start' }); } },
-    { title: label('Older'), short: label('Older'), icon: ChevronLeft, disabled: !current?.page.previous, run: () => { setFollowing(false); setCommand({ action: 'older' }); } },
-    { title: label('Newer'), short: label('Newer'), icon: ChevronRight, disabled: !current?.page.next && (!unread || !current?.page.resume && !recovered.current), run: () => setCommand({ action: 'newer' }) },
-    { title: label('Jump to latest'), short: label('History latest'), icon: ChevronsRight, disabled: !current || legacy, run: () => { setFollowing(true); setCommand({ action: 'tail' }); } },
-    { title: followLabel, short: label(following ? 'History pause' : 'Follow'), icon: following ? Pause : Play, pressed: following, run: () => setFollowing(value => !value) },
+    { title: 'Beginning', icon: ChevronsLeft, run: () => { setFollowing(false); setCommand({ action: 'start' }); } },
+    { title: 'Older', icon: ChevronLeft, disabled: !current?.page.previous, run: () => { setFollowing(false); setCommand({ action: 'older' }); } },
+    { title: 'Newer', icon: ChevronRight, disabled: !current?.page.next && (!unread || !current?.page.resume && !recovered.current), run: () => setCommand({ action: 'newer' }) },
+    { title: 'Jump to latest', icon: ChevronsRight, disabled: !current || legacy, run: resume },
+    { title: following ? 'Pause follow' : 'Follow', icon: following ? Pause : Play, disabled: !current, active: following, run: following ? () => setFollowing(false) : resume },
   ];
   return <section className="web-history">
-    <div className={'web-controls web-history-controls' + (compact ? ' web-history-compact' : '')}>
-      {controls.map(({ title, short, icon: Icon, disabled, pressed, run }, index) =>
-        <Button key={index} variant={pressed ? 'secondary' : 'outline'} aria-label={title} title={title} aria-pressed={pressed} disabled={disabled} onClick={run}>
-          <Icon size={16} aria-hidden="true" /><span className="web-history-label">{title}</span><span className="web-history-short">{short}</span>
-        </Button>)}
+    <div className="web-history-bar">
+      <div className="web-history-context">
+        <Dialog>
+          <DialogTrigger asChild><Button variant="ghost" size="sm" className="web-history-info" title={label('History information')}
+            aria-label={label('History information')}><Info size={16} /><span>{label('History info')}</span></Button></DialogTrigger>
+          <DialogContent className="web-history-dialog">
+            <DialogTitle>{label('History information')}</DialogTitle>
+            <DialogDescription>{label('Retained history')}</DialogDescription>
+            {current && <><CoverageLine value={current.coverage} />{current.attribution && <p className="web-muted">{label(current.attribution)}</p>}</>}
+            {legacy && <p className="web-muted">{label('Forward-only history')}</p>}
+            <Sources items={current?.observations ?? []} topic={topic} title="History" additional={evidence} />
+            {actions}
+          </DialogContent>
+        </Dialog>
+        {current && <span className="web-history-coverage">{label(current.coverage.scope)} · {label(current.coverage.state)}</span>}
+      </div>
+      <div className="web-history-controls" role="group" aria-label={label('History navigation')}>
+        {controls.map(({ title, icon: Icon, disabled, active, run }) =>
+          <Button key={title === 'Follow' || title === 'Pause follow' ? 'follow' : title} variant={active ? 'secondary' : 'ghost'} size="icon"
+            aria-label={label(title)} title={label(title)} disabled={disabled} onClick={run}>
+            <Icon size={17} aria-hidden="true" />
+          </Button>)}
+      </div>
     </div>
-    {(legacy || unread > 0) && <p className="web-muted" role="status">{legacy ? label('Forward-only history') : label('Unread') + ' ' + unread}</p>}
     {error && <p role="status" className="web-warning">{label(error)}</p>}
-    <div className="web-transcript" ref={viewport} tabIndex={0} aria-label={label('History')}>
-      {current ? current.items.map(item => <div key={identity(item)}>{render(item)}</div>) : !error && <p role="status">{label('Loading')}</p>}
-      {current && <EmptyRows count={current.items.length} observations={current.observations} />}
+    <div className="web-history-body">
+      <div className="web-transcript" ref={viewport} tabIndex={0} role="region" aria-label={label('History')}>
+        {current ? current.items.map(item => <div className="web-history-entry" key={identity(item)}>{render(item)}</div>)
+          : !error && <p role="status">{label('Loading')}</p>}
+        {current && <EmptyRows count={current.items.length} observations={current.observations} />}
+      </div>
+      {unread > 0 && <div className="web-history-follow">
+        <Button size="sm" onClick={() => { viewport.current?.focus({ preventScroll: true }); resume(); }}>
+          <ArrowDown size={15} aria-hidden="true" /><span>{label('New messages')} · {unread}</span>
+        </Button>
+      </div>}
+      <span className="sr-only" role="status">{unread > 0 ? label('New messages') + ' · ' + unread : ''}</span>
     </div>
-    {current && <><CoverageLine value={current.coverage} />{current.attribution && <p className="web-muted">{label(current.attribution)}</p>}</>}
-    <Sources items={current?.observations ?? []} topic={topic} title="History" additional={evidence} />
   </section>;
 }
 
-/** One transcript fragment, retaining tool errors and checked completion timestamps. */
-function Fragment({ value }: { value: SessionHistory['entries'][number]['head'] }) {
+/** One source fragment from a retained transcript group. */
+type FragmentValue = SessionHistory['entries'][number]['head'];
+
+/** Empty tool arguments do not occupy a preview or a disclosure body. */
+function fragmentText(value: FragmentValue) {
+  return value.role === 'tool_call' && /^\s*\{\s*\}\s*$/.test(value.text) ? '' : value.text;
+}
+
+/** Preserves fragment attribution, timestamps, completeness, and full retained text. */
+function Fragment({ value }: { value: FragmentValue }) {
   const { label, clock } = useWebText();
-  return <><header className="web-row-meta"><strong>{value.name ?? label(value.role)}</strong><span>{clock(value.atMs)}{value.endAtMs != null && ' → ' + clock(value.endAtMs)}</span>
+  const text = fragmentText(value);
+  return <><header className="web-chat-meta"><strong>{value.name ?? label(value.role)}</strong><span>{clock(value.atMs)}{value.endAtMs != null && ' → ' + clock(value.endAtMs)}</span>
     {value.error && <span className="web-caution">{label('Error')}</span>}
     {(!value.complete || !!value.omittedBytes) && <span>{label('Partial')} {value.omittedBytes ? ' · ' + value.omittedBytes + ' B' : ''}</span>}</header>
-    <Text>{value.text}</Text></>;
+    {text && <Text>{text}</Text>}</>;
+}
+
+/** Shortens the display of shell wrappers and MCP namespaces while retaining original payloads. */
+function toolPreview(value: FragmentValue) {
+  const raw = fragmentText(value).trim();
+  const shell = value.name === 'command' && raw.match(/^(?:\S*\/)?([\w-]+)\s+-[a-z]*c\s+(['"])([\s\S]*)\2$/);
+  return shell ? { name: shell[1], text: shell[3] }
+    : { name: value.name?.split('/').pop()?.replaceAll('_', ' '), text: raw };
+}
+
+/** A compact tool group keeps its full calls and results available inline. */
+function ToolRow({ head, related, partial }: { head: FragmentValue; related: FragmentValue[]; partial?: boolean }) {
+  const { label, duration } = useWebText();
+  const { name, text } = toolPreview(head);
+  const outcome = [...related].reverse().find(part => part.role === 'tool_result') ?? head;
+  const end = outcome.endAtMs ?? head.endAtMs;
+  const elapsed = head.atMs != null && end != null && end >= head.atMs ? duration(end - head.atMs) : null;
+  return <details className="web-tool-row">
+    <summary>
+      <Wrench size={14} aria-hidden="true" />
+      <strong>{name || label(head.role)}</strong>
+      {text && <code>{text}</code>}
+      <span className="web-tool-state">
+        {outcome.error === false && <span className="web-tool-ok" role="img" aria-label={label('Tool succeeded')}><Check size={14} /></span>}
+        {outcome.error === true && <span className="web-tool-error" role="img" aria-label={label('Error')}><X size={14} /></span>}
+        {elapsed && <span>{elapsed}</span>}
+        {partial && <span className="web-caution">{label('Partial')}</span>}
+        <ChevronDown size={13} aria-hidden="true" className="web-tool-chevron" />
+      </span>
+    </summary>
+    <div className="web-tool-content">
+      {head.role === 'tool_result' && <p className="web-muted">{label('Unmatched tool result')}</p>}
+      <Fragment value={head} />
+      {related.map(part => <div className="web-fragment" key={part.position}><Fragment value={part} /></div>)}
+      {partial && <p className="web-muted">{label('Partial history block')}</p>}
+    </div>
+  </details>;
 }
 
 const encoder = new TextEncoder();
@@ -157,24 +237,33 @@ function textBytes(parts: string[]): number {
 }
 
 /** Session history opens at the retained start and discloses unmatched results. */
-export function Transcript({ id, execution, evidence }: { id: string; execution?: string | null; evidence: EvidenceScope[] }) {
+export function Transcript({ id, execution, evidence, actions }: {
+  id: string; execution?: string | null; evidence: EvidenceScope[]; actions?: ReactNode;
+}) {
   const { label } = useWebText();
-  return <History<SessionHistory['entries'][number]> evidence={evidence} topic={`session:${id}:history`} initial="start" identity={item => item.head.position}
+  return <History<SessionHistory['entries'][number]> evidence={evidence} actions={actions} topic={`session:${id}:history`} initial="start" identity={item => item.head.position}
     merge={mergeTranscript} size={item => textBytes([item.head, ...item.calls, ...item.results].map(part => part.text))} load={async (position, signal) => {
-      const { data, page, observations } = await client.get('sessionHistory', { params: { id }, query: { execution, ...position, limit: 6 }, signal });
+      const { data, page, observations } = await client.get('sessionHistory', { params: { id }, query: { execution, ...position, limit: 12 }, signal });
       return { items: data.entries, page, observations, coverage: data.coverage, format: data.format, attribution: data.attribution };
-    }} render={item => <article className="web-message">
-      {item.head.role === 'tool_result' && <p className="web-muted">{label('Unmatched tool result')}</p>}
-      <Fragment value={item.head} />
-      {(item.partialBefore || item.partialAfter) && <p className="web-muted">{label('Partial history block')}</p>}
-      {!!(item.calls.length || item.results.length) && <Expand title="Tool calls and results">
-        {[...item.calls, ...item.results].map(fragment => <div className="web-fragment" key={fragment.position}><Fragment value={fragment} /></div>)}
-      </Expand>}
-    </article>} />;
+    }} render={item => {
+      const { head } = item;
+      const related = [...item.calls, ...item.results].filter(part => part.position !== head.position);
+      const partial = item.partialBefore || item.partialAfter;
+      if (head.role === 'tool' || head.role === 'tool_call' || head.role === 'tool_result') {
+        return <ToolRow head={head} related={related} partial={partial} />;
+      }
+      return <article className="web-message" data-role={head.role}>
+        <Fragment value={head} />
+        {partial && <p className="web-muted">{label('Partial history block')}</p>}
+        {related.map(part => <ToolRow key={part.position} head={part} related={[]} />)}
+      </article>;
+    }} />;
 }
 
 /** Pool discussion defaults according to the producer capability and merges multipart messages. */
-export function Discussion({ id, bidirectional, evidence }: { id: string; bidirectional: boolean; evidence: EvidenceScope[] }) {
+export function Discussion({ id, bidirectional, evidence, actions }: {
+  id: string; bidirectional: boolean; evidence: EvidenceScope[]; actions?: ReactNode;
+}) {
   const { label, clock } = useWebText();
   const roster = useRead(id, signal => client.get('poolSection', { params: { id, section: 'members' }, signal }), `pool:${id}:members`);
   const data = roster.value?.data;
@@ -186,11 +275,12 @@ export function Discussion({ id, bidirectional, evidence }: { id: string; bidire
     names.set(member.id, name);
     if (member.seat) names.set(member.seat.id, name);
   }
-  return <History<PoolHistory['items'][number]> compact evidence={evidence} topic={`pool:${id}:history`} initial={bidirectional ? 'tail' : 'start'}
+  return <History<PoolHistory['items'][number]> evidence={evidence} actions={actions} topic={`pool:${id}:history`} initial={bidirectional ? 'tail' : 'start'}
     identity={item => item.id + ':' + (item.partRange?.first ?? '')} merge={mergeChat} size={item => textBytes(item.parts)} load={async (position, signal) => {
-      const { data, page, observations } = await client.get('poolHistory', { params: { id }, query: { ...position, limit: 6 }, signal });
+      const { data, page, observations } = await client.get('poolHistory', { params: { id }, query: { ...position, limit: 12 }, signal });
       return { items: data.items, page, observations, coverage: data.coverage, format: data.format };
-    }} render={item => <article className="web-message">
+    }} render={item => <article className="web-message" data-role={item.kind === 'direct_message' ? 'direct'
+      : item.kind === 'message' ? 'chat' : 'event'}>
       <header className="web-chat-meta">
         <strong title={item.authorId ?? undefined}>{(item.authorId && names.get(item.authorId)) ?? label(item.authorKind ?? 'Unknown sender')}</strong>
         {item.atMs !== null && <span>{clock(item.atMs)}</span>}

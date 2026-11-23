@@ -1,5 +1,9 @@
 /** Russian translations for v1-specific chrome and normalized producer enum values. */
 export const translations: Record<string, string> = {
+  Sidebar: 'Боковая панель', 'Collapse sidebar': 'Свернуть панель', 'Expand sidebar': 'Развернуть панель',
+  'Hide list': 'Скрыть список', 'Show list': 'Показать список', 'Copy ID': 'Копировать ID', 'Finished short': 'Заверш.',
+  'History info': 'Об истории', 'History information': 'Сведения об истории', 'History navigation': 'Навигация по истории', 'New messages': 'Новые сообщения',
+  'Tool succeeded': 'Вызов выполнен',
   'Quota pace reserve': '{amount} в запасе', 'Quota pace deficit': 'дефицит {amount}', 'Quota on pace': 'расход по плану', 'Quota pace unknown': 'темп неизвестен',
   'Forecast unknown': 'Прогноз неизвестен', 'Forecast burn': 'расход ~{rate} п.п./ч',
   'Forecast tiny burn': 'расход <{rate} п.п./ч', 'Pace marker legend': 'Черта на шкале показывает остаток при равномерном расходе.',
@@ -26,7 +30,7 @@ export const translations: Record<string, string> = {
   'Server version': 'Сервер', 'Server unreachable': 'Сервер недоступен', 'Update app': 'Обновить', 'Updating app': 'Обновление…',
   'Update failed': 'Не удалось обновить приложение. Попробуйте ещё раз.',
   'Offline shell': 'Сервер недоступен. Актуальные данные появятся после восстановления связи.',
-  'More sections': 'Другие разделы', 'Direct to': 'Личное сообщение →', 'Unknown recipient': 'Неизвестный участник', 'Unknown sender': 'Неизвестный отправитель',
+  More: 'Ещё', 'More sections': 'Другие разделы', 'Direct to': 'Личное сообщение →', 'Unknown recipient': 'Неизвестный участник', 'Unknown sender': 'Неизвестный отправитель',
   pool_created: 'Пул создан', member_joined: 'Участник добавлен', vote_recorded: 'Голос записан', vote_check: 'Проверка критерия',
   pool_completed: 'Пул завершён', proposal_opened: 'Предложение открыто', proposal_accepted: 'Предложение принято', member: 'Участник',
   service: 'Сервис', integration_unknown: 'Статус интеграции не определён', agent: 'Агент', owner: 'Владелец', idle_candidate: 'Возможно неактивна', ancestor_merged: 'Ветка объединена',
@@ -109,6 +113,7 @@ export const translations: Record<string, string> = {
 
 /** Human-readable v1 machine codes and English labels for normalized UI values. */
 export const english: Record<string, string> = {
+  'Finished short': 'Finished',
   'Quota pace reserve': '{amount} in reserve', 'Quota pace deficit': '{amount} deficit', 'Quota on pace': 'on pace', 'Quota pace unknown': 'pace unknown',
   'Forecast burn': 'burn ~{rate} pp/h', 'Forecast tiny burn': 'burn <{rate} pp/h',
   'Pace marker legend': 'The tick marks the balance at an even burn rate.', 'Runs out in': 'runs out in ~{time}', 'Time until reset': '{time} until reset',

@@ -1,6 +1,18 @@
 /** Web history and presentation projections. */
-import type { PoolHistory, SessionHistory, Worktree } from '@agent-hub/domain';
+import type { Pool, PoolHistory, Session, SessionHistory, Worktree } from '@agent-hub/domain';
 import { accountTitle, type QuotaAccount, type QuotaSnapshot } from '../../packages/view-model/src/index';
+
+/** Selects a readable session label from its reported name or task summary. */
+export function sessionTitle(row: Session) {
+  const name = row.name?.trim();
+  return name && name !== row.id ? name : row.summary?.trim().replace(/\s+/g, ' ') || undefined;
+}
+
+/** Selects a readable Pool label from its reported name or purpose preview. */
+export function poolTitle(row: Pool) {
+  const name = row.name?.trim();
+  return name && name !== row.id ? name : row.purposePreview?.trim().replace(/\s+/g, ' ') || undefined;
+}
 
 /** Matches the Quota producer's three known recommendation forms without displaying their identifiers. */
 export function quotaAdviceKind(advice: string) {
