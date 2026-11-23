@@ -52,7 +52,7 @@ export const translations: Record<string, string> = {
   From: 'С', Before: 'До', 'All time': 'За всё время', 'Failed executions': 'Ошибки исполнения',
   Incidents: 'Инциденты', Incident: 'Инцидент', Accounts: 'Учётные записи', Account: 'Учётная запись', Known: 'Известно', Exhausted: 'Исчерпано',
   'Lowest remaining': 'Наименьший остаток', 'Current sessions': 'Текущие сессии',
-  active: 'Активные', started: 'Запущено', succeeded: 'Успешно', failed: 'Ошибки', finished: 'Завершённые',
+  active: 'Активные', started: 'Запущено', succeeded: 'Успешно', completed: 'Завершён', failed: 'Ошибки', finished: 'Завершённые',
   accepted: 'Принято', pending: 'Ожидает', incidents: 'Инциденты', 'Next page': 'Следующая страница',
   Publisher: 'Издатель', 'Event ID': 'ID события', Closed: 'Закрыт', Created: 'Создано', Updated: 'Обновлено',
   open: 'Открытые', closed: 'Закрытые', all: 'Все', created: 'Создано', starting: 'Запускается', running: 'Выполняется',

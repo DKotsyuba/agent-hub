@@ -91,7 +91,7 @@ export function InventoryList({ kind, query, id, update }: {
             <span className="web-record-preview">{row.lastAction ?? row.summary}</span>{row.failureKind && <span className="error-text">{row.failureKind}{row.failureText && ' · ' + row.failureText}</span>}
             <span>{clock(row.finishedAtMs ?? row.progressAtMs ?? row.createdAtMs)}{row.elapsedMs != null && ' · ' + duration(row.elapsedMs)}</span>
           </Row>;
-          if ('purposePreview' in row) return <Row key={row.id} id={row.id} target={detailUrl(row.id)} selected={id === row.id} title={row.name ?? row.id} state={row.state}>
+          if ('purposePreview' in row) return <Row key={row.id} id={row.id} target={detailUrl(row.id)} selected={id === row.id} title={row.name ?? row.id} state={row.state === 'open' && row.record ? 'completed' : row.state}>
             <span>{row.kind && label(row.kind)}</span><span className="web-record-preview">{row.purposePreview}</span>
           </Row>;
           const project = 'projects' in data && !request.project ? data.projects.find(item => item.id === row.projectId)?.name : null;

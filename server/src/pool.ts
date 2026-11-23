@@ -43,6 +43,12 @@ function row(raw: Record<string, unknown>, data: Record<string, unknown>): Pool 
   };
 }
 
+/** The list tab a pool belongs to: a pool that is not closed but already carries a completion or agreement record is
+ * finished work, so it is listed with the closed ones, not as open. `state` itself stays the closure state. */
+export function lifecycle(item: Pick<Pool, 'state' | 'record'>): 'open' | 'closed' | 'unknown' {
+  return item.state === 'open' && item.record ? 'closed' : item.state;
+}
+
 /** Reads and deduplicates a bounded inventory while preserving independent snapshot totals. */
 export async function pools(ctx: ReadContext, query: Input<'pools'>, position: Position | null) {
   const { has, capabilities } = await identity(ctx);
@@ -78,7 +84,7 @@ export async function pools(ctx: ReadContext, query: Input<'pools'>, position: P
   }
   if (complete && totals && BigInt(rows.length) !== BigInt(totals.retained)) throw new HubError('invalid_projection');
   const items = [...new Map(rows.map(item => [item.id, item])).values()].filter(item =>
-    (query.state === 'all' || query.state === item.state) &&
+    (query.state === 'all' || query.state === lifecycle(item)) &&
     (!query.q || [item.id, item.name, item.purposePreview].some(value => value?.toLowerCase().includes(query.q.toLowerCase()))));
   const page = ctx.cursors.slice(query, position, items, digest([sourceFence, items]), query.limit);
   const scope = coverage('retained', complete, snapshot ? 'snapshot' : 'offset_unfenced');
