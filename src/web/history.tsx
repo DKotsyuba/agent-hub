@@ -2,9 +2,10 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { Page, Coverage, Observation, Topic, SessionHistory, PoolHistory } from '@agent-hub/domain';
+import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Pause, Play } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { useRead, client, errorCode, useReadSignal } from './data';
-import { CoverageLine, EmptyRows, Expand, Sources, Text, useWebText } from './ui';
+import { CoverageLine, EmptyRows, Expand, Sources, Text, type EvidenceScope, useWebText } from './ui';
 import { mergeChat, mergeTranscript } from './model';
 import { appendHistoryWindow, readHistoryBoundary, retainPausedHistory } from './history-window';
 
@@ -18,10 +19,10 @@ type Position = { edge: 'start' | 'tail'; cursor?: string | null; direction?: 'o
 type Command = 'start' | 'tail' | 'older' | 'newer';
 
 /** Maintains separate live and older cursors and never moves a paused reader during catch-up. */
-function History<T>({ topic, initial, load, merge, render, identity, size }: {
+function History<T>({ topic, initial, load, merge, render, identity, size, evidence = [], compact = false }: {
   topic: Topic; initial: Position['edge']; load: (position: Position, signal: AbortSignal) => Promise<WindowPage<T>>;
   merge: (previous: T[], incoming: T[], older: boolean) => T[]; render: (item: T) => ReactNode;
-  identity: (item: T) => string; size: (item: T) => number;
+  identity: (item: T) => string; size: (item: T) => number; evidence?: EvidenceScope[]; compact?: boolean;
 }) {
   const { label } = useWebText();
   const { visible, matched, refresh } = useReadSignal(topic);
@@ -114,21 +115,29 @@ function History<T>({ topic, initial, load, merge, render, identity, size }: {
     return () => controller.abort();
   }, [visible, matched, refresh, command, following]);
   const legacy = current?.format === 'legacy_raw' || current?.format === 'legacy_forward';
+  const followLabel = label(following ? 'Pause follow' : 'Follow');
+  const controls = [
+    { title: label('Beginning'), icon: ChevronsLeft, run: () => { setFollowing(false); setCommand({ action: 'start' }); } },
+    { title: label('Older'), icon: ChevronLeft, disabled: !current?.page.previous, run: () => { setFollowing(false); setCommand({ action: 'older' }); } },
+    { title: label('Newer'), icon: ChevronRight, disabled: !current?.page.next && (!unread || !current?.page.resume && !recovered.current), run: () => setCommand({ action: 'newer' }) },
+    { title: label('Jump to latest'), icon: ChevronsRight, disabled: !current || legacy, run: () => { setFollowing(true); setCommand({ action: 'tail' }); } },
+    { title: followLabel, icon: following ? Pause : Play, pressed: following, run: () => setFollowing(value => !value) },
+  ];
   return <section className="web-history">
-    <div className="web-controls">
-      <Button variant="outline" onClick={() => { setFollowing(false); setCommand({ action: 'start' }); }}>{label('Beginning')}</Button>
-      <Button variant="outline" disabled={!current?.page.previous} onClick={() => { setFollowing(false); setCommand({ action: 'older' }); }}>{label('Older')}</Button>
-      <Button variant="outline" disabled={!current?.page.next && (!unread || !current?.page.resume && !recovered.current)} onClick={() => setCommand({ action: 'newer' })}>{label('Newer')}</Button>
-      <Button variant="outline" disabled={!current || legacy} onClick={() => { setFollowing(true); setCommand({ action: 'tail' }); }}>{label('Jump to latest')}{unread > 0 && ' (' + unread + ')'}</Button>
-      <Button variant={following ? 'secondary' : 'outline'} aria-pressed={following} onClick={() => setFollowing(value => !value)}>{label(following ? 'Pause follow' : 'Follow')}</Button>
-      <span className="web-muted" role="status">{legacy ? label('Forward-only history') : unread > 0 ? label('Unread') + ' ' + unread : null}</span>
+    <div className={'web-controls web-history-controls' + (compact ? ' web-history-compact' : '')}>
+      {controls.map(({ title, icon: Icon, disabled, pressed, run }, index) =>
+        <Button key={index} variant={pressed ? 'secondary' : 'outline'} aria-label={title} title={title} aria-pressed={pressed} disabled={disabled} onClick={run}>
+          <Icon size={16} aria-hidden="true" /><span>{title}</span>
+        </Button>)}
     </div>
+    {(legacy || unread > 0) && <p className="web-muted" role="status">{legacy ? label('Forward-only history') : label('Unread') + ' ' + unread}</p>}
     {error && <p role="status" className="web-warning">{label(error)}</p>}
     <div className="web-transcript" ref={viewport} tabIndex={0} aria-label={label('History')}>
       {current ? current.items.map(item => <div key={identity(item)}>{render(item)}</div>) : !error && <p role="status">{label('Loading')}</p>}
       {current && <EmptyRows count={current.items.length} observations={current.observations} />}
     </div>
-    {current && <><CoverageLine value={current.coverage} />{current.attribution && <p className="web-muted">{label(current.attribution)}</p>}<Sources items={current.observations} /></>}
+    {current && <><CoverageLine value={current.coverage} />{current.attribution && <p className="web-muted">{label(current.attribution)}</p>}</>}
+    <Sources items={current?.observations ?? []} topic={topic} title="History" additional={evidence} />
   </section>;
 }
 
@@ -148,9 +157,9 @@ function textBytes(parts: string[]): number {
 }
 
 /** Session history opens at the retained start and discloses unmatched results. */
-export function Transcript({ id, execution }: { id: string; execution?: string | null }) {
+export function Transcript({ id, execution, evidence }: { id: string; execution?: string | null; evidence: EvidenceScope[] }) {
   const { label } = useWebText();
-  return <History<SessionHistory['entries'][number]> topic={`session:${id}:history`} initial="start" identity={item => item.head.position}
+  return <History<SessionHistory['entries'][number]> evidence={evidence} topic={`session:${id}:history`} initial="start" identity={item => item.head.position}
     merge={mergeTranscript} size={item => textBytes([item.head, ...item.calls, ...item.results].map(part => part.text))} load={async (position, signal) => {
       const { data, page, observations } = await client.get('sessionHistory', { params: { id }, query: { execution, ...position, limit: 6 }, signal });
       return { items: data.entries, page, observations, coverage: data.coverage, format: data.format, attribution: data.attribution };
@@ -165,7 +174,7 @@ export function Transcript({ id, execution }: { id: string; execution?: string |
 }
 
 /** Pool discussion defaults according to the producer capability and merges multipart messages. */
-export function Discussion({ id, bidirectional }: { id: string; bidirectional: boolean }) {
+export function Discussion({ id, bidirectional, evidence }: { id: string; bidirectional: boolean; evidence: EvidenceScope[] }) {
   const { label, clock } = useWebText();
   const roster = useRead(id, signal => client.get('poolSection', { params: { id, section: 'members' }, signal }), `pool:${id}:members`);
   const data = roster.value?.data;
@@ -177,7 +186,7 @@ export function Discussion({ id, bidirectional }: { id: string; bidirectional: b
     names.set(member.id, name);
     if (member.seat) names.set(member.seat.id, name);
   }
-  return <History<PoolHistory['items'][number]> topic={`pool:${id}:history`} initial={bidirectional ? 'tail' : 'start'}
+  return <History<PoolHistory['items'][number]> compact evidence={evidence} topic={`pool:${id}:history`} initial={bidirectional ? 'tail' : 'start'}
     identity={item => item.id + ':' + (item.partRange?.first ?? '')} merge={mergeChat} size={item => textBytes(item.parts)} load={async (position, signal) => {
       const { data, page, observations } = await client.get('poolHistory', { params: { id }, query: { ...position, limit: 6 }, signal });
       return { items: data.items, page, observations, coverage: data.coverage, format: data.format };

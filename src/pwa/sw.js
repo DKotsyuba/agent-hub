@@ -31,9 +31,7 @@ self.addEventListener('fetch', event => {
   if (request.mode === 'navigate') {
     event.respondWith((async () => {
       try {
-        const response = await fetch(request);
-        if (response.status < 500) return response;
-        return await (await caches.open(cache)).match(root) ?? response;
+        return await fetch(request);
       } catch {
         return await (await caches.open(cache)).match(root) ?? Response.error();
       }

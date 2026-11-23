@@ -50,6 +50,20 @@ export function windowSeconds(name: string): number | null {
   const count = /^\d+$/.test(match[1]!) ? Number(match[1]) : NUMBER_WORDS[match[1]!];
   return count && count > 0 ? count * UNIT_SECONDS[match[2]!]! : null;
 }
+/** Projects usable window capacity and freshness against an epoch-seconds clock. */
+export function quotaWindowSample(window: QuotaWindow, now: number) {
+  const known = window.forecastKnown && window.lastRemaining !== null;
+  const resetAt = known ? window.lastResetAt : null;
+  const passed = resetAt !== null && resetAt <= now;
+  return { known, remaining: known ? window.lastRemaining : null, resetAt, passed,
+    stale: known && (passed || window.validUntil !== null && window.validUntil <= now) };
+}
+
+/** Suppresses placeholder numbers on producer-declared unknown models. */
+export function quotaModelRemaining(model: QuotaModel) {
+  return model.state === 'unknown' ? null : model.remaining;
+}
+
 /** Human names for known quota providers. Unknown providers keep the account identifier. */
 const PROVIDER_NAMES: Record<string, string> = {
   claude: 'Claude subscription', codex: 'Codex (ChatGPT)', glm: 'Z.AI GLM', 'opencode-go': 'OpenCode Go',

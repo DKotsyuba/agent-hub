@@ -187,7 +187,7 @@ test('an unknown account stays Unknown with a dim empty bar, never 0%', () => {
   assert.match(joined, /Source fixture-source failed: collector_timeout/);
   assert.doesNotMatch(joined, /\b0%/);
   // A window the producer reports with a placeholder 100% but no known forecast.
-  const placeholder = variant(account => { account.windows[0].forecast.known = false; account.models[0].state = 'unknown'; account.models[0].remaining_percent = null; account.models[0].state_validity = { kind: 'unknown' }; account.models[0].risk = 'unknown'; });
+  const placeholder = variant(account => { account.windows[0].forecast.known = false; account.models[0].state = 'unknown'; account.models[0].remaining_percent = 100; account.models[0].state_validity = { kind: 'unknown' }; account.models[0].risk = 'unknown'; });
   const unknownView = accountView(placeholder.accounts[0]!, [], NOW);
   assert.equal(unknownView.badge, 'UNKNOWN');
   const window = unknownView.windows[0]!;

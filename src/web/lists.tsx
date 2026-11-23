@@ -54,7 +54,7 @@ export function InventoryList({ kind, query, id, update }: {
   };
   return <>
     {kind !== 'worktrees' && <>
-      <div className="web-controls">
+      <div className="web-controls web-list-filters">
         {keys.map(key => <Button size="sm" key={key} variant={selected === key ? 'secondary' : 'outline'} aria-pressed={selected === key}
           onClick={() => update({ [groupKey]: key })}>{label(key === 'active' || key === 'open' ? 'Live' : key === 'closed' || key === 'finished' ? 'Finished' : key)}</Button>)}
       </div>
@@ -94,14 +94,15 @@ export function InventoryList({ kind, query, id, update }: {
           if ('purposePreview' in row) return <Row key={row.id} id={row.id} target={detailUrl(row.id)} selected={id === row.id} title={row.name ?? row.id} state={row.state}>
             <span>{row.kind && label(row.kind)}</span><span className="web-record-preview">{row.purposePreview}</span>
           </Row>;
+          const project = 'projects' in data && !request.project ? data.projects.find(item => item.id === row.projectId)?.name : null;
           const measurements = worktreeMeasurements(row, label, bytes => formatBytes(bytes, n));
-          return <Row key={row.id} id={row.id} target={detailUrl(row.id)} selected={id === row.id} title={label(branchLabel(row, true))} state={row.integration}>
+          return <Row key={row.id} id={row.id} target={detailUrl(row.id)} selected={id === row.id} title={[label(branchLabel(row, true)), project].filter(Boolean).join(' · ')} state={row.integration}>
             <span>{measurements.changes} · {measurements.size}</span><span>{label(row.class)} · {label(row.activity ?? 'Unknown')}</span>
           </Row>;
         })}</div>
         <Next cursor={page.next} update={cursor => update({ cursor }, true)} />
         {'totals' in data && data.totals && <Expand title="Snapshot totals"><p className="web-muted">{label('Retained')} {data.totals.retained} · {label('open')} {data.totals.open ?? '—'} · {label('closed')} {data.totals.closed} · {label('Completed')} {data.totals.completed ?? '—'} · {label('Unknown')} {data.totals.unknown}</p></Expand>}
-        <Sources items={observations} />
+        <Sources items={observations} topic={kind} title="Inventory" />
       </>;
     }}</ReadState>
   </>;

@@ -1,7 +1,7 @@
 /** Presentation model of the Quota tab and Overview card: per-account blocks, per-window bars and pace.
  * Pure and renderer-independent: it maps the already validated snapshot to rows of toned spans.
  * Unknown stays Unknown (dim, empty bar) and is never converted to zero capacity. */
-import { accountTitle, windowSeconds } from '../../packages/view-model/src/index.ts';
+import { accountTitle, quotaModelRemaining, quotaWindowSample, windowSeconds } from '../../packages/view-model/src/index.ts';
 import stringWidth from 'string-width';
 import { span } from './quota.ts';
 import type { QuotaAccount, QuotaModel, QuotaSnapshot, QuotaSource, QuotaWindow, Tone } from './quota.ts';
@@ -150,9 +150,10 @@ function sameAsWindow(model: QuotaModel, window: QuotaWindow, known: boolean): b
 /** Describes one model's own state for a divergent row. */
 function modelRow(model: QuotaModel, now: number): ModelRowView {
   if (model.state === 'exhausted') return { model: model.model, text: `exhausted${model.exhaustedUntil !== null && model.exhaustedUntil > now ? ` · resets in ${span(model.exhaustedUntil - now)}` : ''}`, tone: 'error' };
-  if (model.state === 'unknown' || model.remaining === null) return { model: model.model, text: 'Unknown', tone: 'muted' };
+  const remaining = quotaModelRemaining(model);
+  if (remaining === null) return { model: model.model, text: 'Unknown', tone: 'muted' };
   const reset = model.resetAt !== null && model.resetAt > now ? ` · resets in ${span(model.resetAt - now)}` : '';
-  return { model: model.model, text: `${percentLeft(model.remaining)} left${reset}`, tone: model.risk === 'high' ? 'error' : model.risk === 'medium' ? 'warn' : 'good' };
+  return { model: model.model, text: `${percentLeft(remaining)} left${reset}`, tone: model.risk === 'high' ? 'error' : model.risk === 'medium' ? 'warn' : 'good' };
 }
 /** True when the model's limiting window is this window. */
 function limitedBy(model: QuotaModel, window: QuotaWindow): boolean {
@@ -161,11 +162,8 @@ function limitedBy(model: QuotaModel, window: QuotaWindow): boolean {
 
 /** Prepares one window; `models` are the account's models for divergence checks. */
 function windowView(window: QuotaWindow, models: QuotaModel[], now: number): WindowView {
-  const known = window.forecastKnown && window.lastRemaining !== null;
-  const remaining = known ? window.lastRemaining : null, resetAt = known ? window.lastResetAt : null;
+  const { known, remaining, resetAt, passed, stale } = quotaWindowSample(window, now);
   const pace = known ? paceRemaining(window.window, resetAt, now) : null;
-  const passed = known && resetAt !== null && resetAt <= now;
-  const stale = known && (passed || window.validUntil !== null && window.validUntil <= now);
   const note = paceNote(remaining, pace), exhaust = exhaustion(remaining, window.burn, resetAt, now);
   const tone: Tone = known ? windowTone(remaining!, window.risk, note, exhaust) : 'muted';
   const resetText = !known ? 'no usable sample' : resetAt === null ? 'no reset clock' : passed ? `reset passed ${span(now - resetAt!)} ago` : `Resets in ${span(resetAt - now)}`;

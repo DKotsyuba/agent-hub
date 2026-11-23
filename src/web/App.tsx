@@ -13,7 +13,7 @@ import { Incidents, Overview, Period, Quota, WorktreeDetails } from './catalog';
 import { PoolDetails, SessionDetails } from './details';
 import { InventoryList, inventoryHref } from './lists';
 import type { Inventory } from './lists';
-import { Expand, href, Link, Navigation, relativeTime, Sources, useWebText } from './ui';
+import { Expand, href, Link, Navigation, relativeTime, useWebText } from './ui';
 import { useAppUpdate } from './pwa';
 
 /** Primary screens and their stable addresses. */
@@ -222,14 +222,14 @@ export default function App() {
 
   const title = kind === 'incidents' ? 'Bridge incidents' : navigation.find(item => item[0] === kind)![2];
   const header = <div className={id ? 'web-heading web-heading-detail' : 'web-heading'}>
-    <div>
+    <div className="web-heading-title">
       {(id || kind === 'incidents') && <Link href={parent} data-focus-key="back" className="web-back web-link" onClick={event => {
         if (!(event.metaKey || event.ctrlKey || event.altKey || event.shiftKey)) { event.preventDefault(); back(); }
       }}><ArrowLeft size={16} />{label('Back')}</Link>}
       <h1 ref={heading} tabIndex={-1}>{id ? label(kind === 'sessions' ? 'Session detail' : kind === 'pools' ? 'Pool detail' : 'Worktree detail') : label(title)}</h1>
-    </div>
-    <div className="web-controls">
       {health.value?.mode === 'fixture' && <span className="web-fixture">{label('Fixture data')}</span>}
+    </div>
+    <div className="web-controls web-header-controls">
       {updateAvailable && <Button className="web-update" size="sm" disabled={appUpdate.updating} onClick={() => void appUpdate.activate()}>
         <Download size={14} aria-hidden="true" />{label(appUpdate.updating ? 'Updating app' : 'Update app')}
       </Button>}
@@ -286,13 +286,12 @@ export default function App() {
           </section>}
         </div> : <>
           {kind === 'incidents' && <Period query={query} update={update} />}
-          {kind === 'overview' ? <Overview query={query} live={live.visible ? live.observations : []}
+          {kind === 'overview' ? <Overview query={query}
             filter={<div className="web-overview-period"><Expand title={label('Period filter') + (query.has('from') || query.has('to') ? ' · ' + label('Filtered') : '')}>
               <Period query={query} update={update} />
             </Expand></div>} /> : kind === 'incidents'
             ? <Incidents query={query} next={cursor => update({ cursor }, true)} /> : <Quota now={Math.max(now, lastRead ?? 0)} />}
         </>}
-        {kind !== 'overview' && live.visible && <Sources items={live.observations.filter(item => item.outcome !== 'ok' && item.staleSinceMs == null)} />}
         </div>
         <footer className="web-footer">
           <span>Hub {webVersion}</span>

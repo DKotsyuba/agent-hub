@@ -16,6 +16,7 @@ function installation(worker: ServiceWorker, signal: AbortSignal) {
 /** Registers the production SW, tracks waiting updates and reloads after explicit activation. */
 export function useAppUpdate() {
   const [waiting, setWaiting] = useState(false);
+  const [reloadPending, setReloadPending] = useState(false);
   const [updating, setUpdating] = useState(false);
   const [error, setError] = useState(false);
   const registration = useRef<ServiceWorkerRegistration | null>(null);
@@ -26,6 +27,14 @@ export function useAppUpdate() {
     const events = new AbortController();
     const { signal } = events;
     const service = navigator.serviceWorker;
+    let controller = service.controller;
+    const controllerChanged = () => {
+      const next = service.controller;
+      if (controller && next && controller !== next) setReloadPending(true);
+      controller = next;
+      check();
+    };
+    service.addEventListener('controllerchange', controllerChanged, { signal });
     const watched = new WeakSet<ServiceWorker>();
     const check = () => {
       const installed = registration.current?.waiting;
@@ -45,7 +54,6 @@ export function useAppUpdate() {
       if (signal.aborted) return;
       registration.current = reg;
       reg.addEventListener('updatefound', watch, { signal });
-      service.addEventListener('controllerchange', check, { signal });
       watch();
       update();
     }).catch(() => { /* The web app remains readable when native SW support is unavailable. */ });
@@ -69,6 +77,10 @@ export function useAppUpdate() {
     setUpdating(true);
     setError(false);
     try {
+      if (reloadPending) {
+        location.reload();
+        return;
+      }
       const reg = registration.current;
       if (reg && !reg.waiting) {
         await reg.update();
@@ -97,5 +109,5 @@ export function useAppUpdate() {
     }
   }
 
-  return { waiting, updating, error, activate };
+  return { waiting: waiting || reloadPending, updating, error, activate };
 }

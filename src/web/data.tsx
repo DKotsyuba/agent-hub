@@ -15,14 +15,14 @@ export const client = createHubClient({ fetch: async (input, options) => {
 
 /** Current subscription invalidations, source states and explicit refresh generation. */
 export const LiveContext = createContext<{
-  visible: boolean; events: ReadonlyMap<Topic, HubEvent>; observations: Observation[]; refresh: number; unreachable?: boolean; reportRead?: (at: number) => void;
-}>({ visible: true, events: new Map(), observations: [], refresh: 0 });
+  visible: boolean; events: ReadonlyMap<Topic, HubEvent>; sourceEvents?: ReadonlyMap<Topic, readonly Observation[]>; refresh: number; unreachable?: boolean; reportRead?: (at: number) => void;
+}>({ visible: true, events: new Map(), refresh: 0 });
 
 /** Closes the scoped stream on hide and revalidates through ready after reopening. */
 export function useLive(topics: readonly Topic[], interval: 1 | 3 | 5 | 10) {
   const [visible, setVisible] = useState(!document.hidden);
-  const [scope, setScope] = useState<{ key: string; events: Map<Topic, HubEvent>; observations: Observation[] }>({
-    key: '', events: new Map(), observations: [],
+  const [scope, setScope] = useState<{ key: string; events: Map<Topic, HubEvent>; sourceEvents: Map<Topic, Observation[]> }>({
+    key: '', events: new Map(), sourceEvents: new Map(),
   });
   const [connection, setConnection] = useState('connecting');
   const key = topics.join(',');
@@ -42,11 +42,11 @@ export function useLive(topics: readonly Topic[], interval: 1 | 3 | 5 | 10) {
     if (!visible) return;
     const controller = new AbortController();
     const events = new Map<Topic, HubEvent>();
-    const observations = new Map<string, Observation>();
+    const sourceEvents = new Map<Topic, Map<string, Observation>>();
     let pending: number | undefined;
     const publish = () => {
       pending = undefined;
-      setScope({ key, events: new Map(events), observations: [...observations.values()] });
+      setScope({ key, events: new Map(events), sourceEvents: new Map([...sourceEvents].map(([topic, values]) => [topic, [...values.values()]])) });
     };
     setConnection('connecting');
     void client.watch(key.split(',') as Topic[], interval, {
@@ -54,7 +54,10 @@ export function useLive(topics: readonly Topic[], interval: 1 | 3 | 5 | 10) {
         for (const topic of event.type === 'ready' ? event.topics : [event.topic]) events.set(topic, event);
         if (event.type === 'source-state') {
           const value = event.observation;
-          observations.set(value.source + ':' + (value.resource ?? ''), value);
+          const id = value.source + ':' + (value.resource ?? '');
+          const scoped = sourceEvents.get(event.topic) ?? new Map<string, Observation>();
+          scoped.set(id, value);
+          sourceEvents.set(event.topic, scoped);
         }
         pending ??= window.setTimeout(publish, 24);
       },
@@ -66,7 +69,7 @@ export function useLive(topics: readonly Topic[], interval: 1 | 3 | 5 | 10) {
       window.clearTimeout(pending);
     };
   }, [key, interval, visible]);
-  return { visible: visible && scope.key === key, events: scope.events, observations: scope.observations, connection };
+  return { visible: visible && scope.key === key, events: scope.events, sourceEvents: scope.sourceEvents, connection };
 }
 
 /** Restricts stream invalidation to the read's own topic or the ready frame. */

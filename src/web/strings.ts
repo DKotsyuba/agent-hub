@@ -1,5 +1,8 @@
 /** Russian translations for v1-specific chrome and normalized producer enum values. */
 export const translations: Record<string, string> = {
+  Inventory: 'Список', 'Scoped source evidence': 'Данные раздела', 'Quota source evidence': 'Источник квот · сведения о сборе', 'Source observations': 'Наблюдения источника',
+  'quota.snapshot': 'Снимок квот', 'quota.status': 'Сервис квот', 'pool.get': 'Данные пула', 'pool.list': 'Список пулов',
+  'run.agents': 'Сессии Run', 'bridge.overview': 'Обзор Bridge', 'bridge.incidents': 'Инциденты Bridge',
   Settings: 'Настройки', 'Source health': 'Состояние источников', 'All sessions': 'Все сессии', 'Session data unavailable': 'Данные сессий недоступны',
   'Quota data unavailable': 'Данные квот недоступны',
   'Period filter': 'Период', Filtered: 'Задан', 'Reset unknown': 'Сброс неизвестен', 'No account windows reported': 'Данные об окнах не поступили',
