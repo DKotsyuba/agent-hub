@@ -4,6 +4,12 @@ All notable changes to Agent Hub are documented here. The format follows [Keep a
 
 ## [Unreleased]
 
+## [0.2.8] - 2026-11-23
+
+### Changed
+
+- Overview: short blocks first in a compact grid (source health, Sessions counters, Bridge, Quota), the long current-sessions list last; the Quota card shows one slim pace bar per account for its most constraining window (exhausted, soonest forecast exhaustion, lowest remaining, then stale), tapping opens that account on the Quota tab.
+
 ## [0.2.7] - 2026-11-23
 
 ### Changed
@@ -109,6 +115,7 @@ First public release: the terminal Hub for Linux x86-64 (standalone executable).
 
 - Archived Tasks and IDE sources are denied by the observer; the terminal has no Tasks, IDE or Run info tabs.
 
+[0.2.8]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.2.8
 [0.2.7]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.2.7
 [0.2.6]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.2.6
 [0.2.5]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.2.5

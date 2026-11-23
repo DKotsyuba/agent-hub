@@ -58,3 +58,34 @@ export function quotaWindowForecast(window: QuotaWindow, now: number) {
   const tone = sample.remaining === null ? 'muted' : windowTone(sample.remaining, window.risk, note, exhaust);
   return { ...sample, pace, note, exhaust, tone };
 }
+
+/** The single window that represents an account in a compact summary, with its forecast. */
+export interface QuotaFocus { window: QuotaWindow; forecast: ReturnType<typeof quotaWindowForecast>; rank: number; urgency: number }
+
+/** Orders one window by how soon it constrains work: lower rank first, then lower urgency.
+ * 0 exhausted · 1 runs out before reset (seconds left) · 2 fresh known (remaining percent) · 3 stale known (remaining percent). */
+function focusOrder(forecast: ReturnType<typeof quotaWindowForecast>): [number, number] | null {
+  if (!forecast.known || forecast.remaining === null) return null;
+  if (forecast.stale) return [3, forecast.remaining];
+  if (forecast.remaining <= 0) return [0, 0];
+  if (forecast.exhaust.kind === 'runs_out' && forecast.exhaust.seconds !== null) return [1, forecast.exhaust.seconds];
+  return [2, forecast.remaining];
+}
+
+/** Picks an account's most constraining window: exhausted first, then the one forecast to run out soonest,
+ * then the lowest fresh remaining, and a stale sample only when nothing fresh is known. Ties prefer the
+ * account-wide lane and the shorter window. Null when no window has a known sample. */
+export function quotaAccountFocus(account: { windows: readonly QuotaWindow[] }, now: number): QuotaFocus | null {
+  let best: QuotaFocus | null = null, bestTie: [number, number] = [0, 0];
+  for (const window of account.windows) {
+    const forecast = quotaWindowForecast(window, now), order = focusOrder(forecast);
+    if (!order) continue;
+    const tie: [number, number] = [Number(window.lane.startsWith('model:')), windowSeconds(window.window) ?? Infinity];
+    if (!best || order[0] < best.rank || order[0] === best.rank && (order[1] < best.urgency
+        || order[1] === best.urgency && (tie[0] < bestTie[0] || tie[0] === bestTie[0] && tie[1] < bestTie[1]))) {
+      best = { window, forecast, rank: order[0], urgency: order[1] };
+      bestTie = tie;
+    }
+  }
+  return best;
+}
