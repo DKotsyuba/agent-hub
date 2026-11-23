@@ -46,9 +46,9 @@ test('search counts only matching loaded rows by name, purpose or ID', () => {
 });
 
 test('empty input, empty matches and later loaded pages remain explicitly loaded-only', () => {
-  assert.deepEqual(groupPools([], ''), { live: { items: [], loaded: 0 }, finished: { items: [], loaded: 0 }, items: [] });
+  assert.deepEqual(groupPools([], ''), { live: { items: [], loaded: 0 }, finished: { items: [], loaded: 0 }, unknown: { items: [], loaded: 0 }, items: [] });
   const partial = [row('one', false), row('two', true)];
-  assert.deepEqual(groupPools(partial, 'absent'), { live: { items: [], loaded: 0 }, finished: { items: [], loaded: 0 }, items: [] });
+  assert.deepEqual(groupPools(partial, 'absent'), { live: { items: [], loaded: 0 }, finished: { items: [], loaded: 0 }, unknown: { items: [], loaded: 0 }, items: [] });
   const next = groupPools([...partial, row('three', true)], '', true);
   assert.equal(next.live.loaded, 1);
   assert.equal(next.finished.loaded, 2);
@@ -86,4 +86,16 @@ test('only a durable completion ID or closure moves a pool to Finished', () => {
   const closed = { ...row('closed', true), kind: 'chat' };
   assert.deepEqual(ids(groupPools([active, completed, closed], '').items), ['live']);
   assert.deepEqual(ids(groupPools([active, completed, closed], '', true).finished.items), ['done', 'closed']);
+});
+
+test('an open agreement appears under Finished and unknown closure stays out of Live', () => {
+  const completed = row('completed', false);
+  const unknown = row('unknown', false);
+  Object.assign(completed.pool as object, { kind: 'chat', completion_id: 'agreement-1' });
+  Object.assign(unknown.pool as object, { closure_state: 'unknown' });
+  const groups = groupPools([completed, unknown, row('live', false), row('closed', true)], '', true);
+  assert.deepEqual(ids(groups.live.items), ['live']);
+  assert.deepEqual(ids(groups.finished.items), ['completed', 'closed']);
+  assert.deepEqual(ids(groups.unknown.items), ['unknown']);
+  assert.deepEqual(ids(groupPools([completed, unknown], '').items), ['unknown']);
 });

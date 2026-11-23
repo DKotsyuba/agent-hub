@@ -1,4 +1,5 @@
 /** Groups loaded standalone Pool inventory rows for display and navigation. */
+import { poolLifecycle } from '../../packages/domain/src/index.ts';
 import { integer, object } from '../../src/live/protocol.ts';
 import { poolFacts, poolSeat } from './pool-chat.ts';
 
@@ -12,19 +13,21 @@ export interface PoolListGroup {
 export interface GroupedPoolList {
   live: PoolListGroup;
   finished: PoolListGroup;
+  unknown: PoolListGroup;
   items: Record<string, unknown>[];
 }
 
 /** Classifies a pool using the closure flag and the durable completion ID. */
-export function poolState(row: Record<string, unknown>): 'Live' | 'Completed' | 'Closed' {
+export function poolState(row: Record<string, unknown>): 'Live' | 'Completed' | 'Closed' | 'Unknown' {
   const pool = object(row.pool);
   const { completionId } = poolFacts(row, pool);
-  return pool.closed === true ? 'Closed' : completionId ? 'Completed' : 'Live';
+  const state = poolLifecycle(pool.closed === true ? 'closed' : pool.closure_state === 'unknown' ? 'unknown' : 'open', completionId);
+  return ({ live: 'Live', completed: 'Completed', closed: 'Closed', unknown: 'Unknown' } as const)[state];
 }
 
 /** Groups matching loaded rows in source order, with finished rows hidden by default. */
 export function groupPools(rows: readonly unknown[], query: string, showFinished = false): GroupedPoolList {
-  const live: Record<string, unknown>[] = [], finished: Record<string, unknown>[] = [];
+  const live: Record<string, unknown>[] = [], finished: Record<string, unknown>[] = [], unknown: Record<string, unknown>[] = [];
   const term = query.trim().toLocaleLowerCase();
   for (const value of rows) {
     const row = object(value), pool = object(row.pool);
@@ -32,9 +35,10 @@ export function groupPools(rows: readonly unknown[], query: string, showFinished
     integer(pool.revision); const state = poolState(row);
     if (!pool.pool_id) throw new Error('pool_inventory_order');
     if (term && !`${pool.name} ${pool.purpose} ${pool.pool_id}`.toLocaleLowerCase().includes(term)) continue;
-    (state === 'Live' ? live : finished).push(row);
+    (state === 'Live' ? live : state === 'Unknown' ? unknown : finished).push(row);
   }
-  return { live: { items: live, loaded: live.length }, finished: { items: finished, loaded: finished.length }, items: showFinished ? [...live, ...finished] : live };
+  return { live: { items: live, loaded: live.length }, finished: { items: finished, loaded: finished.length },
+    unknown: { items: unknown, loaded: unknown.length }, items: [...live, ...(showFinished ? finished : []), ...unknown] };
 }
 
 /** Reads the full observer roster matching the pool ID and displayed revision. */

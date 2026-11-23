@@ -1,6 +1,12 @@
 /** Web history and presentation projections. */
-import type { Pool, PoolHistory, Session, SessionHistory, Worktree } from '@agent-hub/domain';
+import { poolLifecycle, type Pool, type PoolHistory, type Session, type SessionHistory, type Worktree } from '@agent-hub/domain';
 import { accountTitle, type QuotaAccount, type QuotaSnapshot } from '../../packages/view-model/src/index';
+
+/** Maps pool lifecycle to singular row labels while retaining the badge tone. */
+export function poolBadge(row: Pool): string {
+  const state = poolLifecycle(row.state, row.record?.id);
+  return state === 'unknown' ? 'Unknown' : 'pool:' + state;
+}
 
 /** Selects a readable session label from its reported name or task summary. */
 export function sessionTitle(row: Session) {

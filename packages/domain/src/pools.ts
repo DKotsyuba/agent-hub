@@ -16,9 +16,23 @@ export const pool = object({
 /** A retained inventory row with an independent closure state. */
 export type Pool = Decoded<typeof pool>;
 
-/** Exact totals come from one Pool snapshot, independently of filtered rows. */
+/** Display lifecycle uses closure first, then a reported completion record. */
+export function poolLifecycle(state: Pool['state'], completionId: string | null | undefined): 'live' | 'completed' | 'closed' | 'unknown' {
+  return state === 'closed' ? 'closed' : completionId ? 'completed' : state === 'open' ? 'live' : 'unknown';
+}
+
+/** Matches lifecycle filters or the raw closure filters retained for API compatibility. */
+export function matchesPoolState(row: Pool, state: 'live' | 'finished' | 'open' | 'closed' | 'all'): boolean {
+  const lifecycle = poolLifecycle(row.state, row.record?.id);
+  if (state === 'live') return lifecycle === 'live';
+  if (state === 'finished') return lifecycle === 'completed' || lifecycle === 'closed';
+  return state === 'all' || row.state === state;
+}
+
+/** Source totals share a Pool snapshot. The optional Live count requires complete row coverage. */
 const totals = object({
   revision: opaque, retained: decimal, closed: decimal, unknown: decimal, open: nullable(decimal), completed: nullable(decimal),
+  live: optional(nullable(decimal)),
 });
 
 /** Retained pool inventory and any independent source-wide totals. */

@@ -46,3 +46,10 @@ test('decoders allow additive fields and reject invalid evidence and page fields
   }), /activePin/);
   assert.throws(() => apiError({ error: { code: 'not_found', message: 'Missing', retryable: 'no', requestId: 'req-1' } }), /retryable/);
 });
+
+test('pool queries support lifecycle and legacy closure filters', () => {
+  for (const state of ['live', 'finished', 'open', 'closed', 'all']) {
+    const query = request('/pools?state=' + state);
+    assert.equal(query?.route === 'pools' && query.state, state);
+  }
+});

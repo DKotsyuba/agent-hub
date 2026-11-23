@@ -6,7 +6,7 @@ import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Choice } from '../components/hub-primitives';
 import { client, usePagedRead } from './data';
-import { modelTitle, poolTitle, sessionTitle, worktreeMeasurements } from './model';
+import { modelTitle, poolBadge, poolTitle, sessionTitle, worktreeMeasurements } from './model';
 import { branchLabel, formatBytes } from '../../packages/view-model/src/index';
 import { Next, period, Period } from './catalog';
 import { EmptyRows, Expand, href, Link, ReadState, Sources, StatusBadge, useWebText } from './ui';
@@ -19,7 +19,7 @@ function filters(kind: Inventory, query: URLSearchParams) {
   const q = query.get('q');
   const project = query.get('project');
   if (kind === 'sessions') return { ...period(query), status: query.get('status') ?? 'active', q, project, cursor };
-  if (kind === 'pools') return { state: query.get('state') ?? 'open', q, cursor };
+  if (kind === 'pools') return { state: query.get('state') ?? 'live', q, cursor };
   return { project, cursor };
 }
 
@@ -42,7 +42,7 @@ export function InventoryList({ kind, query, id, update }: {
   const [technical, setTechnical] = useState(false);
   const { cursor, ...request } = filters(kind, query);
   const read = usePagedRead([kind, request], cursor, (cursor, signal) => client.get(kind, { query: { ...request, cursor }, signal }), kind);
-  const keys = kind === 'sessions' ? ['active', 'finished', 'failed', 'all'] : ['open', 'closed', 'all'];
+  const keys = kind === 'sessions' ? ['active', 'finished', 'failed', 'all'] : ['live', 'finished', 'all'];
   const groupKey = kind === 'pools' ? 'state' : 'status';
   const selected = query.get(groupKey) ?? keys[0];
   const folder = query.get('folder') ?? '';
@@ -55,10 +55,10 @@ export function InventoryList({ kind, query, id, update }: {
   return <>
     {kind !== 'worktrees' && <>
       <div className="web-list-filters" role="group" aria-label={label('Status')}>
-        {keys.map(key => {
-          const text = label(key === 'active' || key === 'open' ? 'Live' : key === 'closed' || key === 'finished' ? 'Finished' : key);
+        {(kind === 'pools' && (selected === 'open' || selected === 'closed') ? [...keys, selected] : keys).map(key => {
+          const text = label(key === 'active' || key === 'live' ? 'Live' : key === 'finished' ? 'Finished' : key);
           return <Button size="sm" key={key} variant="ghost" aria-label={text} title={text} aria-pressed={selected === key}
-            onClick={() => update({ [groupKey]: key })}>{key === 'finished' || key === 'closed' ? label('Finished short') : text}</Button>;
+            onClick={() => update({ [groupKey]: key })}>{key === 'finished' ? label('Finished short') : text}</Button>;
         })}
       </div>
       <label className="web-search">{label('Search')}<Input type="search" maxLength={200} value={query.get('q') ?? ''} onChange={event => update({ q: event.target.value })} /></label>
@@ -94,7 +94,7 @@ export function InventoryList({ kind, query, id, update }: {
             <span className="web-record-preview">{row.lastAction ?? (row.name ? row.summary : null)}</span>{row.failureKind && <span className="error-text">{row.failureKind}{row.failureText && ' · ' + row.failureText}</span>}
             <span>{clock(row.finishedAtMs ?? row.progressAtMs ?? row.createdAtMs)}{row.elapsedMs != null && ' · ' + duration(row.elapsedMs)}</span>
           </Row>;
-          if ('purposePreview' in row) return <Row key={row.id} id={row.id} target={detailUrl(row.id)} selected={id === row.id} title={poolTitle(row) ?? label('Pool detail')} state={row.state}>
+          if ('purposePreview' in row) return <Row key={row.id} id={row.id} target={detailUrl(row.id)} selected={id === row.id} title={poolTitle(row) ?? label('Pool detail')} state={poolBadge(row)}>
             <span>{row.kind && label(row.kind)}</span><span className="web-record-preview">{row.name && row.purposePreview}</span>
           </Row>;
           const project = 'projects' in data && !request.project ? data.projects.find(item => item.id === row.projectId)?.name : null;
@@ -104,7 +104,7 @@ export function InventoryList({ kind, query, id, update }: {
           </Row>;
         })}</div>
         <Next cursor={page.next} update={cursor => update({ cursor }, true)} />
-        {'totals' in data && data.totals && <Expand title="Snapshot totals"><p className="web-muted">{label('Retained')} {data.totals.retained} · {label('open')} {data.totals.open ?? '—'} · {label('closed')} {data.totals.closed} · {label('Completed')} {data.totals.completed ?? '—'} · {label('Unknown')} {data.totals.unknown}</p></Expand>}
+        {'totals' in data && data.totals && <Expand title="Snapshot totals"><p className="web-muted">{label('Retained')} {data.totals.retained} · {label('Live')} {data.totals.live ?? '—'} · {label('closed')} {data.totals.closed} · {label('Completed')} {data.totals.completed ?? '—'} · {label('Unknown')} {data.totals.unknown}</p></Expand>}
         <Sources items={observations} topic={kind} title="Inventory" />
       </>;
     }}</ReadState>

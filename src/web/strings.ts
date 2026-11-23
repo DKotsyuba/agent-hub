@@ -59,7 +59,7 @@ export const translations: Record<string, string> = {
   active: 'Активные', started: 'Запущено', succeeded: 'Успешно', failed: 'Ошибки', finished: 'Завершённые',
   accepted: 'Принято', pending: 'Ожидает', incidents: 'Инциденты', 'Next page': 'Следующая страница',
   Publisher: 'Издатель', 'Event ID': 'ID события', Closed: 'Закрыт', Created: 'Создано', Updated: 'Обновлено',
-  open: 'Открытые', closed: 'Закрытые', all: 'Все', created: 'Создано', starting: 'Запускается', running: 'Выполняется',
+  open: 'Открытые', closed: 'Закрытые', 'pool:closed': 'Закрыт', 'pool:completed': 'Завершён', 'pool:live': 'Активен', all: 'Все', created: 'Создано', starting: 'Запускается', running: 'Выполняется',
   cancelling: 'Отменяется', timed_out: 'Истекло время', cancelled: 'Отменено', lost: 'Потеряно',
   Finished: 'Завершённые', Search: 'Поиск', Filters: 'Фильтры', Status: 'Статус', 'Project ID': 'ID проекта',
   'Working directory': 'Рабочий каталог', Inferred: 'Предположительный', Loaded: 'Загружено',
@@ -113,6 +113,7 @@ export const translations: Record<string, string> = {
 
 /** Human-readable v1 machine codes and English labels for normalized UI values. */
 export const english: Record<string, string> = {
+  'pool:live': 'Live', 'pool:completed': 'Completed', 'pool:closed': 'Closed',
   'Finished short': 'Finished',
   'Quota pace reserve': '{amount} in reserve', 'Quota pace deficit': '{amount} deficit', 'Quota on pace': 'on pace', 'Quota pace unknown': 'pace unknown',
   'Forecast burn': 'burn ~{rate} pp/h', 'Forecast tiny burn': 'burn <{rate} pp/h',
