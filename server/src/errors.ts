@@ -26,6 +26,9 @@ export function errorResponse(error: unknown, requestId = crypto.randomUUID()): 
   } }, { status: ERROR_STATUS[code], headers });
 }
 
+/** Reports a native call through its initiating request or SSE poll. */
+export type ReadFailureReporter = (resource: ObserverResource, failure: NativeResponse | 'invalid_projection' | 'read_rejected') => void;
+
 /** Logs a failed source read using only server-owned classifications and identifiers. */
 export function logSourceFailure(route: RouteName, requestId: string, resource: ObserverResource,
   failure: NativeResponse | 'invalid_projection' | 'read_rejected'): void {

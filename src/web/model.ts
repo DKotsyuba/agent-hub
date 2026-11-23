@@ -2,6 +2,14 @@
 import type { PoolHistory, SessionHistory, Worktree } from '@agent-hub/domain';
 import { accountTitle, type QuotaAccount, type QuotaSnapshot } from '../../packages/view-model/src/index';
 
+/** Matches the Quota producer's three known recommendation forms without displaying their identifiers. */
+export function quotaAdviceKind(advice: string) {
+  if (advice.endsWith(' capacity is unknown; treat limits as unverified.')) return 'Quota advice unknown';
+  if (advice.includes(' is near exhaustion; avoid starting new ') && advice.endsWith(' work before reset.')) return 'Quota advice high';
+  if (advice.endsWith(' is trending toward exhaustion; pace new requests.')) return 'Quota advice medium';
+  return null;
+}
+
 /** Sorts and deduplicates anchored transcript groups while retaining tools across partial pages. */
 export function mergeTranscript(previous: SessionHistory['entries'], incoming: SessionHistory['entries'], older = false) {
   const entries = new Map(previous.map(entry => [entry.head.position, entry]));

@@ -5,7 +5,8 @@ import { quotaSnapshot, quotaStatus } from '../../terminal/src/quota.ts';
 import { digest } from './cursor.ts';
 import { HubError, logSourceFailure } from './errors.ts';
 import { observed } from './projection.ts';
-import type { ObservationClient, ObserverResource } from './observer.ts';
+import type { ObserverResource } from './observer.ts';
+import type { SharedReads } from './reads.ts';
 
 /** One bounded poll independent of expensive page, transcript and inspect work. */
 type Probe = [ObserverResource, Record<string, unknown>?];
@@ -72,7 +73,7 @@ export class Events {
   private closed = false;
 
   /** Uses the same admitted native reads as foreground requests. */
-  constructor(private readonly client: ObservationClient) {}
+  constructor(private readonly client: SharedReads) {}
 
   /** Opens one stream with validated topics and rate. The response owns subscription cleanup. */
   open(topics: Topic[], interval: number, signal: AbortSignal): Response {
@@ -157,7 +158,8 @@ export class Events {
     const requestId = crypto.randomUUID();
     try {
       const reads = probes(topic);
-      const results = await Promise.allSettled(reads.map(([resource, params]) => this.client.read(resource, params, controller.signal)));
+      const results = await Promise.allSettled(reads.map(([resource, params]) => this.client.read(resource, params, controller.signal,
+        (resource, failure) => logSourceFailure('events', requestId, resource, failure))));
       if (controller.signal.aborted) return;
       const boundaries: string[] = [];
       let failed = false;
@@ -174,11 +176,10 @@ export class Events {
           } catch {
             observation.outcome = 'invalid';
             failed = true;
-            logSourceFailure('events', requestId, resource, 'invalid_projection');
+            this.client.projectionFailure(result.value);
           }
         } else {
           failed = true;
-          logSourceFailure('events', requestId, resource, result.status === 'fulfilled' ? result.value : 'read_rejected');
         }
         const prior = state.outcomes.get(resource);
         if (prior !== observation.outcome) {

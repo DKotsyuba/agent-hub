@@ -6,7 +6,7 @@ import { Progress } from '../components/ui/progress';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import { Panel } from '../components/hub-primitives';
 import { client, usePagedRead, useRead } from './data';
-import { modelTitle, quotaAccountTitle, worktreeMeasurements } from './model';
+import { modelTitle, quotaAccountTitle, quotaAdviceKind, worktreeMeasurements } from './model';
 import { accountTitle, branchLabel, formatBytes, projectQuotaSnapshot, projectQuotaStatus, quotaModelRemaining, quotaWindowSample, windowSeconds, type QuotaAccount, type QuotaSnapshot } from '../../packages/view-model/src/index';
 import { CoverageLine, EmptyRows, Expand, Facts, href, Link, ReadState, relativeTime, sessionHref, SourceEvidence, Sources, StatusBadge, Text, useEvidence, useWebText } from './ui';
 
@@ -62,7 +62,8 @@ export function Overview({ query, filter }: { query: URLSearchParams; filter: Re
           <Panel title={label('Quota')} extra={<Link className="web-link" href="/quota">{label('Accounts')}</Link>}>
             <div className="web-panel-body">{data.quota ? <>
               {lowest && <div className="web-quota-min"><span>{label('Lowest remaining')}</span><strong>{percent(lowest.remaining)}</strong>
-                <span>{account && account !== lowest.account ? label(account) + ' · ' : ''}{modelTitle(lowest.model)}</span></div>}
+                <span className="web-quota-min-model"><span>{account && account !== lowest.account ? label(account) + ' · ' : ''}{modelTitle(lowest.model)}</span>
+                  {lowest.stale && <StatusBadge state="Stale" />}</span></div>}
               <Facts rows={[[ 'Accounts', data.quota.accounts], ['Exhausted', data.quota.exhausted], ['Stale', data.quota.stale], ['Unknown', data.quota.unknown]]} />
             </> : <p className="web-empty">{label('Quota data unavailable')}</p>}</div>
           </Panel>
@@ -161,9 +162,10 @@ function QuotaCard({ account, title, discriminator, now }: { account: QuotaAccou
         {account.models.map((model, i) => <QuotaRow key={i} title={modelTitle(model.model)} value={quotaModelRemaining(model)} reset={model.state === 'unknown' ? null : model.resetAt} now={now}
           state={model.state === 'exhausted' ? model.state : model.evidence === 'stale' ? 'Stale' : undefined} risk={model.risk} />)}
       </Expand>}
-      {account.advice.map((advice, i) => <Text key={i}>{advice}</Text>)}
+      {[...new Set(account.advice.map(quotaAdviceKind))].map(kind => kind && <p key={kind} className="web-muted web-quota-advice">{label(kind)}</p>)}
       <Expand title="Technical evidence">
         <Facts rows={[[ 'Account', account.account]]} />
+        {!!account.advice.length && <><h3>{label('Producer advice')}</h3>{account.advice.map((advice, i) => <Text key={i}>{advice}</Text>)}</>}
         {windows.map((window, i) => <section className="web-subcard" key={i}><h3>{[window.pool, window.source, window.window].join(' · ')}</h3>
           <Facts rows={[[ 'Last sample', quotaClock(window.observedAt)], ['Valid until', quotaClock(window.validUntil)],
             ['Projected reserve', pct(window.projected)], ['Sustainable reserve', pct(window.sustainable)],
@@ -186,7 +188,7 @@ export function Quota({ now }: { now: number }) {
   const { label, clock, tag } = useWebText();
   const read = useRead('quota', signal => client.get('quota', { signal }), 'quota');
   const quotaClock = (seconds: number | null) => clock(seconds === null ? null : seconds * 1000);
-  const [evidence] = useEvidence([{ topic: 'quota', items: read.value?.observations ?? [] }]);
+  const evidence = useEvidence([{ topic: 'quota', items: read.value?.observations ?? [] }]);
   return <ReadState read={read}>{({ data, observations }) => {
     const status = data.status && projectQuotaStatus(data.status);
     const snapshot = data.snapshot && projectQuotaSnapshot(data.snapshot);
@@ -212,7 +214,7 @@ export function Quota({ now }: { now: number }) {
             discriminator={siblings.length > 1 ? label('Account') + ' ' + (siblings.indexOf(account.account) + 1) : undefined} now={now} />;
         })}</div>
       </> : <p className="web-warning" role="status">{label('Quota data unavailable')}</p>}
-      {(status || snapshot || evidence.items.length > 0) && <Expand title="Quota source evidence">
+      {(status || snapshot || evidence.some(scope => scope.items.length > 0)) && <Expand title="Quota source evidence">
         {status && <><h2>{label('Service status')}</h2><Facts rows={[[ 'Status', label(status.status)], ['Started', quotaClock(status.startedAt)],
           ['Last collection', quotaClock(status.lastCollectionAt)], ['Collection successful', status.lastCollectionOk], ['Sources', status.sourceCount]]} />
           {!!status.external.length && <Expand title="External collections">{status.external.map((entry, i) => <Facts key={i} rows={[
@@ -227,7 +229,9 @@ export function Quota({ now }: { now: number }) {
             ['Status', label(entry.status)], ['Provider', entry.provider], ['Windows', entry.windows], ['Issues', entry.issues.join(', ') || '—'],
           ]} /></Expand>)}
         </>}
-        {!!evidence.items.length && <><h2>{label('Source observations')}</h2><SourceEvidence items={evidence.items} /></>}
+        {evidence.map((scope, i) => scope.items.length > 0 && <section key={i}>
+          <h2>{label(scope.title ?? 'Source observations')}</h2><SourceEvidence items={scope.items} />
+        </section>)}
       </Expand>}
     </>;
   }}</ReadState>;
@@ -238,7 +242,7 @@ export function WorktreeFacts({ row }: { row: Worktree }) {
   const { clock, label, n } = useWebText();
   const facts = row.facts;
   const measurements = worktreeMeasurements(row, label, bytes => formatBytes(bytes, n));
-  return <Facts rows={[[ 'Changes', measurements.changes], ['Size', measurements.size], ['Class', label(row.class)],
+  return <Facts rows={[[ 'Changes', measurements.changes], ['Size', measurements.size], ['Class', label('worktree-class:' + row.class)],
     ['Measured', clock(facts.observedAtMs)], ['Expires', clock(facts.expiresAtMs)]]} />;
 }
 

@@ -1,5 +1,13 @@
 /** Russian translations for v1-specific chrome and normalized producer enum values. */
 export const translations: Record<string, string> = {
+  'Read receipt': 'Результат чтения', 'Live probe': 'Проверка связи',
+  'Quota advice unknown': 'Лимиты пока не подтверждены.',
+  'Quota advice high': 'Квота почти исчерпана. Дождитесь сброса.',
+  'Quota advice medium': 'Квота снижается. Сократите частоту новых запросов.',
+  'Producer advice': 'Рекомендации источника',
+  'worktree-class:main': 'Основная', 'worktree-class:managed': 'Управляемая', 'worktree-class:foreign': 'Сторонняя',
+  'worktree-class:missing': 'Отсутствует', 'worktree-class:orphan_candidate': 'Возможно бесхозная',
+  'History first': 'Начало', 'History latest': 'Конец', 'History pause': 'Пауза',
   Inventory: 'Список', 'Scoped source evidence': 'Данные раздела', 'Quota source evidence': 'Источник квот · сведения о сборе', 'Source observations': 'Наблюдения источника',
   'quota.snapshot': 'Снимок квот', 'quota.status': 'Сервис квот', 'pool.get': 'Данные пула', 'pool.list': 'Список пулов',
   'run.agents': 'Сессии Run', 'bridge.overview': 'Обзор Bridge', 'bridge.incidents': 'Инциденты Bridge',
@@ -95,6 +103,11 @@ export const translations: Record<string, string> = {
 
 /** Human-readable v1 machine codes and English labels for normalized UI values. */
 export const english: Record<string, string> = {
+  'Quota advice unknown': 'Limits are still unverified.', 'Quota advice high': 'Quota is nearly exhausted. Wait for reset.',
+  'Quota advice medium': 'Quota is running low. Pace new requests.',
+  'worktree-class:main': 'Main', 'worktree-class:managed': 'Managed', 'worktree-class:foreign': 'External',
+  'worktree-class:missing': 'Missing', 'worktree-class:orphan_candidate': 'Possibly orphaned',
+  'History first': 'First', 'History latest': 'Latest', 'History pause': 'Pause',
   'Server version': 'Server', 'Update failed': 'The app could not update. Try again.',
   'Offline shell': 'The server is unreachable. Current data will return when the connection is restored.',
   'Updating app': 'Updating…', idle_candidate: 'Possibly idle', ancestor_merged: 'Branch merged',

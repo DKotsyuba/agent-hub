@@ -41,3 +41,11 @@ API cursor signing keys are process-local. After a restart, old continuations
 return `stale_boundary` and the client can reload the relevant edge. SSE sends
 invalidations and source state, while HTTP GET responses carry the history
 positions clients use to catch up.
+
+A failed native read emits one `source_failure` line per underlying operation.
+The line uses the route and request ID of the HTTP request or SSE poll that
+started the operation. Requests sharing that read do not emit additional lines.
+If a projector rejects a usable envelope, its first rejection emits the line
+for that read. Admission limits and subscriber cancellations do not count as
+native read failures. Logs carry a classified error, never producer diagnostics
+or payloads.

@@ -54,7 +54,7 @@ export function InventoryList({ kind, query, id, update }: {
   };
   return <>
     {kind !== 'worktrees' && <>
-      <div className="web-controls web-list-filters">
+      <div className={'web-controls web-list-filters' + (kind === 'sessions' ? ' web-session-filters' : '')}>
         {keys.map(key => <Button size="sm" key={key} variant={selected === key ? 'secondary' : 'outline'} aria-pressed={selected === key}
           onClick={() => update({ [groupKey]: key })}>{label(key === 'active' || key === 'open' ? 'Live' : key === 'closed' || key === 'finished' ? 'Finished' : key)}</Button>)}
       </div>
@@ -97,7 +97,7 @@ export function InventoryList({ kind, query, id, update }: {
           const project = 'projects' in data && !request.project ? data.projects.find(item => item.id === row.projectId)?.name : null;
           const measurements = worktreeMeasurements(row, label, bytes => formatBytes(bytes, n));
           return <Row key={row.id} id={row.id} target={detailUrl(row.id)} selected={id === row.id} title={[label(branchLabel(row, true)), project].filter(Boolean).join(' · ')} state={row.integration}>
-            <span>{measurements.changes} · {measurements.size}</span><span>{label(row.class)} · {label(row.activity ?? 'Unknown')}</span>
+            <span>{measurements.changes} · {measurements.size}</span><span>{label('worktree-class:' + row.class)} · {label(row.activity ?? 'Unknown')}</span>
           </Row>;
         })}</div>
         <Next cursor={page.next} update={cursor => update({ cursor }, true)} />

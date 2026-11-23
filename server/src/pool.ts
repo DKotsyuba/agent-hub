@@ -9,14 +9,17 @@ import { parsePoolRunProof } from '../../terminal/src/pool-run-proof.ts';
 import { parseRunStatus, runStatusRequest, type RunStatusEvidence } from '../../terminal/src/run-status.ts';
 import { digest, type Position } from './cursor.ts';
 import { HubError } from './errors.ts';
-import { coverage, decimalValue, field, ms, noPage, observed, optionalObject, records, requireData, type Input, type ReadContext } from './projection.ts';
+import { coverage, decimalValue, field, ms, noPage, observed, optionalObject, records, type Input, type ReadContext } from './projection.ts';
 import { registerBinding } from './run.ts';
 
 /** Validates the product identity and exposes tri-state feature gates. */
 async function identity(ctx: ReadContext) {
   const envelope = await ctx.read('pool.identity');
-  const data = product(requireData(envelope), 'identity');
-  if (!Array.isArray(data.capabilities) || data.capabilities.some(value => typeof value !== 'string')) throw new HubError('invalid_projection');
+  const data = ctx.project(envelope, value => {
+    const data = product(value, 'identity');
+    if (!Array.isArray(data.capabilities) || data.capabilities.some(value => typeof value !== 'string')) throw new HubError('invalid_projection');
+    return data;
+  });
   const has = (name: string) => (data.capabilities as string[]).includes(name);
   const gate = (name: string) => has(name) ? 'supported' as const : 'unsupported' as const;
   const capabilities: Capabilities = {
@@ -51,9 +54,8 @@ export async function pools(ctx: ReadContext, query: Input<'pools'>, position: P
   let envelope = await ctx.read(snapshot ? 'pool.inventory_snapshot' : 'pool.list', snapshot ? params : {});
   let complete = false;
   for (let i = 0; i < 8; i++) {
-    const value = requireData(envelope);
     if (snapshot) {
-      const page = inventorySnapshotPage(value, { ...params, cursor: continuation });
+      const page = ctx.project(envelope, value => inventorySnapshotPage(value, { ...params, cursor: continuation }));
       const fence = digest([page.source, page.totals]);
       if (sourceFence !== null && sourceFence !== fence) throw new HubError('stale_boundary');
       sourceFence = fence;
@@ -64,7 +66,7 @@ export async function pools(ctx: ReadContext, query: Input<'pools'>, position: P
       complete = continuation === null;
       if (!complete && i < 7) envelope = await ctx.read('pool.inventory_snapshot', { ...params, cursor: continuation });
     } else {
-      const page = poolInventory(value, after);
+      const page = ctx.project(envelope, value => poolInventory(value, after));
       producerAt ??= typeof page.raw.observed_at_unix_ms === 'number' ? page.raw.observed_at_unix_ms : null;
       rows.push(...page.items.map(entry => row(object(entry.pool), entry)));
       after = page.next == null ? null : String(page.next);
@@ -87,9 +89,11 @@ export async function pools(ctx: ReadContext, query: Input<'pools'>, position: P
 /** Checks one metadata page without loading historical content. */
 async function metadata(ctx: ReadContext, id: string) {
   const envelope = await ctx.read('pool.get', { pool_id: id, section: 'proposal', after: 0 });
-  const data = checkSection(requireData(envelope), id, 'proposal', 0, null);
-  const view = object(data.view), raw = object(view.pool);
-  return { pool: row(raw, data), proposalId: field(raw.proposal, 'proposal_id'), envelope };
+  return ctx.project(envelope, value => {
+    const data = checkSection(value, id, 'proposal', 0, null);
+    const view = object(data.view), raw = object(view.pool);
+    return { pool: row(raw, data), proposalId: field(raw.proposal, 'proposal_id'), envelope };
+  });
 }
 
 /** Returns Pool metadata and only capabilities available in the chosen observation path. */
@@ -99,7 +103,7 @@ export async function pool(ctx: ReadContext, query: Input<'pool'>) {
   if (selected.record === undefined && !selected.kind && features.has('completion_record_v1') && features.has('history_window_v1')) {
     const journal = await ctx.read('pool.get', { pool_id: query.id, section: 'history', direction: 'backward' });
     if (journal.outcome === 'ok' || journal.outcome === 'partial') {
-      const id = completionIdFromEvents(poolWindow(journal.data, query.id, 'backward', null, null).entries);
+      const id = completionIdFromEvents(ctx.project(journal, value => poolWindow(value, query.id, 'backward', null, null)).entries);
       if (id) selected = { ...selected, record: { id, kind: 'completion' } };
     }
   }
@@ -156,7 +160,7 @@ async function linkedMember(ctx: ReadContext, value: Record<string, unknown>, id
   if (!proofSupported || !binding.run_store_id || !binding.run_execution_ref || !binding.run_pin_id) return base;
   const native = await ctx.read('pool.run_proof', { pool_id: id, member_id: base.id, expected_revision: revision, section: 'run_proof' });
   if (native.outcome !== 'ok') return base;
-  const proof = parsePoolRunProof(native.data, { poolId: id, memberId: base.id, revision, binding });
+  const proof = ctx.project(native, value => parsePoolRunProof(value, { poolId: id, memberId: base.id, revision, binding }));
   if (proof.state !== 'observed') return base;
   const e = proof.evidence;
   const execution = e.match === 'verified' && e.canonicalAgentId === sessionId
@@ -184,7 +188,7 @@ async function delivery(ctx: ReadContext, item: Record<string, unknown>, id: str
   if (formerMemberId && inspectBinding && !features.has('observer_socket_v1')) {
     const envelope = await ctx.read('pool.get', { pool_id: id, section: 'binding', member_id: formerMemberId, expected_revision: revision });
     if (envelope.outcome === 'ok') {
-      const binding = poolFormerBinding(envelope.data, id, formerMemberId, revision);
+      const binding = ctx.project(envelope, value => poolFormerBinding(value, id, formerMemberId, revision));
       const former = await linkedMember(ctx, object(binding.member), id, revision, [binding], features.has('run_proof_v1'));
       formerSession = former.session;
       formerLineage = former.lineage;
@@ -203,7 +207,7 @@ async function ballotChecks(ctx: ReadContext, poolId: string, ballot: ReturnType
   for (let index = 0; index < 5 && checks.length < count; index++) {
     const envelope = await ctx.read('pool.get', { pool_id: poolId, section: 'history', direction: 'forward', after });
     if (envelope.outcome !== 'ok' && envelope.outcome !== 'partial') break;
-    const page = poolWindow(envelope.data, poolId, 'forward', after, null);
+    const page = ctx.project(envelope, value => poolWindow(value, poolId, 'forward', after, null));
     let mismatched = false;
     for (const entry of page.entries) {
       const author = object(entry.author);
@@ -233,7 +237,7 @@ export async function poolSection(ctx: ReadContext, query: Input<'poolSection'>,
     ...(requestedRevision !== null ? { expected_revision: Number(requestedRevision) } : {}),
     ...(section === 'members' && !features.has('observer_socket_v1') ? { include_bindings: true } : {}),
   });
-  const data = checkSection(requireData(envelope), query.id, section, at, requestedRevision === null ? null : Number(requestedRevision));
+  const data = ctx.project(envelope, value => checkSection(value, query.id, section, at, requestedRevision === null ? null : Number(requestedRevision)));
   const view = optionalObject(data.view), raw = optionalObject(view.pool), selected = optionalObject(raw.proposal);
   const revision = raw.revision == null ? requestedRevision : decimalValue(raw.revision);
   if (expected !== null && revision !== expected) throw new HubError('stale_boundary');
@@ -294,10 +298,10 @@ export async function poolHistory(ctx: ReadContext, query: Input<'poolHistory'>,
   } : { ...params, after: Number(at ?? 0) });
   let events, next, watermark = null, more;
   if (windowed) {
-    const page = poolWindow(requireData(envelope), query.id, older ? 'backward' : 'forward', at, position?.through ?? null);
+    const page = ctx.project(envelope, value => poolWindow(value, query.id, older ? 'backward' : 'forward', at, position?.through ?? null));
     events = page.entries; next = page.cursor; watermark = page.watermark; more = page.more;
   } else {
-    const page = checkSection(requireData(envelope), query.id, 'history', Number(at ?? 0), null);
+    const page = ctx.project(envelope, value => checkSection(value, query.id, 'history', Number(at ?? 0), null));
     events = records(object(page.view).events); next = decimalValue(page.cursor); more = page.has_more;
   }
   const format = windowed ? 'window' : 'legacy_forward';
@@ -336,7 +340,7 @@ export async function poolContent(ctx: ReadContext, query: Input<'poolContent'>,
     const envelope = await ctx.read('pool.get', { pool_id: query.id, section: 'proposal', proposal_id: query.proposal,
       ...(revision === null ? {} : { expected_revision: revision }),
     });
-    const view = object(checkSection(requireData(envelope), query.id, 'proposal', 0, revision).view);
+    const view = object(ctx.project(envelope, value => checkSection(value, query.id, 'proposal', 0, revision).view));
     const pool = object(view.pool);
     if (field(pool.proposal, 'proposal_id') !== query.proposal) throw new HubError('not_found');
     revision = integer(pool.revision);
@@ -345,8 +349,7 @@ export async function poolContent(ctx: ReadContext, query: Input<'poolContent'>,
     const envelope = await ctx.read('pool.get', { pool_id: query.id, section: 'content', field: query.field, after: String(offset),
       ...(query.proposal ? { proposal_id: query.proposal } : {}), ...(revision === null ? {} : { expected_revision: revision }),
     });
-    const raw = requireData(envelope);
-    const page = poolContentPage(raw, query.id, query.field, offset, revision);
+    const page = ctx.project(envelope, value => poolContentPage(value, query.id, query.field, offset, revision));
     if (total !== null && total !== page.total) throw new HubError('stale_boundary');
     revision = page.revision; value += page.text; offset = page.next; total = page.total;
     if (!page.more) {
@@ -381,8 +384,7 @@ export async function poolRecord(ctx: ReadContext, query: Input<'poolRecord'>, p
   if (!(await identity(ctx)).has('completion_record_v1')) throw new HubError('unsupported_capability');
   const params = { pool_id: query.id, completion_id: query.record };
   const first = await ctx.read('pool.completion_get', { ...params, section: 'header', limit: 10 });
-  const raw = requireData(first);
-  const agreement = agreementRecord(raw, params);
+  const agreement = ctx.project(first, value => agreementRecord(value, params));
   if (agreement) {
     const slice = ctx.textPage(query, agreement.result, digest(agreement), position);
     return { data: { kind: 'agreement', id: query.record, poolId: query.id, revision: String(agreement.revision), eventId: agreement.eventId,
@@ -390,8 +392,11 @@ export async function poolRecord(ctx: ReadContext, query: Input<'poolRecord'>, p
       ballots: agreement.ballots.map(ballot => ({ seatId: ballot.seatId, session: { sessionId: ballot.agentId, execution: null, match: 'unverified' }, voteEventId: ballot.voteEventId })),
     }, page: slice.page, observations: [observed(first)] };
   }
-  const head = completionPage(raw, { ...params, section: 'header' }, null);
-  if (head.algorithm !== 'sha256' || !/^[a-f0-9]{64}$/.test(head.recordDigest) || head.next !== null) throw new HubError('invalid_projection');
+  const head = ctx.project(first, value => {
+    const head = completionPage(value, { ...params, section: 'header' }, null);
+    if (head.algorithm !== 'sha256' || !/^[a-f0-9]{64}$/.test(head.recordDigest) || head.next !== null) throw new HubError('invalid_projection');
+    return head;
+  });
   if (position && position.fence !== head.recordDigest) throw new HubError('stale_boundary');
   const header = object(head.header), sections = new Map<string, Record<string, unknown>[]>();
   let byteBudget = 2 * 1024 * 1024;
@@ -401,8 +406,7 @@ export async function poolRecord(ctx: ReadContext, query: Input<'poolRecord'>, p
     const seen = new Set<string>();
     for (let index = 0; index < 16; index++) {
       const envelope = await ctx.read('pool.completion_get', { ...params, section, limit: 10, ...(after ? { after } : {}) });
-      const value = requireData(envelope);
-      const page = completionPage(value, { ...params, section }, { digest: head.recordDigest, version: head.recordVersion });
+      const page = ctx.project(envelope, value => completionPage(value, { ...params, section }, { digest: head.recordDigest, version: head.recordVersion }));
       if (page.algorithm !== head.algorithm) throw new HubError('invalid_projection');
       byteBudget -= Buffer.byteLength(JSON.stringify(page.items));
       if (byteBudget < 0) throw new HubError('invalid_projection');

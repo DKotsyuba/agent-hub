@@ -208,6 +208,68 @@ test('Run inventory StorageError recovers current session details through a corr
   } finally { await http.close(); }
 });
 
+test('shared native failures and finite projector rejections are logged once per flight', async t => {
+  const errorLog = t.mock.method(console, 'error', () => {});
+  let reads = 0;
+  let rejectAt: 'transport' | 'native' | 'projector' = 'transport';
+  const http = handler({
+    async read(resource) {
+      reads++;
+      await new Promise<void>(resolve => setTimeout(resolve, 5));
+      if (rejectAt === 'transport') throw new Error('private transport details');
+      if (rejectAt === 'native') return envelope(resource, null, 'unavailable', 'private native code');
+      return envelope(resource, { privatePayload: true });
+    },
+    close: async () => {},
+  });
+  try {
+    for (const [kind, status, errorClass] of [
+      ['transport', 502, 'read_rejected'], ['native', 503, 'unavailable'], ['projector', 502, 'invalid_projection'],
+    ] as const) {
+      rejectAt = kind;
+      const expected = reads + 1;
+      const responses = await Promise.all([http.fetch(request(mount + '/sessions')), http.fetch(request(mount + '/sessions'))]);
+      assert.deepEqual(responses.map(response => response.status), [status, status]);
+      assert.equal(reads, expected);
+      assert.equal(errorLog.mock.callCount(), expected);
+      const line = String(errorLog.mock.calls.at(-1)?.arguments[0]);
+      assert.doesNotMatch(line, /private/);
+      const logged = JSON.parse(line);
+      assert.deepEqual(logged, { event: 'source_failure', route: 'sessions', source: 'run', resource: 'run.agents', errorClass,
+        requestId: apiError(await responses[0].json()).error.requestId });
+    }
+  } finally { await http.close(); }
+});
+
+test('overview excludes unknown quota placeholders and marks the retained minimum when fresh quota is absent', async () => {
+  const native = await producer();
+  let onlyStale = false;
+  const http = handler({ close: () => native.close(), async read(resource, params, signal) {
+    const result = await native.read(resource, params, signal);
+    if (resource !== 'quota.snapshot') return result;
+    const data = object(result.data);
+    const [first, second] = (data.accounts as Record<string, unknown>[]);
+    const [a, b] = first.models as Record<string, unknown>[];
+    const [unknown] = second.models as Record<string, unknown>[];
+    a.evidence = 'fresh';
+    if (onlyStale) a.state_validity = { kind: 'until', at: 1 };
+    b.evidence = 'stale';
+    unknown.remaining_percent = 1;
+    return result;
+  } });
+  try {
+    const current = (await get(http, 'overview', '/overview')).data.quota?.lowest;
+    assert.equal(current?.model, 'model-alpha');
+    assert.equal(current?.remaining, 72);
+    assert.equal(current?.stale, undefined);
+    onlyStale = true;
+    const retained = (await get(http, 'overview', '/overview')).data.quota?.lowest;
+    assert.equal(retained?.model, 'model-beta');
+    assert.equal(retained?.remaining, 26);
+    assert.equal(retained?.stale, true);
+  } finally { await http.close(); }
+});
+
 test('Pool agreement remains recorded and does not acquire a verified Run link', async () => {
   const http = handler(await producer());
   try {

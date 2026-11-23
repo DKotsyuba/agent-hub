@@ -117,17 +117,17 @@ function History<T>({ topic, initial, load, merge, render, identity, size, evide
   const legacy = current?.format === 'legacy_raw' || current?.format === 'legacy_forward';
   const followLabel = label(following ? 'Pause follow' : 'Follow');
   const controls = [
-    { title: label('Beginning'), icon: ChevronsLeft, run: () => { setFollowing(false); setCommand({ action: 'start' }); } },
-    { title: label('Older'), icon: ChevronLeft, disabled: !current?.page.previous, run: () => { setFollowing(false); setCommand({ action: 'older' }); } },
-    { title: label('Newer'), icon: ChevronRight, disabled: !current?.page.next && (!unread || !current?.page.resume && !recovered.current), run: () => setCommand({ action: 'newer' }) },
-    { title: label('Jump to latest'), icon: ChevronsRight, disabled: !current || legacy, run: () => { setFollowing(true); setCommand({ action: 'tail' }); } },
-    { title: followLabel, icon: following ? Pause : Play, pressed: following, run: () => setFollowing(value => !value) },
+    { title: label('Beginning'), short: label('History first'), icon: ChevronsLeft, run: () => { setFollowing(false); setCommand({ action: 'start' }); } },
+    { title: label('Older'), short: label('Older'), icon: ChevronLeft, disabled: !current?.page.previous, run: () => { setFollowing(false); setCommand({ action: 'older' }); } },
+    { title: label('Newer'), short: label('Newer'), icon: ChevronRight, disabled: !current?.page.next && (!unread || !current?.page.resume && !recovered.current), run: () => setCommand({ action: 'newer' }) },
+    { title: label('Jump to latest'), short: label('History latest'), icon: ChevronsRight, disabled: !current || legacy, run: () => { setFollowing(true); setCommand({ action: 'tail' }); } },
+    { title: followLabel, short: label(following ? 'History pause' : 'Follow'), icon: following ? Pause : Play, pressed: following, run: () => setFollowing(value => !value) },
   ];
   return <section className="web-history">
     <div className={'web-controls web-history-controls' + (compact ? ' web-history-compact' : '')}>
-      {controls.map(({ title, icon: Icon, disabled, pressed, run }, index) =>
+      {controls.map(({ title, short, icon: Icon, disabled, pressed, run }, index) =>
         <Button key={index} variant={pressed ? 'secondary' : 'outline'} aria-label={title} title={title} aria-pressed={pressed} disabled={disabled} onClick={run}>
-          <Icon size={16} aria-hidden="true" /><span>{title}</span>
+          <Icon size={16} aria-hidden="true" /><span className="web-history-label">{title}</span><span className="web-history-short">{short}</span>
         </Button>)}
     </div>
     {(legacy || unread > 0) && <p className="web-muted" role="status">{legacy ? label('Forward-only history') : label('Unread') + ' ' + unread}</p>}

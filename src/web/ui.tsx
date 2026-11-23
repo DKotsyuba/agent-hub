@@ -109,19 +109,15 @@ export function SourceEvidence({ items }: { items: Observation[] }) {
 /** Labels finite receipts and live updates by the route topic that produced them. */
 export type EvidenceScope = { title?: string; topic?: Topic; items: Observation[] };
 
-/** Merges scoped live outcomes with finite receipts, keeping the newest per resource. */
+/** Keeps live probes separate from finite receipts and their coverage. */
 export function useEvidence(scopes: EvidenceScope[]) {
   const { visible, sourceEvents } = useContext(LiveContext);
-  return scopes.map(scope => {
-    const items = [...scope.items];
-    for (const item of visible && scope.topic ? sourceEvents?.get(scope.topic) ?? [] : []) {
-      const index = items.findIndex(other => other.source === item.source && other.resource === item.resource);
-      if (index < 0) items.push(item);
-      else if (item.observedAtMs >= items[index].observedAtMs) {
-        items[index] = { ...item, coverage: item.coverage ?? items[index].coverage };
-      }
-    }
-    return { ...scope, items };
+  return scopes.flatMap((scope): (EvidenceScope & { probe?: boolean })[] => {
+    const probes = visible && scope.topic ? sourceEvents?.get(scope.topic) ?? [] : [];
+    return probes.length ? [
+      { ...scope, title: scope.title ?? 'Read receipt' },
+      { title: scope.title ? scope.title : 'Live probe', probe: true, items: [...probes] },
+    ] : [scope];
   });
 }
 
@@ -144,7 +140,8 @@ export function Sources({ items, topic, title, additional = [], strip = false, b
   const evidence = (source: Observation['source']) => scopes.map((scope, index) => {
     const scoped = scope.items.filter(item => item.source === source);
     return scoped.length > 0 && <div key={index}>
-      {scope.title && <h3 className="web-evidence-title">{label(scope.title)}</h3>}
+      {scope.title && <h3 className="web-evidence-title">{scope.probe && scope.title !== 'Live probe' ? label(scope.title) + ' · ' : ''}
+        {label(scope.probe ? 'Live probe' : scope.title)}</h3>}
       <SourceEvidence items={scoped} />
     </div>;
   });
