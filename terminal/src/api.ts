@@ -1,6 +1,6 @@
 /** Closed observations available to the terminal interface in this iteration. */
 export type Resource =
-  | 'run.identity' | 'run.agents' | 'run.status' | 'run.transcript' | 'run.transcript_exact' | 'run.answer' | 'run.answer_chunk'
+  | 'run.identity' | 'run.agents' | 'run.status' | 'run.agent_integration' | 'run.transcript' | 'run.transcript_exact' | 'run.answer' | 'run.answer_chunk'
   | 'run.models' | 'run.limits' | 'run.initial_task'
   | 'quota.status' | 'quota.snapshot'
   | 'hub.repositories' | 'worktree.identity' | 'worktree.list' | 'worktree.inspect'

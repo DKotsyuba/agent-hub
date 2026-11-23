@@ -7,8 +7,8 @@ import { Choice } from '../components/hub-primitives';
 import { client, errorCode, LiveContext, usePagedRead, useRead } from './data';
 import { readPoolContent, readPoolExport, readPoolRecord, readSessionText } from './content';
 import { Discussion, Transcript } from './history';
-import { mergeChat } from './model';
-import { CoverageLine, EmptyRows, Expand, Facts, Link, ReadState, sessionHref, Sources, Text, useWebText } from './ui';
+import { mergeChat, modelTitle } from './model';
+import { CoverageLine, EmptyRows, Expand, Facts, Link, ReadState, sessionHref, Sources, StatusBadge, Text, type EvidenceScope, useWebText } from './ui';
 
 /** Clipboard output is only released after the complete read validates; Escape aborts the operation. */
 function CopyAction({ title, load }: { title: string; load: (signal: AbortSignal) => Promise<string> }) {
@@ -70,7 +70,7 @@ function Lineage({ value }: { value: NonNullable<SessionDetail['lineage']> }) {
 }
 
 /** Initial task and saved result are queried only through their proof-aware routes. */
-function SessionText({ id, execution, initial }: { id: string; execution: string | null; initial: boolean }) {
+function SessionText({ id, execution, initial, evidence = [] }: { id: string; execution: string | null; initial: boolean; evidence?: EvidenceScope[] }) {
   const { label } = useWebText();
   const read = useRead(id + ':' + execution + ':' + initial, signal => readSessionText(initial ? 'initialTask' : 'sessionResult', id, { execution }, signal),
     `session:${id}:${initial ? 'initial-task' : 'result'}`);
@@ -78,7 +78,7 @@ function SessionText({ id, execution, initial }: { id: string; execution: string
     <p className="web-muted">{value.reason ? label('Initial task unverified · see retained history') + ' · ' + value.reason : label(value.provenance)}</p>
     {value.text !== null && <Text>{value.text}</Text>}
     {!initial && value.text !== null && !read.error && <CopyAction title="Copy result" load={async () => value.text!} />}
-    <Sources items={value.observations} />
+    <Sources items={value.observations} topic={`session:${id}:${initial ? 'initial-task' : 'result'}`} title={initial ? 'Initial task' : 'result'} additional={evidence} />
   </>}</ReadState>;
 }
 
@@ -95,7 +95,7 @@ function InitialTaskProof({ id, execution, capabilities }: { id: string; executi
 }
 
 /** Tab selection is rendered through the shell's shareable detail navigation. */
-type DetailTabs = (tabs: string[], content: ReactNode) => ReactNode;
+type DetailTabs = (tabs: string[], content: ReactNode, extra?: string[]) => ReactNode;
 
 /** Sessions display one selected execution, independent lineage evidence, and its retained transcript. */
 export function SessionDetails({ id, execution, tab, tabs }: { id: string; execution: string | null; tab: string; tabs: DetailTabs }) {
@@ -105,10 +105,10 @@ export function SessionDetails({ id, execution, tab, tabs }: { id: string; execu
     const row = data.session;
     return <>
       <h2>{row.name ?? row.id}</h2>
-      <div className="web-row-meta"><strong>{label(row.status)}</strong><span>{[row.runtime, row.model, row.effort].filter(Boolean).join(' · ')}</span></div>
+      <div className="web-row-meta"><StatusBadge state={row.status} /><span>{[row.model && modelTitle(row.model), row.runtime].filter(Boolean).join(' · ')}</span></div>
       {tabs(['history', 'result', 'details'], <>
       {tab === 'history' && <>
-        <Transcript id={id} execution={execution} />
+        <Transcript id={id} execution={execution} evidence={[{ title: 'Details', topic: `session:${id}:detail`, items: observations }]} />
         <div className="web-controls">
           <CopyAction title="Copy retained history" load={async signal => {
             const value = await readSessionText('sessionExport', id, { execution, mode: 'retained' }, signal);
@@ -119,7 +119,7 @@ export function SessionDetails({ id, execution, tab, tabs }: { id: string; execu
         </div>
         <InitialTaskProof id={id} execution={execution} capabilities={capabilities} />
       </>}
-      {tab === 'result' && (capabilities?.verifiedResult === 'supported' ? <SessionText id={id} execution={execution} initial={false} />
+      {tab === 'result' && (capabilities?.verifiedResult === 'supported' ? <SessionText id={id} execution={execution} initial={false} evidence={[{ title: 'Details', topic: `session:${id}:detail`, items: observations }]} />
         : <p className="web-warning">{label('unsupported_capability')}</p>)}
       {tab === 'details' && <>
         <Text>{row.summary}</Text>
@@ -133,7 +133,7 @@ export function SessionDetails({ id, execution, tab, tabs }: { id: string; execu
         <InitialTaskProof id={id} execution={execution} capabilities={capabilities} />
       </>}
       </>)}
-      <Sources items={observations} />
+      {(tab === 'details' || tab === 'result' && capabilities?.verifiedResult !== 'supported') && <Sources items={observations} topic={`session:${id}:detail`} title="Details" />}
     </>;
   }}</ReadState>;
 }
@@ -150,8 +150,8 @@ function Member({ item, caps }: { item: PoolMember; caps?: Capabilities }) {
 }
 
 /** Each section paginates its own revision and optional proposal selection. */
-function PoolSectionView({ id, section, capabilities, proposal, select }: {
-  id: string; section: PoolSection; capabilities?: Capabilities; proposal: string | null; select: (id: string) => void;
+function PoolSectionView({ id, section, capabilities, proposal, select, evidence }: {
+  id: string; section: PoolSection; capabilities?: Capabilities; proposal: string | null; select: (id: string) => void; evidence: EvidenceScope[];
 }) {
   const { label, clock } = useWebText();
   const [cursor, setCursor] = useState<string | null>(null);
@@ -181,7 +181,7 @@ function PoolSectionView({ id, section, capabilities, proposal, select }: {
         </> : <><Facts rows={[[ 'Proposal', item.proposalId], ['State', item.state], ['Time', clock(item.atMs)], ['Evidence', item.evidence]]} /><Text>{item.text}</Text></>}
       </article>)}
     {page.next && <Button variant="outline" onClick={() => setCursor(page.next)}>{label('Next page')}</Button>}
-    <p className="web-muted">{label('Revision')} {data.revision ?? '—'}</p><Sources items={observations} />
+    <p className="web-muted">{label('Revision')} {data.revision ?? '—'}</p><Sources items={observations} topic={`pool:${id}:${section}`} title={section} additional={evidence} />
   </>}</ReadState></>;
 }
 
@@ -195,7 +195,7 @@ function PoolContentView({ id, field, proposal }: { id: string; field: 'purpose'
 }
 
 /** Distinguishes Pool-recorded agreement from completion with verified content fields. */
-function RecordView({ id, record }: { id: string; record: NonNullable<Pool['record']> }) {
+function RecordView({ id, record, evidence }: { id: string; record: NonNullable<Pool['record']>; evidence: EvidenceScope[] }) {
   const { label, clock } = useWebText();
   const read = useRead(id + ':' + record.id, signal => readPoolRecord(id, record, signal), `pool:${id}:records`);
   return <ReadState read={read}>{value => <section className="web-subcard">
@@ -219,17 +219,8 @@ function RecordView({ id, record }: { id: string; record: NonNullable<Pool['reco
       return JSON.stringify({ ...value.data, roster: value.roster, ballots: value.ballots, runFacts: value.facts,
         content: Object.fromEntries(value.fields.map(([field, text, sha256]) => [field, { text, sha256 }])) }, null, 2);
     }} />}
-    <Sources items={value.observations} />
+    <Sources items={value.observations} topic={`pool:${id}:records`} title="record" additional={evidence} />
   </section>}</ReadState>;
-}
-
-/** Shows admitted/joined seat facts in the header independently of the active tab. */
-function Seats({ id }: { id: string }) {
-  const { label } = useWebText();
-  const read = useRead(id, signal => client.get('poolSection', { params: { id, section: 'members' }, signal }), `pool:${id}:members`);
-  return <ReadState read={read}>{({ data }) => data.section === 'members' && <div className="web-seats">
-    {data.items.flatMap(item => item.seat ? [<span key={item.seat.id}>{item.seat.profile} · {label(item.seat.admission)}{item.seat.joined && ' · ' + label('Joined')}</span>] : [])}
-  </div>}</ReadState>;
 }
 
 /** Pool metadata stays above section tabs and retains proposal and record provenance. */
@@ -242,13 +233,16 @@ export function PoolDetails({ id, tab, tabs, proposal, select }: {
     const { pool, proposalId, coverage } = data;
     const capable = capabilities?.bidirectionalHistory === 'supported';
     const record = pool.record && (pool.record.kind === 'agreement' ? capabilities?.agreementRecord : capabilities?.completionRecord) === 'supported' ? pool.record : null;
+    const core = ['discussion', 'members', 'details'];
+    const sections = ['members', 'proposals', 'decisions', 'criteria', 'votes', 'deliveries'];
+    const extra = [...sections.slice(1), 'record'];
+    const evidence: EvidenceScope[] = [{ title: 'Details', topic: `pool:${id}:detail`, items: observations }];
     return <>
       <h2>{pool.name ?? pool.id}</h2>
-      <div className="web-row-meta"><strong>{label(pool.state)}</strong><span>{pool.kind && label(pool.kind)}</span><span>{pool.leader}</span></div>
-      {pool.kind === 'chat' && <Seats id={id} />}
-      {tabs(['discussion', 'members', 'details', 'proposals', 'decisions', 'criteria', 'votes', 'deliveries', 'record'], <>
+      <div className="web-row-meta"><StatusBadge state={pool.state} /><span>{pool.kind && label(pool.kind)}</span></div>
+      {tabs(pool.kind === 'chat' ? core : [...core, ...extra], <>
       {tab === 'discussion' && <>
-        <Discussion id={id} bidirectional={capable} />
+        <Discussion id={id} bidirectional={capable} evidence={evidence} />
         {capable && <CopyAction title="Copy discussion" load={async signal => {
           const value = await readPoolExport(id, signal);
           return [label('Retained history') + ' · ' + label(value.coverage?.state ?? 'Unknown'),
@@ -262,15 +256,16 @@ export function PoolDetails({ id, tab, tabs, proposal, select }: {
         <PoolContentView id={id} field="purpose" proposal={null} />
         {(proposal ?? proposalId) && <PoolContentView id={id} field="snapshot" proposal={proposal ?? proposalId} />}
       </>}
-      {tab === 'record' && (record ? <RecordView id={id} record={record} /> : <p>{label(pool.record === undefined ? 'Unreported' : pool.record ? 'unsupported_capability' : 'No records')}</p>)}
-      {(['members', 'proposals', 'decisions', 'criteria', 'votes', 'deliveries'] as string[]).includes(tab) && <>
+      {tab === 'record' && (record ? <RecordView id={id} record={record} evidence={evidence} /> : <p>{label(pool.record === undefined ? 'Unreported' : pool.record ? 'unsupported_capability' : 'No records')}</p>)}
+      {sections.includes(tab) && <>
         {proposal && tab !== 'members' && tab !== 'deliveries' && <Choice label={label('Proposal')} value={proposal}
           options={[[proposal, proposal], ['all', label('All proposals')]]} onChange={value => { if (value === 'all') select(null); }} />}
         {tab === 'proposals' && (proposal ?? proposalId) && <PoolContentView id={id} field="snapshot" proposal={proposal ?? proposalId} />}
-        <PoolSectionView key={tab + ':' + proposal} id={id} section={tab as PoolSection} capabilities={capabilities} proposal={tab === 'proposals' ? null : proposal} select={select} />
+        <PoolSectionView key={tab + ':' + proposal} id={id} section={tab as PoolSection} capabilities={capabilities} evidence={evidence} proposal={tab === 'proposals' ? null : proposal} select={select} />
       </>}
-      </>)}
-      <CoverageLine value={coverage} /><Sources items={observations} />
+      </>, pool.kind === 'chat' ? extra : undefined)}
+      {tab === 'details' && <CoverageLine value={coverage} />}
+      {(tab === 'details' || tab === 'record' && !record) && <Sources items={observations} topic={`pool:${id}:detail`} title="Details" />}
     </>;
   }}</ReadState>;
 }

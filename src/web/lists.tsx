@@ -2,15 +2,14 @@
 import { useState } from 'react';
 import type { ReactNode } from 'react';
 import { LoaderCircle } from 'lucide-react';
-import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Choice } from '../components/hub-primitives';
 import { client, usePagedRead } from './data';
-import { worktreeMeasurements } from './model';
+import { modelTitle, worktreeMeasurements } from './model';
 import { branchLabel, formatBytes } from '../../packages/view-model/src/index';
 import { Next, period, Period } from './catalog';
-import { EmptyRows, href, Link, ReadState, Sources, CoverageLine, useWebText } from './ui';
+import { EmptyRows, Expand, href, Link, ReadState, Sources, StatusBadge, useWebText } from './ui';
 
 export type Inventory = 'sessions' | 'pools' | 'worktrees';
 
@@ -28,10 +27,9 @@ function filters(kind: Inventory, query: URLSearchParams) {
 function Row({ id, target, selected, title, state, busy, children }: {
   id: string; target: string; selected: boolean; title: string; state?: string | null; busy?: boolean; children?: ReactNode;
 }) {
-  const { label } = useWebText();
   return <Link href={target} data-focus-key={id} aria-current={selected ? 'page' : undefined} className="web-record">
-    <div className="web-record-heading"><strong>{title}</strong>{state && <Badge variant="outline">
-      {busy && <LoaderCircle size={13} className="web-spin" aria-hidden="true" />}{label(state)}</Badge>}</div>
+    <div className="web-record-heading"><strong>{title}</strong>{state && <span className="web-record-status">
+      {busy && <LoaderCircle size={13} className="web-spin" aria-hidden="true" />}<StatusBadge state={state} /></span>}</div>
     <div className="web-record-copy">{children}</div>
   </Link>;
 }
@@ -56,7 +54,7 @@ export function InventoryList({ kind, query, id, update }: {
   };
   return <>
     {kind !== 'worktrees' && <>
-      <div className="web-controls">
+      <div className={'web-controls web-list-filters' + (kind === 'sessions' ? ' web-session-filters' : '')}>
         {keys.map(key => <Button size="sm" key={key} variant={selected === key ? 'secondary' : 'outline'} aria-pressed={selected === key}
           onClick={() => update({ [groupKey]: key })}>{label(key === 'active' || key === 'open' ? 'Live' : key === 'closed' || key === 'finished' ? 'Finished' : key)}</Button>)}
       </div>
@@ -78,33 +76,33 @@ export function InventoryList({ kind, query, id, update }: {
       const { data, observations, page } = response;
       const shown = data.items.filter(row => !('workdir' in row) || !folder || row.workdir === folder);
       return <>
-        {'totals' in data && data.totals && <p className="web-muted">{label('Snapshot totals')} · {label('Retained')} {data.totals.retained} · {label('open')} {data.totals.open ?? '—'} · {label('closed')} {data.totals.closed} · {label('Completed')} {data.totals.completed ?? '—'} · {label('Unknown')} {data.totals.unknown}</p>}
-        {'projects' in data && <div className="web-projects">
-          <Button variant="outline" size="sm" aria-pressed={!request.project} onClick={() => update({ project: null })}>{label('All projects')}</Button>
-          {data.projects.map(project => <Button key={project.id} variant="outline" aria-pressed={request.project === project.id} className="web-project"
-            onClick={() => update({ project: project.id })}><strong>{project.name}</strong><span>{project.path}</span><CoverageLine value={project.coverage} /></Button>)}
+        {'projects' in data && !!data.projects.length && <div className="web-projects">
+          <Choice label={label('Project')} value={request.project ?? 'all'}
+            options={[[ 'all', label('All projects')], ...data.projects.map(project => [project.id, project.name] as [string, string])]}
+            onChange={value => update({ project: value === 'all' ? null : value })} />
         </div>}
-        <p className="web-muted">{label('Loaded')} {shown.length}{shown.length !== data.items.length && ' / ' + data.items.length}</p>
+        <p className="web-muted web-loaded">{label('Loaded')} {n(shown.length)}{shown.length !== data.items.length && ' / ' + n(data.items.length)}</p>
         <EmptyRows count={shown.length} observations={observations} />
         <div className="web-records">{shown.map(row => {
           if ('workdir' in row) return <Row key={row.id + ':' + row.execution} id={row.id + ':' + row.execution}
             target={detailUrl(row.id, row.execution)} selected={id === row.id && (!query.has('execution') || row.execution === query.get('execution'))}
             title={row.name ?? row.id} state={row.status} busy={row.status === 'running'}>
-            <span>{[row.runtime, row.model, row.effort].filter(Boolean).join(' · ')}</span>
-            <span>{row.workdir ?? row.projectId}{row.projectInferred && row.projectId ? ' · ' + row.projectId + ' (' + label('Inferred') + ')' : ''}</span>
-            <span>{row.lastAction ?? row.summary}</span>{row.failureKind && <span className="error-text">{row.failureKind}{row.failureText && ' · ' + row.failureText}</span>}
+            <span>{[row.model && modelTitle(row.model), row.workdir?.split('/').filter(Boolean).at(-1)].filter(Boolean).join(' · ')}</span>
+            <span className="web-record-preview">{row.lastAction ?? row.summary}</span>{row.failureKind && <span className="error-text">{row.failureKind}{row.failureText && ' · ' + row.failureText}</span>}
             <span>{clock(row.finishedAtMs ?? row.progressAtMs ?? row.createdAtMs)}{row.elapsedMs != null && ' · ' + duration(row.elapsedMs)}</span>
           </Row>;
           if ('purposePreview' in row) return <Row key={row.id} id={row.id} target={detailUrl(row.id)} selected={id === row.id} title={row.name ?? row.id} state={row.state}>
-            <span>{[row.kind && label(row.kind), row.leader].filter(Boolean).join(' · ')}</span><span>{row.purposePreview}</span>
+            <span>{row.kind && label(row.kind)}</span><span className="web-record-preview">{row.purposePreview}</span>
           </Row>;
+          const project = 'projects' in data && !request.project ? data.projects.find(item => item.id === row.projectId)?.name : null;
           const measurements = worktreeMeasurements(row, label, bytes => formatBytes(bytes, n));
-          return <Row key={row.id} id={row.id} target={detailUrl(row.id)} selected={id === row.id} title={label(branchLabel(row, true))} state={row.integration}>
-            <span>{row.path}</span><span>{measurements.changes} · {measurements.size}</span><span>{label(row.class)} · {label(row.activity ?? 'Unknown')}{row.mtimeBased ? ' · ' + label('mtime-derived') : ''}</span>
+          return <Row key={row.id} id={row.id} target={detailUrl(row.id)} selected={id === row.id} title={[label(branchLabel(row, true)), project].filter(Boolean).join(' · ')} state={row.integration}>
+            <span>{measurements.changes} · {measurements.size}</span><span>{label('worktree-class:' + row.class)} · {label(row.activity ?? 'Unknown')}</span>
           </Row>;
         })}</div>
         <Next cursor={page.next} update={cursor => update({ cursor }, true)} />
-        <Sources items={observations} />
+        {'totals' in data && data.totals && <Expand title="Snapshot totals"><p className="web-muted">{label('Retained')} {data.totals.retained} · {label('open')} {data.totals.open ?? '—'} · {label('closed')} {data.totals.closed} · {label('Completed')} {data.totals.completed ?? '—'} · {label('Unknown')} {data.totals.unknown}</p></Expand>}
+        <Sources items={observations} topic={kind} title="Inventory" />
       </>;
     }}</ReadState>
   </>;

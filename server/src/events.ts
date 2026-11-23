@@ -3,9 +3,10 @@ import { event, type HubEvent, type Topic } from '@agent-hub/domain';
 import { bridgeData, poolDetail, poolPage, runPage, worktreePage } from '../../src/live/protocol.ts';
 import { quotaSnapshot, quotaStatus } from '../../terminal/src/quota.ts';
 import { digest } from './cursor.ts';
-import { HubError } from './errors.ts';
+import { HubError, logSourceFailure } from './errors.ts';
 import { observed } from './projection.ts';
-import type { ObservationClient, ObserverResource } from './observer.ts';
+import type { ObserverResource } from './observer.ts';
+import type { SharedReads } from './reads.ts';
 
 /** One bounded poll independent of expensive page, transcript and inspect work. */
 type Probe = [ObserverResource, Record<string, unknown>?];
@@ -72,7 +73,7 @@ export class Events {
   private closed = false;
 
   /** Uses the same admitted native reads as foreground requests. */
-  constructor(private readonly client: ObservationClient) {}
+  constructor(private readonly client: SharedReads) {}
 
   /** Opens one stream with validated topics and rate. The response owns subscription cleanup. */
   open(topics: Topic[], interval: number, signal: AbortSignal): Response {
@@ -154,9 +155,11 @@ export class Events {
   private async poll(topic: Topic, state: TopicState): Promise<void> {
     const controller = new AbortController();
     state.controller = controller;
+    const requestId = crypto.randomUUID();
     try {
       const reads = probes(topic);
-      const results = await Promise.allSettled(reads.map(([resource, params]) => this.client.read(resource, params, controller.signal)));
+      const results = await Promise.allSettled(reads.map(([resource, params]) => this.client.read(resource, params, controller.signal,
+        (resource, failure) => logSourceFailure('events', requestId, resource, failure))));
       if (controller.signal.aborted) return;
       const boundaries: string[] = [];
       let failed = false;
@@ -170,8 +173,14 @@ export class Events {
           try {
             validateProbe(resource, result.value.data);
             boundaries.push(sourceBoundary(result.value.data));
-          } catch { observation.outcome = 'invalid'; failed = true; }
-        } else failed = true;
+          } catch {
+            observation.outcome = 'invalid';
+            failed = true;
+            this.client.projectionFailure(result.value);
+          }
+        } else {
+          failed = true;
+        }
         const prior = state.outcomes.get(resource);
         if (prior !== observation.outcome) {
           state.outcomes.set(resource, observation.outcome);

@@ -1,7 +1,7 @@
 /** Package B acceptance tests with deterministic producer-shaped reads. */
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mkdtemp, mkdir, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, rm, symlink, utimes, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { API_RESPONSES, apiError, event, type ApiResponse } from '@agent-hub/domain';
 import { createDemoClient } from '../../terminal/src/demo.ts';
@@ -135,6 +135,141 @@ test('supported GET routes project native fixtures through the frozen contract',
   } finally { await http.close(); }
 });
 
+test('Run inventory StorageError recovers current session details through a correlated per-ID read', async t => {
+  const id = 'ag-20260101-010101-0123456789';
+  const status = 'succeeded', sampledAt = now / 1000 + 0.25;
+  const agent = { agent_id: id, sequence: 2, status, observed_at: sampledAt, answer_available: true };
+  const fact = { sequence: 2, raw_status: status, execution_ref: execution };
+  const errorLog = t.mock.method(console, 'error', () => {});
+  let inventoryCode = 'run_inventory_storage';
+  let integrationOutcome: NativeResponse['outcome'] = 'ok';
+  let integrationId = id;
+  let integrationReads = 0;
+  const http = handler({
+    async close() {},
+    async read(resource, params) {
+      switch (resource) {
+        case 'run.identity': return envelope(resource, { tools: [{ name: 'agent_integration' }] });
+        case 'run.agents':
+          assert.deepEqual(params, { limit: 200, offset: 0 });
+          return envelope(resource, null, 'unavailable', inventoryCode);
+        case 'run.agent_integration':
+          integrationReads++;
+          assert.deepEqual(params, { agent_id: id });
+          return integrationOutcome === 'ok'
+            ? envelope(resource, { schema_version: 1, agent: { ...agent, agent_id: integrationId },
+              communication: { state: 'unknown', reason: 'terminal' } })
+            : envelope(resource, null, integrationOutcome);
+        case 'run.status': {
+          const match = (params?.targets as Record<string, unknown>[])[0].execution_ref ? 'verified' : 'unverified';
+          const selector = { agent_id: id, sequence: 2, ...(match === 'verified' ? { execution_ref: execution } : {}) };
+          assert.deepEqual(params, { version: 1, targets: [selector], include_view: true });
+          return envelope(resource, { version: 1, store_id: store, observed_at: now / 1000,
+            items: [{ selector, canonical_agent_id: id, match, pin_id: null, pin_state: 'missing',
+              selected: fact, retained_latest: fact, coverage: 'unknown', restart_resume: 'unknown',
+              lineage_terminal: null, terminal_outcome: null, success_commit: 'unknown',
+              cleanup: { scope: 'lineage', state: 'unknown' } }],
+            view: { selector_index: 0, match, status_scope: 'selected_execution_raw', sampled_at: sampledAt, agent },
+          });
+        }
+        default: throw new Error('unexpected observation: ' + resource);
+      }
+    },
+  });
+  try {
+    const path = '/sessions/' + id;
+    const result = await get(http, 'session', path);
+    assert.equal(result.data.session.execution, execution);
+    assert.equal(result.data.session.status, 'succeeded');
+    assert.equal(result.data.lineage?.match.match, 'unverified');
+    assert.equal((await get(http, 'session', path + '?execution=' + execution)).data.lineage?.match.match, 'verified');
+    assert.equal(errorLog.mock.callCount(), 2);
+    const logged = JSON.parse(String(errorLog.mock.calls[0].arguments[0]));
+    assert.deepEqual(logged, { event: 'source_failure', route: 'session', source: 'run',
+      resource: 'run.agents', errorClass: 'run_inventory_storage', requestId: logged.requestId });
+    assert.match(logged.requestId, /^[0-9a-f-]{36}$/);
+
+    integrationId = 'ag-20260101-010101-012345678a';
+    assert.equal((await http.fetch(request(mount + path))).status, 502);
+    integrationOutcome = 'missing';
+    assert.equal((await http.fetch(request(mount + path))).status, 404);
+    assert.equal((await http.fetch(request(mount + path + '?execution=' + execution))).status, 409);
+    integrationOutcome = 'incompatible';
+    assert.equal((await http.fetch(request(mount + path))).status, 503);
+    assert.equal(integrationReads, 6);
+
+    inventoryCode = 'secret-unrecognized-error';
+    const failed = await http.fetch(request(mount + path));
+    assert.equal(failed.status, 503);
+    assert.equal(integrationReads, 6);
+    const body = apiError(await failed.json());
+    const last = JSON.parse(String(errorLog.mock.calls.at(-1)?.arguments[0]));
+    assert.deepEqual(last, { ...logged, errorClass: 'unavailable', requestId: body.error.requestId });
+  } finally { await http.close(); }
+});
+
+test('shared native failures and finite projector rejections are logged once per flight', async t => {
+  const errorLog = t.mock.method(console, 'error', () => {});
+  let reads = 0;
+  let rejectAt: 'transport' | 'native' | 'projector' = 'transport';
+  const http = handler({
+    async read(resource) {
+      reads++;
+      await new Promise<void>(resolve => setTimeout(resolve, 5));
+      if (rejectAt === 'transport') throw new Error('private transport details');
+      if (rejectAt === 'native') return envelope(resource, null, 'unavailable', 'private native code');
+      return envelope(resource, { privatePayload: true });
+    },
+    close: async () => {},
+  });
+  try {
+    for (const [kind, status, errorClass] of [
+      ['transport', 502, 'read_rejected'], ['native', 503, 'unavailable'], ['projector', 502, 'invalid_projection'],
+    ] as const) {
+      rejectAt = kind;
+      const expected = reads + 1;
+      const responses = await Promise.all([http.fetch(request(mount + '/sessions')), http.fetch(request(mount + '/sessions'))]);
+      assert.deepEqual(responses.map(response => response.status), [status, status]);
+      assert.equal(reads, expected);
+      assert.equal(errorLog.mock.callCount(), expected);
+      const line = String(errorLog.mock.calls.at(-1)?.arguments[0]);
+      assert.doesNotMatch(line, /private/);
+      const logged = JSON.parse(line);
+      assert.deepEqual(logged, { event: 'source_failure', route: 'sessions', source: 'run', resource: 'run.agents', errorClass,
+        requestId: apiError(await responses[0].json()).error.requestId });
+    }
+  } finally { await http.close(); }
+});
+
+test('overview excludes unknown quota placeholders and marks the retained minimum when fresh quota is absent', async () => {
+  const native = await producer();
+  let onlyStale = false;
+  const http = handler({ close: () => native.close(), async read(resource, params, signal) {
+    const result = await native.read(resource, params, signal);
+    if (resource !== 'quota.snapshot') return result;
+    const data = object(result.data);
+    const [first, second] = (data.accounts as Record<string, unknown>[]);
+    const [a, b] = first.models as Record<string, unknown>[];
+    const [unknown] = second.models as Record<string, unknown>[];
+    a.evidence = 'fresh';
+    if (onlyStale) a.state_validity = { kind: 'until', at: 1 };
+    b.evidence = 'stale';
+    unknown.remaining_percent = 1;
+    return result;
+  } });
+  try {
+    const current = (await get(http, 'overview', '/overview')).data.quota?.lowest;
+    assert.equal(current?.model, 'model-alpha');
+    assert.equal(current?.remaining, 72);
+    assert.equal(current?.stale, undefined);
+    onlyStale = true;
+    const retained = (await get(http, 'overview', '/overview')).data.quota?.lowest;
+    assert.equal(retained?.model, 'model-beta');
+    assert.equal(retained?.remaining, 26);
+    assert.equal(retained?.stale, true);
+  } finally { await http.close(); }
+});
+
 test('Pool agreement remains recorded and does not acquire a verified Run link', async () => {
   const http = handler(await producer());
   try {
@@ -224,12 +359,17 @@ test('malformed sources and isolated outages never become fixture or healthy-emp
   } finally { await http.close(); }
 });
 
-test('serves a deep link and hashed assets while bounding files to the build root', async () => {
+test('serves deep links, hashed assets and root-scope PWA files within the build root', async () => {
   const directory = await mkdtemp(join(process.env.TMPDIR!, 'http-test-'));
   const web = join(directory, 'web');
   await mkdir(join(web, 'assets'), { recursive: true });
   await writeFile(join(web, 'index.html'), '<title>fixture app</title>');
   await writeFile(join(web, 'assets', 'page-C3rrC30X.js'), 'export {};');
+  await writeFile(join(web, 'sw.js'), 'self.addEventListener("fetch", () => {});');
+  await writeFile(join(web, 'manifest.webmanifest'), '{"name":"Agent Hub"}');
+  await writeFile(join(web, 'manifest-dark.webmanifest'), '{"name":"Agent Hub","theme_color":"#141c29"}');
+  await writeFile(join(web, 'icon-192.png'), new Uint8Array([137, 80, 78, 71]));
+  await writeFile(join(web, 'private.js'), 'private build output');
   await writeFile(join(directory, 'outside.txt'), 'outside the build');
   await symlink(join(directory, 'outside.txt'), join(web, 'outside.txt'));
   const http = handler(await producer(), web);
@@ -239,6 +379,42 @@ test('serves a deep link and hashed assets while bounding files to the build roo
     assert.equal(entry.headers.get('Cache-Control'), 'no-cache');
     const asset = await http.fetch(request('/assets/page-C3rrC30X.js'));
     assert.match(asset.headers.get('Cache-Control') ?? '', /immutable/);
+    const worker = await http.fetch(request('/sw.js'));
+    assert.equal(worker.status, 200);
+    assert.equal(worker.headers.get('Content-Type'), 'text/javascript; charset=utf-8');
+    assert.equal(worker.headers.get('Cache-Control'), 'no-cache');
+    assert.equal(worker.headers.get('Service-Worker-Allowed'), '/');
+    assert.match(await worker.text(), /self\.addEventListener/);
+    const revalidated = await http.fetch(request('/sw.js', { headers: { 'If-None-Match': worker.headers.get('ETag')! } }));
+    assert.equal(revalidated.status, 304);
+    assert.equal(revalidated.headers.get('Cache-Control'), 'no-cache');
+    const swPath = join(web, 'sw.js');
+    const swStat = await stat(swPath);
+    await writeFile(swPath, 'self.addEventListener("fetch", () => 0); ');
+    await utimes(swPath, swStat.atime, swStat.mtime);
+    assert.equal((await stat(swPath)).size, swStat.size);
+    const revision = await http.fetch(request('/sw.js', { headers: { 'If-None-Match': worker.headers.get('ETag')! } }));
+    assert.equal(revision.status, 200);
+    assert.notEqual(revision.headers.get('ETag'), worker.headers.get('ETag'));
+    for (const name of ['manifest.webmanifest', 'manifest-dark.webmanifest']) {
+      const manifest = await http.fetch(request('/' + name));
+      assert.equal(manifest.status, 200);
+      assert.equal(manifest.headers.get('Content-Type'), 'application/manifest+json');
+      assert.equal(manifest.headers.get('Cache-Control'), 'no-cache');
+      assert.equal((await manifest.json()).name, 'Agent Hub');
+    }
+    const icon = await http.fetch(request('/icon-192.png'));
+    assert.equal(icon.status, 200);
+    assert.equal(icon.headers.get('Content-Type'), 'image/png');
+    assert.equal((await http.fetch(request('/private.js'))).status, 404);
+    assert.equal((await http.fetch(request('/sw.js', { method: 'POST' }))).status, 405);
+    const loopback = '127.0.0.1:4173';
+    const local = createHttp(await producer(), { localHost: loopback, release: 'test', webRoot: web });
+    try {
+      const script = (origin: string) => local.fetch(new Request('http://' + loopback + '/sw.js', { headers: { Host: loopback, Origin: origin } }));
+      assert.equal((await script('http://' + loopback)).status, 200);
+      assert.equal((await script('http://127.0.0.1:4174')).status, 400);
+    } finally { await local.close(); }
     assert.equal((await http.fetch(request('/outside.txt'))).status, 404);
     assert.equal((await http.fetch(request('/administration'))).status, 404);
     assert.equal((await http.fetch(request('/api/v9/health'))).status, 404);

@@ -1,13 +1,13 @@
 /** Shared web presentation primitives for source evidence and navigable read views. */
 import type { AnchorHTMLAttributes, ReactNode } from 'react';
-import { createContext, useContext } from 'react';
-import { LoaderCircle } from 'lucide-react';
-import type { Coverage, Observation } from '@agent-hub/domain';
+import { createContext, useContext, useId, useState } from 'react';
+import { ChevronDown, LoaderCircle } from 'lucide-react';
+import type { Coverage, Observation, Topic } from '@agent-hub/domain';
 import { useLocale } from '../i18n';
 import { ru } from '../locales';
 import { Badge } from '../components/ui/badge';
 import { english, translations } from './strings';
-import type { Read } from './data';
+import { LiveContext, type Read } from './data';
 
 /** Localizes authored v1 chrome and typed tokens; callers render producer prose directly. */
 export function useWebText() {
@@ -51,7 +51,9 @@ export function sessionHref(id: string, execution?: string | null) {
 /** Read failure and loading are independent from retained content. */
 export function ReadState<T>({ read, children }: { read: Read<T>; children: (value: T) => ReactNode }) {
   const { label, clock } = useWebText();
-  return <>{read.error && <p className="web-warning" role="status">{label(read.error)}{read.failedAt && read.value ? ' · ' + label('Retained since') + ' ' + clock(read.failedAt) : ''}</p>}
+  const { unreachable } = useContext(LiveContext);
+  const error = unreachable && read.error === 'network_unavailable' && read.value === null ? null : read.error;
+  return <>{error && <p className="web-warning" role="status">{label(error)}{read.failedAt && read.value ? ' · ' + label('Retained since') + ' ' + clock(read.failedAt) : ''}</p>}
     {read.value !== null ? children(read.value) : read.loading && <p className="web-muted" role="status"><LoaderCircle className="web-spin" size={16} /> {label('Loading')}</p>}</>;
 }
 
@@ -74,16 +76,101 @@ export function CoverageLine({ value }: { value?: Coverage }) {
     {value.reason && ' · ' + value.reason}</span>;
 }
 
-/** Original source clocks and outcomes remain separate on mixed-source pages. */
-export function Sources({ items }: { items: Observation[] }) {
+/** Uses the shared visual tones for session, source and quota states. */
+export function StatusBadge({ state }: { state: string }) {
+  const { label } = useWebText();
+  const tone = ['ok', 'succeeded', 'ready'].includes(state) ? 'good'
+    : ['running', 'starting', 'open'].includes(state) ? 'active'
+    : ['failed', 'timed_out', 'exhausted', 'invalid', 'high', 'critical'].includes(state) ? 'error'
+    : ['partial', 'unavailable', 'incompatible', 'missing', 'Stale', 'medium'].includes(state) ? 'warning' : 'neutral';
+  return <Badge variant="outline" className="web-status" data-tone={tone}>{label(state)}</Badge>;
+}
+
+/** Chooses one source badge from its independent resource observations. */
+function sourceState(group: Observation[]) {
+  const unavailable = group.find(item => !['ok', 'partial'].includes(item.outcome));
+  if (unavailable) return group.some(item => ['ok', 'partial'].includes(item.outcome)) ? 'partial' : unavailable.outcome;
+  if (group.some(item => item.staleSinceMs != null)) return 'Stale';
+  return group.some(item => item.outcome === 'partial') ? 'partial' : 'ok';
+}
+
+/** Keeps each resource's original timestamps and coverage inside its source disclosure. */
+export function SourceEvidence({ items }: { items: Observation[] }) {
   const { label, clock } = useWebText();
-  return <div className="web-sources">{items.map((item, i) => <details key={item.source + ':' + (item.resource ?? i)} className="web-source">
-    <summary><strong>{label(item.source)}</strong><Badge variant="outline" className={item.outcome !== 'ok' || item.staleSinceMs != null ? 'web-caution' : ''}>{label(item.outcome)}{item.staleSinceMs != null && ' · ' + label('Stale')}</Badge></summary>
+  return <ul className="web-source-evidence">{items.map((item, i) => <li key={i}>
+    {item.resource && <strong>{label(item.resource)} · </strong>}<StatusBadge state={item.outcome} />
     <div>{label('Producer time')} {clock(item.producerAtMs)} · {label('Observed')} {clock(item.observedAtMs)}</div>
     {item.staleSinceMs != null && <div>{label('Retained since')} {clock(item.staleSinceMs)}</div>}
     <CoverageLine value={item.coverage} />
     {item.issue && <div>{item.issue.message ?? item.issue.code}</div>}
-  </details>)}</div>;
+  </li>)}</ul>;
+}
+
+/** Labels finite receipts and live updates by the route topic that produced them. */
+export type EvidenceScope = { title?: string; topic?: Topic; items: Observation[] };
+
+/** Keeps live probes separate from finite receipts and their coverage. */
+export function useEvidence(scopes: EvidenceScope[]) {
+  const { visible, sourceEvents } = useContext(LiveContext);
+  return scopes.flatMap((scope): (EvidenceScope & { probe?: boolean })[] => {
+    const probes = visible && scope.topic ? sourceEvents?.get(scope.topic) ?? [] : [];
+    return probes.length ? [
+      { ...scope, title: scope.title ?? 'Read receipt' },
+      { title: scope.title ? scope.title : 'Live probe', probe: true, items: [...probes] },
+    ] : [scope];
+  });
+}
+
+/** Displays one entry per source, with scope labels inside its evidence. */
+export function Sources({ items, topic, title, additional = [], strip = false, bridgeLink }: {
+  items: Observation[]; topic?: Topic; title?: string; additional?: EvidenceScope[]; strip?: boolean; bridgeLink?: ReactNode;
+}) {
+  const { label } = useWebText();
+  const id = useId();
+  const [selected, setSelected] = useState<Observation['source'] | null>(null);
+  const scopes = useEvidence([{ items, topic, title }, ...additional]);
+  const groups = new Map<Observation['source'], Observation[]>();
+  for (const item of scopes.flatMap(scope => scope.items)) {
+    const group = groups.get(item.source) ?? [];
+    group.push(item);
+    groups.set(item.source, group);
+  }
+  if (!groups.size) return null;
+  const active = selected && groups.get(selected);
+  const evidence = (source: Observation['source']) => scopes.map((scope, index) => {
+    const scoped = scope.items.filter(item => item.source === source);
+    return scoped.length > 0 && <div key={index}>
+      {scope.title && <h3 className="web-evidence-title">{scope.probe && scope.title !== 'Live probe' ? label(scope.title) + ' · ' : ''}
+        {label(scope.probe ? 'Live probe' : scope.title)}</h3>}
+      <SourceEvidence items={scoped} />
+    </div>;
+  });
+  return <section className={strip ? 'web-sources web-source-strip' : 'web-sources'} aria-label={label('Source health')}>
+    {strip && <h2>{label('Source health')}</h2>}
+    <div className="web-source-items">{[...groups].map(([source, group]) => strip
+      ? <button type="button" key={source} className="web-source-control" aria-expanded={selected === source} aria-controls={id}
+          onClick={() => setSelected(selected === source ? null : source)}>
+          <strong>{label(source)} <ChevronDown size={14} aria-hidden="true" /></strong><StatusBadge state={sourceState(group)} />
+        </button>
+      : <details key={source} className="web-source">
+          <summary><strong>{label(source)}</strong>{additional.length > 0 && <span className="web-source-scope">{label('Scoped source evidence')}</span>}
+            <StatusBadge state={sourceState(group)} /></summary>
+          {evidence(source)}
+        </details>)}</div>
+    {strip && <div id={id} className="web-source-panel" hidden={!active}>
+      {active && evidence(selected)}
+      {selected === 'bridge' && bridgeLink}
+    </div>}
+  </section>;
+}
+
+/** Formats a timestamp against a shared page clock in minutes, hours, or days. */
+export function relativeTime(ms: number, now: number, locale: string) {
+  const minutes = Math.round((ms - now) / 60_000);
+  const formatter = new Intl.RelativeTimeFormat(locale, { numeric: 'auto' });
+  if (Math.abs(minutes) < 60) return formatter.format(minutes, 'minute');
+  if (Math.abs(minutes) < 1440) return formatter.format(Math.round(minutes / 60), 'hour');
+  return formatter.format(Math.round(minutes / 1440), 'day');
 }
 
 /** Metadata list renders nullable values explicitly. */

@@ -28,6 +28,7 @@ pub(crate) async fn call(
             | "tools"
             | "list_agents"
             | "status"
+            | "agent_integration"
             | "transcript"
             | "transcript_exact"
             | "initial_task"
@@ -83,7 +84,7 @@ pub(crate) async fn call(
         .read_until(b'\n', &mut line)
         .await
         .map_err(|_| ReadError::unavailable("run_read"))?;
-    match decode(&line, 1) {
+    match decode(&line, 1, method) {
         Err(_)
             if method == "transcript"
                 && params.get("view").and_then(Value::as_str) == Some("blocks")
@@ -154,7 +155,7 @@ fn blocks_unsupported(line: &[u8], id: u64) -> bool {
 
 /// Validates byte framing, exact correlation, envelope exclusivity and source failures.
 /// Producer result objects are returned verbatim; error messages are never reflected.
-pub(crate) fn decode(line: &[u8], id: u64) -> Result<Value, ReadError> {
+pub(crate) fn decode(line: &[u8], id: u64, method: &str) -> Result<Value, ReadError> {
     if line.len() > FRAME_LIMIT {
         return Err(ReadError::invalid("frame_budget"));
     }
@@ -170,13 +171,18 @@ pub(crate) fn decode(line: &[u8], id: u64) -> Result<Value, ReadError> {
         return Err(ReadError::invalid("rpc_envelope"));
     }
     if let Some(error) = envelope.get("error") {
-        return Err(
-            if error.get("code").and_then(Value::as_i64) == Some(-32601) {
-                ReadError::incompatible("run_method_unavailable")
-            } else {
-                ReadError::unavailable("run_source_error")
-            },
-        );
+        let class = error.pointer("/data/code").and_then(Value::as_str);
+        let code = error.get("code").and_then(Value::as_i64);
+        return Err(match (method, code, class) {
+            (_, Some(-32601), _) => ReadError::incompatible("run_method_unavailable"),
+            ("list_agents", Some(-32000), Some("StorageError")) => {
+                ReadError::unavailable("run_inventory_storage")
+            }
+            ("agent_integration", Some(-32000), Some("AgentNotFound")) => {
+                ReadError::missing("run_agent_missing")
+            }
+            _ => ReadError::unavailable("run_source_error"),
+        });
     }
     let result = envelope
         .get("result")
@@ -190,7 +196,35 @@ pub(crate) fn decode(line: &[u8], id: u64) -> Result<Value, ReadError> {
 
 #[cfg(test)]
 mod tests {
-    use super::blocks_unsupported;
+    use super::{blocks_unsupported, decode};
+    use crate::contract::Outcome;
+
+    /// Maps the observed Run 0.33.2 RPC errors without forwarding producer diagnostics.
+    #[test]
+    fn classifies_correlated_inventory_storage_error_and_missing_agent() {
+        let storage = b"{\"jsonrpc\":\"2.0\",\"id\":1,\"error\":{\"code\":-32000,\"data\":{\"code\":\"StorageError\",\"message\":\"state database operation failed\"},\"message\":\"state database operation failed\"}}\n";
+        let error = decode(storage, 1, "list_agents").unwrap_err();
+        assert_eq!(error.outcome, Outcome::Unavailable);
+        assert_eq!(error.code, "run_inventory_storage");
+        assert_eq!(
+            decode(storage, 2, "list_agents").unwrap_err().code,
+            "rpc_envelope"
+        );
+        assert_eq!(
+            decode(storage, 1, "status").unwrap_err().code,
+            "run_source_error"
+        );
+
+        let missing = b"{\"jsonrpc\":\"2.0\",\"id\":1,\"error\":{\"code\":-32000,\"data\":{\"code\":\"AgentNotFound\",\"message\":\"private producer text\"},\"message\":\"private producer text\"}}\n";
+        let error = decode(missing, 1, "agent_integration").unwrap_err();
+        assert_eq!(error.outcome, Outcome::Missing);
+        assert_eq!(error.code, "run_agent_missing");
+        assert!(
+            !serde_json::to_string(&error)
+                .unwrap()
+                .contains("private producer text")
+        );
+    }
 
     /// Unsupported options are distinguished without forwarding source error text.
     #[test]

@@ -13,7 +13,7 @@ export const overview = object({
   bridge: nullable(object({ accepted: evidenceCount, pending: evidenceCount, incidents: evidenceCount })),
   quota: nullable(object({
     accounts: count, known: count, unknown: count, exhausted: count, stale: count,
-    lowest: nullable(object({ account: text, model: text, remaining: number })),
+    lowest: nullable(object({ account: text, model: text, remaining: number, provider: optional(text), stale: optional(bool) })),
   })),
 });
 

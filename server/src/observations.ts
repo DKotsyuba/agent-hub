@@ -35,7 +35,7 @@ export async function quota(ctx: ReadContext) {
   let status: Quota['status'] = null, data: Quota['snapshot'] = null;
   if (usable(statusRead)) {
     try {
-      const { startedAt, lastCollectionAt, external, ...parsed } = quotaStatus(statusRead.data);
+      const { startedAt, lastCollectionAt, external, ...parsed } = ctx.project(statusRead, quotaStatus);
       status = { ...parsed, startedAtMs: ms(startedAt), lastCollectionAtMs: ms(lastCollectionAt),
         external: external.map(({ acceptedAt, ...row }) => ({ ...row, acceptedAtMs: ms(acceptedAt) })) };
       observations[0].producerAtMs = status.lastCollectionAtMs;
@@ -43,7 +43,7 @@ export async function quota(ctx: ReadContext) {
   }
   if (usable(snapshotRead)) {
     try {
-      data = snapshot(snapshotRead.data);
+      data = ctx.project(snapshotRead, snapshot);
       observations[1] = observed(snapshotRead, data.evaluatedAtMs, coverage('source_snapshot', data.coverage.state === 'complete', 'snapshot'));
     } catch { observations[1].outcome = 'invalid'; }
   }
@@ -66,7 +66,7 @@ async function bridgeScan(ctx: ReadContext, resource: 'bridge.incidents' | 'brid
   for (let index = 0; index < maxPages; index++) {
     const envelope = await ctx.read(resource, { limit, after_seq: after, ...(through === null ? {} : { through_seq: through }),
       ...(isIncident ? { include_closed: includeClosed } : {}) });
-    const page = bridgeData(requireData(envelope), isIncident ? 'incident_page' : 'delivery_page');
+    const page = ctx.project(envelope, value => bridgeData(value, isIncident ? 'incident_page' : 'delivery_page'));
     const upper = integer(page.through_seq);
     if (through !== null && through !== upper) throw new HubError('stale_boundary');
     through = upper;
@@ -147,7 +147,7 @@ export async function overview(ctx: ReadContext, query: Input<'overview'>) {
   const bridgeObservation = bridge.status === 'fulfilled' ? observed(bridge.value) : failed('bridge', bridge.reason);
   let bridgeDataResult = null;
   if (bridge.status === 'fulfilled' && usable(bridge.value)) {
-    try { bridgeDataResult = bridgeData(bridge.value.data, 'bridge_overview'); }
+    try { bridgeDataResult = ctx.project(bridge.value, value => bridgeData(value, 'bridge_overview')); }
     catch { bridgeObservation.outcome = 'invalid'; }
   }
   /** Count only rows with producer clocks bounded by their own receipt. */
@@ -176,12 +176,17 @@ export async function overview(ctx: ReadContext, query: Input<'overview'>) {
     observations.push(...quotaResult.value.observations);
     const snapshot = quotaResult.value.data.snapshot;
     if (snapshot) {
-      const models = snapshot.accounts.flatMap(account => account.models.map(model => ({ ...model, account: account.account })));
-      const lowest = models.filter(model => model.remaining !== null).sort((a, b) => a.remaining! - b.remaining!)[0];
+      const now = Date.now();
+      const models = snapshot.accounts.flatMap(account => account.models.map(model => ({
+        ...model, account: account.account,
+        stale: model.evidence === 'stale' || model.validity.kind === 'until' && model.validity.atMs <= now,
+      })));
+      const lowest = models.filter(model => model.state !== 'unknown' && model.remaining !== null)
+        .sort((a, b) => Number(a.stale) - Number(b.stale) || a.remaining! - b.remaining!)[0];
       data.quota = { accounts: snapshot.accounts.length, known: models.filter(model => model.state === 'known').length,
         unknown: models.filter(model => model.state === 'unknown').length, exhausted: models.filter(model => model.state === 'exhausted').length,
-        stale: models.filter(model => model.evidence === 'stale').length,
-        lowest: lowest ? { account: lowest.account, model: lowest.model, remaining: lowest.remaining! } : null };
+        stale: models.filter(model => model.stale).length,
+        lowest: lowest ? { account: lowest.account, model: lowest.model, remaining: lowest.remaining!, provider: lowest.provider, ...(lowest.stale ? { stale: true } : {}) } : null };
     }
   } else observations.push(failed('quota', quotaResult.reason));
   if (!data.run && !data.bridge && !data.quota && quotaResult.status === 'rejected') {
@@ -205,7 +210,7 @@ export type WorktreeCache = Map<string, { expires: number; details: WorktreeDeta
 /** Derives IDs from configured inventory and labels the bounded coverage of each project. */
 async function worktreeInventory(ctx: ReadContext, cache: WorktreeCache, project: string | null) {
   const configured = await ctx.read('hub.repositories');
-  const knownRepos = [...new Set(repositoriesData(requireData(configured)))];
+  const knownRepos = [...new Set(ctx.project(configured, repositoriesData))];
   const repos = knownRepos.length ? knownRepos.filter(repo => project === null || projectId(repo) === project).sort() : [null];
   const projects: { id: string; name: string; path: string; coverage: Coverage }[] = [];
   const listed: Listed[] = [];
@@ -220,7 +225,7 @@ async function worktreeInventory(ctx: ReadContext, cache: WorktreeCache, project
       const envelope = await ctx.read('worktree.list', { ...(repo ? { repo } : {}), limit: 20, ...(next ? { cursor: next } : {}) });
       source = observed(envelope);
       if (!usable(envelope)) { complete = false; break; }
-      const page = worktreePage(envelope.data);
+      const page = ctx.project(envelope, worktreePage);
       complete &&= envelope.outcome === 'ok' && page.coverage.budget_exhausted !== true && page.coverage.root_unconfigured !== true
         && page.coverage.orphan_scan_truncated !== true && !(Array.isArray(page.coverage.failed) && page.coverage.failed.length);
       for (const row of page.rows) {
@@ -288,7 +293,7 @@ export async function worktree(ctx: ReadContext, query: Input<'worktree'>, cache
   const envelope = await ctx.read('worktree.inspect', { repo: listed.repo, path: row.path, checks: { status: true, size: true } });
   const observation = observed(envelope);
   if (!usable(envelope)) return { data: { worktree: row, coverage: coverage('current', false), probes: [], warnings: [{ code: 'inspect_unavailable' }] }, observations: [...result.observations, observation] };
-  const data = worktreeDetail(envelope.data);
+  const data = ctx.project(envelope, worktreeDetail);
   if (data.key !== listed.key || data.path !== row.path) throw new HubError('stale_boundary');
   const facts = worktreeFacts(data), expires = envelope.observed_at_ms + 600_000;
   for (const axis of [facts.status, facts.size]) {

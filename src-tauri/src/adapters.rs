@@ -17,6 +17,9 @@ pub(crate) async fn read(
     request: &ReadRequest,
     cancel: &mut watch::Receiver<bool>,
 ) -> Result<(Value, bool), ReadError> {
+    if request.resource == Resource::RunAgentIntegration {
+        return Err(ReadError::invalid("resource_source"));
+    }
     match request.resource.source() {
         "run" => {
             let wait = request

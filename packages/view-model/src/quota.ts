@@ -36,6 +36,46 @@ export interface QuotaStatus {
   external: { account: string; provider: string; source: string; acceptedAt: number | null; revision: number | null }[];
 }
 
+const NUMBER_WORDS: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, twelve: 12, fourteen: 14, thirty: 30 };
+const UNIT_SECONDS: Record<string, number> = { minute: 60, hour: 3600, day: 86400, week: 604800 };
+
+/** Returns the window length in seconds from its producer name, or null when it cannot be derived. */
+export function windowSeconds(name: string): number | null {
+  const lower = name.toLowerCase();
+  if (lower === 'weekly') return 7 * 86400;
+  if (lower === 'daily') return 86400;
+  if (lower === 'hourly') return 3600;
+  const match = /^([a-z0-9]+)_(minute|hour|day|week)s?(?:_[a-z0-9_]+)?$/.exec(lower);
+  if (!match) return null;
+  const count = /^\d+$/.test(match[1]!) ? Number(match[1]) : NUMBER_WORDS[match[1]!];
+  return count && count > 0 ? count * UNIT_SECONDS[match[2]!]! : null;
+}
+/** Projects usable window capacity and freshness against an epoch-seconds clock. */
+export function quotaWindowSample(window: QuotaWindow, now: number) {
+  const known = window.forecastKnown && window.lastRemaining !== null;
+  const resetAt = known ? window.lastResetAt : null;
+  const passed = resetAt !== null && resetAt <= now;
+  return { known, remaining: known ? window.lastRemaining : null, resetAt, passed,
+    stale: known && (passed || window.validUntil !== null && window.validUntil <= now) };
+}
+
+/** Suppresses placeholder numbers on producer-declared unknown models. */
+export function quotaModelRemaining(model: QuotaModel) {
+  return model.state === 'unknown' ? null : model.remaining;
+}
+
+/** Human names for known quota providers. Unknown providers keep the account identifier. */
+const PROVIDER_NAMES: Record<string, string> = {
+  claude: 'Claude subscription', codex: 'Codex (ChatGPT)', glm: 'Z.AI GLM', 'opencode-go': 'OpenCode Go',
+  'opencode-zen': 'OpenCode Zen', 'codex-api': 'OpenAI API',
+};
+
+/** Returns the shared TUI and web account title from producer-confirmed provider names. */
+export function accountTitle(account: string, providers: readonly string[]): string {
+  const names = new Set(providers.flatMap(provider => Object.hasOwn(PROVIDER_NAMES, provider) ? [PROVIDER_NAMES[provider]!] : []));
+  return [...names].join(' + ') || account;
+}
+
 const STATES = new Set<QuotaState>(['known', 'unknown', 'exhausted']);
 
 /** Returns a plain object or throws a schema error. */

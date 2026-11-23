@@ -1,6 +1,14 @@
 /** Web history and presentation projections. */
 import type { PoolHistory, SessionHistory, Worktree } from '@agent-hub/domain';
-import type { QuotaAccount, QuotaSnapshot } from '../../packages/view-model/src/index';
+import { accountTitle, type QuotaAccount, type QuotaSnapshot } from '../../packages/view-model/src/index';
+
+/** Matches the Quota producer's three known recommendation forms without displaying their identifiers. */
+export function quotaAdviceKind(advice: string) {
+  if (advice.endsWith(' capacity is unknown; treat limits as unverified.')) return 'Quota advice unknown';
+  if (advice.includes(' is near exhaustion; avoid starting new ') && advice.endsWith(' work before reset.')) return 'Quota advice high';
+  if (advice.endsWith(' is trending toward exhaustion; pace new requests.')) return 'Quota advice medium';
+  return null;
+}
 
 /** Sorts and deduplicates anchored transcript groups while retaining tools across partial pages. */
 export function mergeTranscript(previous: SessionHistory['entries'], incoming: SessionHistory['entries'], older = false) {
@@ -74,14 +82,16 @@ export function mergeChat(previous: PoolHistory['items'], incoming: PoolHistory[
 
 /** Projects producer names for the Quota card while preserving the raw account ID. */
 export function quotaAccountTitle(account: QuotaAccount, snapshot: QuotaSnapshot) {
-  const names: Record<string, string> = {
-    claude: 'Claude subscription', codex: 'Codex (ChatGPT)', glm: 'Z.AI GLM',
-    'opencode-go': 'OpenCode Go', 'opencode-zen': 'OpenCode Zen', 'codex-api': 'OpenAI API',
-  };
-  const providers = new Set([...account.models.map(item => item.provider),
-    ...snapshot.coverage.sources.filter(source => source.account === account.account).map(source => source.provider)]);
-  const titles = [...providers].flatMap(provider => Object.hasOwn(names, provider) ? [names[provider]] : []);
-  return titles.join(' + ') || account.account;
+  const providers = account.models.map(item => item.provider).filter(provider => provider !== 'Unknown');
+  return accountTitle(account.account, providers.length ? providers :
+    snapshot.coverage.sources.filter(source => source.account === account.account).map(source => source.provider));
+}
+
+/** Formats familiar model IDs while preserving unrecognized producer names. */
+export function modelTitle(model: string) {
+  const claude = /^claude-(fable|haiku|opus|sonnet)-(\d+)-(\d+)$/i.exec(model);
+  if (claude) return `Claude ${claude[1][0].toUpperCase()}${claude[1].slice(1)} ${claude[2]}.${claude[3]}`;
+  return model.replace(/^gpt-/i, 'GPT-').replace(/^glm-/i, 'GLM-').replace(/^deepseek-/i, 'DeepSeek ');
 }
 
 /** Draws status and size independently from the cached Worktree axes. */

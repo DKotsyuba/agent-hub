@@ -1,24 +1,39 @@
 /** Run inventory, transcript windows and proof-checked content. */
 import { session, type Capabilities, type Session, type SessionHistory } from '@agent-hub/domain';
-import { activeStatus, answerText, collectPages, integer, object, runPage, sha256, supportsChunks, text, transcriptPage, type RunAgent, type TranscriptBlock } from '../../src/live/protocol.ts';
+import { activeStatus, answerText, collectPages, integer, object, runAgent, runPage, sha256, supportsChunks, text, transcriptPage, type RunAgent, type TranscriptBlock } from '../../src/live/protocol.ts';
 import { groupTranscript } from '../../terminal/src/transcript.ts';
 import { agentWorkdir, projectRoot } from '../../terminal/src/sessions.ts';
 import { initialTaskCapability, readInitialTask } from '../../terminal/src/initial-task.ts';
 import { exportExactHistory } from '../../terminal/src/export-exact.ts';
 import { parseRunStatus, runStatusRequest, validRunAgentId, type RunStatusRequest } from '../../terminal/src/run-status.ts';
 import { HubError } from './errors.ts';
+import type { NativeResponse } from './observer.ts';
 import { digest, type Position } from './cursor.ts';
 import { coverage, decimalValue, field, inPeriod, ms, noPage, observed, optionalObject, projectId, requireData, type Input, type ReadContext } from './projection.ts';
+
+/** Identifies a producer StorageError on an inventory read. */
+class RunInventoryStorageError extends HubError {
+  /** Keeps the public failure classification while allowing per-ID recovery. */
+  constructor() { super('source_unavailable'); }
+}
+
+/** Decodes a Run page while retaining the one inventory-specific recovery signal. */
+function inventoryPage(ctx: ReadContext, envelope: NativeResponse) {
+  if (envelope.outcome === 'unavailable' && envelope.error?.code === 'run_inventory_storage') {
+    throw new RunInventoryStorageError();
+  }
+  return ctx.project(envelope, runPage);
+}
 
 /** A bounded inventory with its native receipt and fencing revision. */
 export async function runInventory(ctx: ReadContext, active = false) {
   const params = { limit: 200, ...(active ? { active: true } : {}) };
   const envelope = await ctx.read('run.agents', { ...params, offset: 0 });
-  const first = runPage(requireData(envelope));
+  const first = inventoryPage(ctx, envelope);
   let complete = envelope.outcome === 'ok';
   const inventory = await collectPages(first, 5, async offset => {
     const receipt = await ctx.read('run.agents', { ...params, offset });
-    const next = runPage(requireData(receipt));
+    const next = inventoryPage(ctx, receipt);
     complete &&= receipt.outcome === 'ok';
     if (next.revision !== first.revision) throw new HubError('stale_boundary');
     return next;
@@ -54,19 +69,41 @@ export async function sessions(ctx: ReadContext, query: Input<'sessions'>, posit
   return { data: { items: page.items }, page: page.page, observations: [result.observation] };
 }
 
+/** Finds the latest agent row, recovering by ID when Run cannot project a whole inventory page. */
+async function currentSession(ctx: ReadContext, query: { id: string; execution: string | null }) {
+  try {
+    const inventory = await runInventory(ctx);
+    const agent = inventory.items.find(row => row.id === query.id);
+    if (!agent) throw new HubError(query.execution ? 'stale_boundary' : 'not_found');
+    return { agent, observation: inventory.observation };
+  } catch (error) {
+    if (!(error instanceof RunInventoryStorageError) || !validRunAgentId(query.id)) throw error;
+    const envelope = await ctx.read('run.agent_integration', { agent_id: query.id });
+    if (envelope.outcome === 'incompatible') throw error;
+    if (envelope.outcome === 'missing' && query.execution) throw new HubError('stale_boundary');
+    const agent = ctx.project(envelope, value => {
+      const data = object(value);
+      if (data.schema_version !== 1) throw new HubError('invalid_projection');
+      const agent = runAgent(data.agent);
+      if (agent.id !== query.id) throw new HubError('invalid_projection');
+      return agent;
+    });
+    return { agent, observation: observed(envelope, ms(agent.observed)) };
+  }
+}
+
 /** Resolves a current Run row or a server-issued Pool binding. */
 async function selected(ctx: ReadContext, query: { id: string; execution: string | null }) {
   const binding = query.execution ? ctx.bindings.get(query.execution) : undefined;
   if (query.execution?.startsWith('bound-') && (!binding || binding.targets[0].agent_id !== query.id)) throw new HubError('stale_boundary');
   if (binding) {
     const envelope = await ctx.read('run.status', { ...binding });
-    const evidence = parseRunStatus(requireData(envelope), binding);
+    const evidence = ctx.project(envelope, value => parseRunStatus(value, binding));
     if (evidence.match !== 'verified' || evidence.canonicalAgentId !== query.id || !evidence.view) throw new HubError('stale_boundary');
     return { agent: evidence.view.agent, observation: observed(envelope, ms(evidence.observedAt)), binding, evidence, execution: query.execution! };
   }
-  const result = await runInventory(ctx);
-  const agent = result.items.find(row => row.id === query.id);
-  if (!agent) throw new HubError(query.execution ? 'stale_boundary' : 'not_found');
+  const result = await currentSession(ctx, query);
+  const { agent } = result;
   if (query.execution && !/^ex1_[a-f0-9]{64}$/.test(query.execution) && query.execution !== agent.raw.execution_ref) throw new HubError('stale_boundary');
   let execution = text(agent.raw.execution_ref);
   let evidence = null;
@@ -76,7 +113,7 @@ async function selected(ctx: ReadContext, query: { id: string; execution: string
     const selector = runStatusRequest({ run_id: query.id, run_sequence: agent.sequence, run_execution_ref: query.execution ?? execution });
     const envelope = await ctx.read('run.status', { ...selector });
     if (envelope.outcome === 'ok' || envelope.outcome === 'partial') {
-      evidence = parseRunStatus(envelope.data, selector);
+      evidence = ctx.project(envelope, value => parseRunStatus(value, selector));
       if (!evidence.view || !evidence.selected || evidence.canonicalAgentId !== query.id) throw new HubError('stale_boundary');
       if (evidence.retainedLatest && evidence.retainedLatest.sequence !== evidence.selected.sequence) throw new HubError('stale_boundary');
       execution = evidence.selected.executionRef;
@@ -106,16 +143,19 @@ function pinned(result: Awaited<ReturnType<typeof selected>>): boolean {
 /** Maps proof capabilities without inferring support from source failures. */
 async function discover(ctx: ReadContext) {
   const identity = await ctx.read('run.identity');
-  const data = optionalObject(identity.data);
-  const capabilities = optionalObject(data.capabilities), methods = capabilities.read_methods;
-  const exact = capabilities.schema_version === 1 && capabilities.product === 'agent-run' && Array.isArray(methods)
-    && methods.some(method => optionalObject(method).name === 'transcript_exact');
-  const tools = Array.isArray(data.tools) ? data.tools : optionalObject(data.tools).tools;
-  const usable = identity.outcome === 'ok' || identity.outcome === 'partial';
-  const chunks: NonNullable<Capabilities['verifiedResult']> = usable && supportsChunks(data) ? 'supported'
-    : identity.outcome === 'ok' && Array.isArray(tools) && tools.every(tool =>
-      typeof tool === 'string' || typeof optionalObject(tool).name === 'string') ? 'unsupported' : 'unknown';
-  return { identity, task: initialTaskCapability(data), exact, chunks };
+  const decode = (value: unknown) => {
+    const data = optionalObject(value);
+    const capabilities = optionalObject(data.capabilities), methods = capabilities.read_methods;
+    const exact = capabilities.schema_version === 1 && capabilities.product === 'agent-run' && Array.isArray(methods)
+      && methods.some(method => optionalObject(method).name === 'transcript_exact');
+    const tools = Array.isArray(data.tools) ? data.tools : optionalObject(data.tools).tools;
+    const usable = identity.outcome === 'ok' || identity.outcome === 'partial';
+    const chunks: NonNullable<Capabilities['verifiedResult']> = usable && supportsChunks(data) ? 'supported'
+      : identity.outcome === 'ok' && Array.isArray(tools) && tools.every(tool =>
+        typeof tool === 'string' || typeof optionalObject(tool).name === 'string') ? 'unsupported' : 'unknown';
+    return { identity, task: initialTaskCapability(data), exact, chunks };
+  };
+  return identity.outcome === 'ok' || identity.outcome === 'partial' ? ctx.project(identity, decode) : decode(identity.data);
 }
 
 /** Emits only top-level, nonnegative counts from a producer metric map. */
@@ -179,31 +219,34 @@ export async function sessionHistory(ctx: ReadContext, query: Input<'sessionHist
     if (position?.direction === 'older' || query.direction === 'older') throw new HubError('unsupported_capability');
     envelope = await ctx.read('run.transcript', { ...base, cursor: at, limit });
   }
-  const source = transcriptPage(requireData(envelope), query.id);
-  if (!legacy && source.raw.view !== 'blocks' || (!older || legacy) && source.raw.cursor !== at) throw new HubError('invalid_projection');
   const backward = older && !legacy;
-  const expectedDirection = backward ? 'backward' : 'forward';
-  if ((source.raw.direction != null && source.raw.direction !== expectedDirection) ||
-      (backward && source.raw.before_cursor != null && source.raw.before_cursor !== (position ? at : null))) throw new HubError('invalid_projection');
-  let last = backward ? 0 : at;
-  for (const block of source.blocks) {
-    const first = integer(block.raw.first_seq ?? block.seq);
-    if (first <= last || first > block.seq || integer(block.raw.last_seq ?? block.seq) !== block.seq ||
-        backward && position && block.seq >= at) throw new HubError('invalid_projection');
-    last = block.seq;
-  }
-  const first = source.blocks[0];
-  const next = source.raw.next_cursor ?? null;
-  const resume = source.raw.resume_cursor;
-  const expectedResume = first ? last : backward ? 0 : at;
-  if (backward) {
-    if (next !== null || (source.complete ? source.previous !== null : !first || source.previous !== (first.raw.first_seq ?? first.seq))) {
+  const { source, next, resume, expectedResume, first } = ctx.project(envelope, value => {
+    const source = transcriptPage(value, query.id);
+    if (!legacy && source.raw.view !== 'blocks' || (!older || legacy) && source.raw.cursor !== at) throw new HubError('invalid_projection');
+    const expectedDirection = backward ? 'backward' : 'forward';
+    if ((source.raw.direction != null && source.raw.direction !== expectedDirection) ||
+        (backward && source.raw.before_cursor != null && source.raw.before_cursor !== (position ? at : null))) throw new HubError('invalid_projection');
+    let last = backward ? 0 : at;
+    for (const block of source.blocks) {
+      const first = integer(block.raw.first_seq ?? block.seq);
+      if (first <= last || first > block.seq || integer(block.raw.last_seq ?? block.seq) !== block.seq ||
+          backward && position && block.seq >= at) throw new HubError('invalid_projection');
+      last = block.seq;
+    }
+    const first = source.blocks[0];
+    const next = source.raw.next_cursor ?? null;
+    const resume = source.raw.resume_cursor;
+    const expectedResume = first ? last : backward ? 0 : at;
+    if (backward) {
+      if (next !== null || (source.complete ? source.previous !== null : !first || source.previous !== (first.raw.first_seq ?? first.seq))) {
+        throw new HubError('invalid_projection');
+      }
+    } else if (source.previous !== null || (source.complete ? next !== null : !first || next !== last)) {
       throw new HubError('invalid_projection');
     }
-  } else if (source.previous !== null || (source.complete ? next !== null : !first || next !== last)) {
-    throw new HubError('invalid_projection');
-  }
-  if ((resume != null && resume !== expectedResume) || (!legacy && first && resume == null)) throw new HubError('invalid_projection');
+    if ((resume != null && resume !== expectedResume) || (!legacy && first && resume == null)) throw new HubError('invalid_projection');
+    return { source, next, resume, expectedResume, first };
+  });
   const after = await selected(ctx, query);
   if (digest([after.evidence?.storeId, after.execution, after.agent.sequence, after.agent.raw.created_at]) !== fence) throw new HubError('stale_boundary');
   const grouped = groupTranscript(source.blocks);
@@ -254,8 +297,8 @@ export async function sessionResult(ctx: ReadContext, query: Input<'sessionResul
   if (discovery.chunks === 'unknown') throw new HubError('source_unavailable');
   if (discovery.chunks === 'unsupported') throw new HubError('unsupported_capability');
   const envelope = await ctx.read('run.answer', { agent_id: query.id });
-  const content = await answerText(requireData(envelope), query.id, agent.sequence, agent.answerSha,
-    true, async params => requireData(await ctx.read('run.answer_chunk', params)), () => !ctx.signal.aborted, true);
+  const content = await ctx.project(envelope, value => answerText(value, query.id, agent.sequence, agent.answerSha,
+    true, async params => requireData(await ctx.read('run.answer_chunk', params)), () => !ctx.signal.aborted, true));
   if (content === null) throw new HubError('not_found');
   const after = await selected(ctx, query);
   if (after.execution !== execution || after.evidence?.storeId !== result.evidence?.storeId || after.agent.sequence !== agent.sequence || after.agent.answerSha !== agent.answerSha) throw new HubError('stale_boundary');
@@ -275,7 +318,7 @@ export async function sessionExport(ctx: ReadContext, query: Input<'sessionExpor
       read: async (resource, params, signal) => {
         const envelope = await ctx.read(resource, { ...params, ...(upper === undefined ? {} : { upper_seq: upper }) }, signal);
         if (envelope.outcome === 'ok') {
-          const observedUpper = decimalValue(object(envelope.data).upper_seq);
+          const observedUpper = ctx.project(envelope, value => decimalValue(object(value).upper_seq));
           if (upper !== undefined && upper !== observedUpper) throw new HubError('stale_boundary');
           upper = observedUpper;
         }
@@ -294,7 +337,7 @@ export async function sessionExport(ctx: ReadContext, query: Input<'sessionExpor
   if (upper === undefined) {
     const tail = await ctx.read('run.transcript', { ...params, view: 'blocks', tail_blocks: 1 });
     if (tail.error?.code !== 'run_blocks_unsupported') {
-      const page = transcriptPage(requireData(tail), query.id);
+      const page = ctx.project(tail, value => transcriptPage(value, query.id));
       if (page.raw.view !== 'blocks' || page.blocks.at(-1)?.seq !== (page.resume ?? undefined)) throw new HubError('invalid_projection');
       upper = String(integer(page.resume ?? 0));
     }
@@ -303,7 +346,7 @@ export async function sessionExport(ctx: ReadContext, query: Input<'sessionExpor
   let cursor = 0, bytes = 0;
   const lines: string[] = [];
   for (let index = 0; cursor < watermark && index < 20; index++) {
-    const read = transcriptPage(requireData(await ctx.read('run.transcript', { ...params, cursor, limit: 200 })), query.id);
+    const read = ctx.project(await ctx.read('run.transcript', { ...params, cursor, limit: 200 }), value => transcriptPage(value, query.id));
     const before = cursor;
     for (const block of read.blocks) {
       if (block.seq > watermark) break;

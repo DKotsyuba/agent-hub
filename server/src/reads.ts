@@ -1,7 +1,7 @@
 /** Shares in-flight native reads and keeps separate capacity for independent sources. */
 import { response } from '../../src/live/protocol.ts';
 import type { ObservationClient, NativeResponse as ReadResponse, ObserverResource as Resource } from './observer.ts';
-import { HubError } from './errors.ts';
+import { HubError, type ReadFailureReporter } from './errors.ts';
 
 /** Read ownership and subscriber count for one native operation. */
 interface Flight {
@@ -10,15 +10,22 @@ interface Flight {
   consumers: number;
 }
 
+/** Links one native envelope to its flight's deduplicated projector diagnostic. */
+export interface SharedReads extends ObservationClient {
+  read(resource: Resource, params?: Record<string, unknown>, signal?: AbortSignal, report?: ReadFailureReporter): Promise<ReadResponse>;
+  projectionFailure(envelope: ReadResponse): void;
+}
+
 /** Shares only identical requests and holds source slots until child cleanup completes. */
-export function shareReads(native: ObservationClient): ObservationClient {
+export function shareReads(native: ObservationClient): SharedReads {
+  const projectionReports = new WeakMap<ReadResponse, () => void>();
   const flights = new Map<string, Flight>();
   const active = new Map<string, number>();
   let closed = false;
   let subscribers = 0;
 
   /** Subscribes to an existing read or admits a bounded new native operation. */
-  function read(resource: Resource, params: Record<string, unknown> = {}, signal?: AbortSignal): Promise<ReadResponse> {
+  function read(resource: Resource, params: Record<string, unknown> = {}, signal?: AbortSignal, report?: ReadFailureReporter): Promise<ReadResponse> {
     if (closed || signal?.aborted) return Promise.reject(new HubError('source_unavailable'));
     if (subscribers >= 128) return Promise.reject(new HubError('saturated'));
     const key = JSON.stringify([resource, Object.entries(params).sort(([a], [b]) => a.localeCompare(b))]);
@@ -34,9 +41,25 @@ export function shareReads(native: ObservationClient): ObservationClient {
       if (inspecting) active.set('inspect', 1);
       const controller = new AbortController();
       const done = Promise.resolve().then(() => native.read(resource, params, controller.signal))
+        .catch((error: unknown) => {
+          if (!controller.signal.aborted) report?.(resource, 'read_rejected');
+          throw error;
+        })
         .then(value => {
-          const envelope = response(value, resource) as ReadResponse;
-          if (!Number.isSafeInteger(envelope.observed_at_ms) || envelope.observed_at_ms < 0) throw new HubError('invalid_projection');
+          let envelope: ReadResponse;
+          try {
+            // Give each flight a unique envelope even when a transport reuses its response object.
+            envelope = { ...response(value, resource) } as ReadResponse;
+            if (!Number.isSafeInteger(envelope.observed_at_ms) || envelope.observed_at_ms < 0) throw new HubError('invalid_projection');
+          } catch (error) {
+            if (!controller.signal.aborted) report?.(resource, 'invalid_projection');
+            throw error;
+          }
+          if (!controller.signal.aborted) {
+            if (envelope.outcome === 'ok' || envelope.outcome === 'partial') {
+              projectionReports.set(envelope, () => report?.(resource, 'invalid_projection'));
+            } else report?.(resource, envelope);
+          }
           return envelope;
         })
         .finally(() => {
@@ -88,5 +111,12 @@ export function shareReads(native: ObservationClient): ObservationClient {
     await native.close();
   }
 
-  return { read, close };
+  /** Emits at most one projection rejection for a shared native envelope. */
+  function projectionFailure(envelope: ReadResponse): void {
+    const report = projectionReports.get(envelope);
+    projectionReports.delete(envelope);
+    report?.();
+  }
+
+  return { read, close, projectionFailure };
 }

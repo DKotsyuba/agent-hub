@@ -4,8 +4,9 @@ import type { ApiRequest, Coverage, Observation, Page } from '@agent-hub/domain'
 import { number, object, text } from '../../src/live/protocol.ts';
 import { Cursors, digest, type Position } from './cursor.ts';
 import type { RunStatusRequest } from '../../terminal/src/run-status.ts';
-import { HubError } from './errors.ts';
-import type { ObservationClient, NativeResponse as ReadResponse, ObserverResource as Resource } from './observer.ts';
+import { HubError, type ReadFailureReporter } from './errors.ts';
+import type { NativeResponse as ReadResponse, ObserverResource as Resource } from './observer.ts';
+import type { SharedReads } from './reads.ts';
 
 /** A request accepted by the domain router. */
 export type Query = NonNullable<ApiRequest>;
@@ -78,20 +79,37 @@ export class ReadContext {
 
   /** Keeps all native calls tied to the same HTTP deadline and abort signal. */
   constructor(
-    readonly client: ObservationClient,
+    readonly client: SharedReads,
     readonly cursors: Cursors,
     readonly signal: AbortSignal,
     readonly bindings: Map<string, RunStatusRequest>,
+    private readonly reportFailure: ReadFailureReporter,
   ) {}
 
-  /** Sends closed resource and server-constructed parameters only. */
+  /** Sends closed parameters and charges this HTTP subscriber’s read budget. */
   async read(resource: Resource, params: Record<string, unknown> = {}, caller?: AbortSignal): Promise<ReadResponse> {
     if (--this.remainingReads < 0 || this.remainingBytes < 0) throw new HubError('invalid_projection');
     const signal = caller ? AbortSignal.any([this.signal, caller]) : this.signal;
-    const response = await this.client.read(resource, params, signal);
+    const response = await this.client.read(resource, params, signal, this.reportFailure);
     this.remainingBytes -= Buffer.byteLength(JSON.stringify(response.data));
     if (this.remainingBytes < 0) throw new HubError('invalid_projection');
     return response;
+  }
+
+  /** Attributes decoder rejection to the envelope being projected, without logging stale route boundaries. */
+  project<T>(envelope: ReadResponse, decode: (data: unknown) => T): T {
+    const data = requireData(envelope);
+    const report = (error: unknown) => {
+      if (!(error instanceof HubError) || error.code === 'invalid_projection') this.client.projectionFailure(envelope);
+    };
+    try {
+      const value = decode(data);
+      if (value instanceof Promise) void value.catch(report);
+      return value;
+    } catch (error) {
+      report(error);
+      throw error;
+    }
   }
 
   /** Returns a UTF-8-safe slice only after callers verify the full content or revision. */

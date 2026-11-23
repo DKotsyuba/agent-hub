@@ -1,9 +1,11 @@
 /** Presentation model of the Quota tab and Overview card: per-account blocks, per-window bars and pace.
  * Pure and renderer-independent: it maps the already validated snapshot to rows of toned spans.
  * Unknown stays Unknown (dim, empty bar) and is never converted to zero capacity. */
+import { accountTitle, quotaModelRemaining, quotaWindowSample, windowSeconds } from '../../packages/view-model/src/index.ts';
 import stringWidth from 'string-width';
 import { span } from './quota.ts';
 import type { QuotaAccount, QuotaModel, QuotaSnapshot, QuotaSource, QuotaWindow, Tone } from './quota.ts';
+export { accountTitle, windowSeconds } from '../../packages/view-model/src/index.ts';
 
 /** One run of identically styled text inside a row. */
 export interface Span { text: string; tone: Tone; bold?: boolean }
@@ -21,20 +23,6 @@ const FAR_SECONDS = 365 * 86400;
 /** Below this many percent left a known window is highlighted even when pace is fine. */
 const LOW_PERCENT = 10;
 
-const NUMBER_WORDS: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, twelve: 12, fourteen: 14, thirty: 30 };
-const UNIT_SECONDS: Record<string, number> = { minute: 60, hour: 3600, day: 86400, week: 604800 };
-
-/** Returns the window length in seconds from its producer name, or null when it cannot be derived. */
-export function windowSeconds(name: string): number | null {
-  const lower = name.toLowerCase();
-  if (lower === 'weekly') return 7 * 86400;
-  if (lower === 'daily') return 86400;
-  if (lower === 'hourly') return 3600;
-  const match = /^([a-z0-9]+)_(minute|hour|day|week)s?(?:_[a-z0-9_]+)?$/.exec(lower);
-  if (!match) return null;
-  const count = /^\d+$/.test(match[1]!) ? Number(match[1]) : NUMBER_WORDS[match[1]!];
-  return count && count > 0 ? count * UNIT_SECONDS[match[2]!]! : null;
-}
 /** Formats a window length such as 5h, 7d or 30m. */
 function shortDuration(seconds: number): string {
   if (seconds % 86400 === 0) return `${seconds / 86400}d`;
@@ -162,9 +150,10 @@ function sameAsWindow(model: QuotaModel, window: QuotaWindow, known: boolean): b
 /** Describes one model's own state for a divergent row. */
 function modelRow(model: QuotaModel, now: number): ModelRowView {
   if (model.state === 'exhausted') return { model: model.model, text: `exhausted${model.exhaustedUntil !== null && model.exhaustedUntil > now ? ` · resets in ${span(model.exhaustedUntil - now)}` : ''}`, tone: 'error' };
-  if (model.state === 'unknown' || model.remaining === null) return { model: model.model, text: 'Unknown', tone: 'muted' };
+  const remaining = quotaModelRemaining(model);
+  if (remaining === null) return { model: model.model, text: 'Unknown', tone: 'muted' };
   const reset = model.resetAt !== null && model.resetAt > now ? ` · resets in ${span(model.resetAt - now)}` : '';
-  return { model: model.model, text: `${percentLeft(model.remaining)} left${reset}`, tone: model.risk === 'high' ? 'error' : model.risk === 'medium' ? 'warn' : 'good' };
+  return { model: model.model, text: `${percentLeft(remaining)} left${reset}`, tone: model.risk === 'high' ? 'error' : model.risk === 'medium' ? 'warn' : 'good' };
 }
 /** True when the model's limiting window is this window. */
 function limitedBy(model: QuotaModel, window: QuotaWindow): boolean {
@@ -173,11 +162,8 @@ function limitedBy(model: QuotaModel, window: QuotaWindow): boolean {
 
 /** Prepares one window; `models` are the account's models for divergence checks. */
 function windowView(window: QuotaWindow, models: QuotaModel[], now: number): WindowView {
-  const known = window.forecastKnown && window.lastRemaining !== null;
-  const remaining = known ? window.lastRemaining : null, resetAt = known ? window.lastResetAt : null;
+  const { known, remaining, resetAt, passed, stale } = quotaWindowSample(window, now);
   const pace = known ? paceRemaining(window.window, resetAt, now) : null;
-  const passed = known && resetAt !== null && resetAt <= now;
-  const stale = known && (passed || window.validUntil !== null && window.validUntil <= now);
   const note = paceNote(remaining, pace), exhaust = exhaustion(remaining, window.burn, resetAt, now);
   const tone: Tone = known ? windowTone(remaining!, window.risk, note, exhaust) : 'muted';
   const resetText = !known ? 'no usable sample' : resetAt === null ? 'no reset clock' : passed ? `reset passed ${span(now - resetAt!)} ago` : `Resets in ${span(resetAt - now)}`;
@@ -204,17 +190,6 @@ function windowOrder(a: QuotaWindow, b: QuotaWindow): number {
 }
 /** Unique, order-preserving values. */
 function unique(values: string[]): string[] { return [...new Set(values)]; }
-
-/** Human names for known providers; the account id stays available in details. */
-const PROVIDER_NAMES: Record<string, string> = {
-  claude: 'Claude subscription', codex: 'Codex (ChatGPT)', glm: 'Z.AI GLM', 'opencode-go': 'OpenCode Go',
-  'opencode-zen': 'OpenCode Zen', 'codex-api': 'OpenAI API',
-};
-/** Readable account title: the provider's human name, else the raw account id. */
-export function accountTitle(account: string, providers: string[]): string {
-  const names = unique(providers.map(provider => PROVIDER_NAMES[provider]).filter((name): name is string => Boolean(name)));
-  return names.length ? names.join(' + ') : account;
-}
 
 /** Prepares one account: its windows, badge, freshness and warnings. */
 export function accountView(account: QuotaAccount, sources: QuotaSource[], now: number): AccountView {

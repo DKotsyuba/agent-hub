@@ -1,10 +1,11 @@
 /** Read-only v1 HTTP dispatch, request authority and release asset serving. */
-import { lstat, realpath } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { lstat, readFile, realpath } from 'node:fs/promises';
 import { extname, join, sep } from 'node:path';
 import type { RunStatusRequest } from '../../terminal/src/run-status.ts';
 import { API_RESPONSES, API_VERSION, parseApiRequest } from '@agent-hub/domain';
 import { Cursors } from './cursor.ts';
-import { HubError, errorResponse } from './errors.ts';
+import { HubError, errorResponse, logSourceFailure } from './errors.ts';
 import { Events } from './events.ts';
 import type { ObservationClient } from './observer.ts';
 import { incidents, overview, quota, worktree, worktrees, type WorktreeCache } from './observations.ts';
@@ -21,7 +22,7 @@ const ID = '[A-Za-z0-9][A-Za-z0-9._-]{0,199}';
 const SPA = new RegExp('^/(?:|incidents|quota|worktrees(?:/' + ID + ')?'
   + '|sessions(?:/' + ID + '(?:/(?:history|result|details))?)?'
   + '|pools(?:/' + ID + '(?:/(?:members|discussion|details|record|proposals|decisions|criteria|votes|deliveries))?)?)$');
-const ASSET = /^\/(?:assets\/[A-Za-z0-9][A-Za-z0-9._-]*|[A-Za-z0-9][A-Za-z0-9._-]*\.(?:ico|svg|png|webmanifest|txt))$/;
+const ASSET = /^\/(?:sw\.js|assets\/[A-Za-z0-9][A-Za-z0-9._-]*|[A-Za-z0-9][A-Za-z0-9._-]*\.(?:ico|svg|png|webmanifest|txt))$/;
 const HASHED = /^\/assets\/.+-[A-Za-z0-9_-]{8,}\.[a-z0-9]+$/;
 const TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
@@ -48,15 +49,19 @@ async function staticAsset(url: URL, request: Request, webRoot: string): Promise
     stat = await lstat(path);
     if (!stat.isFile()) throw new HubError('not_found');
   } catch { throw new HubError('not_found'); }
-  const etag = '"' + stat.size.toString(16) + '-' + Math.round(stat.mtimeMs).toString(16) + '"';
+  // The shell and worker can change without a new file size or release timestamp.
+  const versioned = spa || pathname === '/sw.js' ? await readFile(path) : null;
+  const etag = '"' + (versioned ? createHash('sha256').update(versioned).digest('hex') :
+    stat.size.toString(16) + '-' + Math.round(stat.mtimeMs).toString(16)) + '"';
   const headers = {
     'Cache-Control': HASHED.test(pathname) ? 'public, max-age=31536000, immutable' : 'no-cache',
     'Content-Type': TYPES[extname(relative)] ?? 'application/octet-stream',
     'X-Content-Type-Options': 'nosniff', ETag: etag,
+    ...(pathname === '/sw.js' ? { 'Service-Worker-Allowed': '/' } : {}),
   };
   if (request.headers.get('If-None-Match') === etag) return new Response(null, { status: 304, headers });
   const runtime = (globalThis as unknown as { Bun: FileRuntime }).Bun;
-  return new Response(runtime.file(path), { headers });
+  return new Response(versioned ?? runtime.file(path), { headers });
 }
 
 /** Server-owned host, release metadata and web asset path. */
@@ -77,14 +82,18 @@ export function createHttp(native: ObservationClient, options: HttpOptions) {
   const shutdown = new AbortController();
   let finite = 0;
   const publicHost = options.publicOrigin ? new URL(options.publicOrigin).host : null;
+  const loopbackOrigin = options.localHost.startsWith('127.0.0.1:') ? 'http://' + options.localHost : null;
 
   /** Checks authority and input before any use of the observer. */
   async function fetch(request: Request, admitStream?: () => void): Promise<Response> {
+    const requestId = crypto.randomUUID();
     let admitted = false;
     try {
       const host = request.headers.get('host');
       const origin = request.headers.get('origin');
-      if (!host || host !== options.localHost && host !== publicHost || origin !== null && origin !== options.publicOrigin) {
+      const allowedOrigin = origin === null || origin === options.publicOrigin
+        || host === options.localHost && origin === loopbackOrigin;
+      if (!host || host !== options.localHost && host !== publicHost || !allowedOrigin) {
         throw new HubError('invalid_request');
       }
       if (request.method !== 'GET') throw new HubError('method_not_allowed');
@@ -106,7 +115,8 @@ export function createHttp(native: ObservationClient, options: HttpOptions) {
         admitted = true;
       }
       const position = cursors.decode(query);
-      const ctx = new ReadContext(client, cursors, AbortSignal.any([request.signal, shutdown.signal, AbortSignal.timeout(30_000)]), bindings);
+      const ctx = new ReadContext(client, cursors, AbortSignal.any([request.signal, shutdown.signal, AbortSignal.timeout(30_000)]), bindings,
+        (resource, failure) => logSourceFailure(query.route, requestId, resource, failure));
       let result: unknown;
       switch (query.route) {
         case 'health': result = { ready: true, apiVersion: API_VERSION, release: options.release, mode: 'live' }; break;
@@ -132,7 +142,7 @@ export function createHttp(native: ObservationClient, options: HttpOptions) {
       const body = JSON.stringify(API_RESPONSES[query.route](result));
       if (Buffer.byteLength(body) > RESPONSE_LIMIT) throw new HubError('invalid_projection');
       return new Response(body, { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' } });
-    } catch (error) { return errorResponse(error); }
+    } catch (error) { return errorResponse(error, requestId); }
     finally { if (admitted) finite--; }
   }
 
