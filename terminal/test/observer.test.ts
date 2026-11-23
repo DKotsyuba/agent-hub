@@ -6,6 +6,7 @@ import { chmod, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promis
 import net from 'node:net';
 import path from 'node:path';
 import test from 'node:test';
+import { setTimeout as delay } from 'node:timers/promises';
 import { createNativeClient, observerPath } from './native-observer-harness.ts';
 import type { Resource } from '../src/api.ts';
 
@@ -326,17 +327,32 @@ test('server sweeps Bridge and Worktree descendants even with the real observer 
   const original = process.env.AGENT_HUB_CONFIG;
   const client = createServerClient(binary, { readMs: 5000, killMs: 150 });
   const owned: number[] = [];
-  /** Checks whether a known fixture process can still run after group cleanup. */
-  async function running(pid: number) {
+  /** Reads the Linux state of a fixture PID, or returns undefined after reaping. */
+  async function state(pid: number) {
     return readFile('/proc/' + pid + '/status', 'utf8').then(
-      status => !/^State:\s+Z/m.test(status), error => { if (error.code === 'ENOENT') return false; throw error; });
+      status => /^State:\s+(\S)/m.exec(status)![1],
+      error => { if (error.code === 'ENOENT' || error.code === 'ESRCH') return undefined; throw error; });
+  }
+  /** Waits for a kernel process transition with one deadline for all the fixture PIDs. */
+  async function waitForStates(pids: number[], expected: (state: string | undefined) => boolean, message: string) {
+    const deadline = performance.now() + 2_000;
+    for (;;) {
+      const pending = (await Promise.all(pids.map(async pid => ({ pid, state: await state(pid) }))))
+        .filter(process => !expected(process.state));
+      if (pending.length === 0) return;
+      assert.ok(performance.now() < deadline, `${message}: ${JSON.stringify(pending)}`);
+      await delay(20);
+    }
   }
   try {
     await writeFile(helper, `#!/usr/bin/env node
 const { spawn } = require('node:child_process');
 const fs = require('node:fs');
 const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
-fs.writeFileSync(${JSON.stringify(marker)}, [process.ppid, process.pid, child.pid].join(' '));
+// Publish only once the full PID record is readable by the test.
+const marker = ${JSON.stringify(marker)};
+fs.writeFileSync(marker + '.pending', [process.ppid, process.pid, child.pid].join(' '));
+fs.renameSync(marker + '.pending', marker);
 process.stdin.resume();
 setInterval(() => {}, 1000);
 `, { mode: 0o700 });
@@ -349,13 +365,15 @@ setInterval(() => {}, 1000);
       owned.push(...pids);
       assert.equal(pids.length, 3);
       assert.ok(pids.every(pid => Number.isSafeInteger(pid) && pid > 1));
-      if (stopped) process.kill(pids[0], 'SIGSTOP');
+      if (stopped) {
+        process.kill(pids[0], 'SIGSTOP');
+        await waitForStates([pids[0]], state => state === 'T', `${resource} observer did not stop`);
+      }
       controller.abort();
       assert.equal((await result).error?.code, 'cancelled');
-      for (const pid of pids) {
-        for (let attempt = 0; attempt < 50 && await running(pid); attempt++) await new Promise(resolve => setTimeout(resolve, 20));
-        assert.equal(await running(pid), false, `${resource} fixture PID ${pid} survived ${stopped ? 'forced' : 'cooperative'} cleanup`);
-      }
+      // Exited orphans may remain zombies until the host init process reaps them.
+      await waitForStates(pids, state => state === undefined || state === 'Z',
+        `${resource} fixture processes survived ${stopped ? 'forced' : 'cooperative'} cleanup`);
       owned.length = 0;
       await rm(marker);
     }
