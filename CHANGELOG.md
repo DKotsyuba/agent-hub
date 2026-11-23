@@ -8,7 +8,7 @@ All notable changes to Agent Hub are documented here. The format follows [Keep a
 
 ### Fixed
 
-- Installed PWA: backgrounds reach the bottom edge (home-indicator inset moved inside panes, standalone shell extended by the top inset, document canvas painted like the shell); Overview current sessions show readable titles. Settings show viewport and safe-area diagnostics.
+- Installed PWA: the home-indicator inset is applied inside the rail and panes instead of the whole shell, so backgrounds reach the bottom of the area iPadOS gives the web app (the remaining strip below it is system-owned). Overview current sessions show readable titles.
 
 ## [0.2.5] - 2026-11-23
 
