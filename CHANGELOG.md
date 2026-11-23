@@ -4,6 +4,12 @@ All notable changes to Agent Hub are documented here. The format follows [Keep a
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-11-23
+
+### Added
+
+- Web Quota windows show the TUI's depletion pace: an even-burn marker on the bar, green/amber/red tone, reserve or deficit with exhaustion forecast, burn rate and risk badge; unknown or stale forecasts say so without a marker. Overview shows the earliest window projected to run out before its reset. The pace calculation is shared with the TUI.
+
 ## [0.2.1] - 2026-11-23
 
 ### Changed
@@ -73,6 +79,7 @@ First public release: the terminal Hub for Linux x86-64 (standalone executable).
 
 - Archived Tasks and IDE sources are denied by the observer; the terminal has no Tasks, IDE or Run info tabs.
 
+[0.2.2]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.2.2
 [0.2.1]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.2.1
 [0.2.0]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.2.0
 [0.1.3]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.1.3

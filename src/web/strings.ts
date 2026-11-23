@@ -1,5 +1,11 @@
 /** Russian translations for v1-specific chrome and normalized producer enum values. */
 export const translations: Record<string, string> = {
+  'Quota pace reserve': '{amount} в запасе', 'Quota pace deficit': 'дефицит {amount}', 'Quota on pace': 'расход по плану', 'Quota pace unknown': 'темп неизвестен',
+  'Forecast unknown': 'Прогноз неизвестен', 'Forecast burn': 'расход ~{rate} п.п./ч',
+  'Forecast tiny burn': 'расход <{rate} п.п./ч', 'Pace marker legend': 'Черта на шкале показывает остаток при равномерном расходе.',
+  'Expected remaining': 'Остаток при равномерном расходе', 'Expected exhaustion': 'Прогноз исчерпания',
+  'Lasts until reset': 'хватит до сброса', 'Runs out in': 'закончится через ~{time}', 'Time until reset': 'до сброса {time}',
+  'min short': 'мин', 'hour short': 'ч', 'Ten-hour window': 'Окно 10 ч',
   'Read receipt': 'Результат чтения', 'Live probe': 'Проверка связи',
   'Quota advice unknown': 'Лимиты пока не подтверждены.',
   'Quota advice high': 'Квота почти исчерпана. Дождитесь сброса.',
@@ -103,6 +109,10 @@ export const translations: Record<string, string> = {
 
 /** Human-readable v1 machine codes and English labels for normalized UI values. */
 export const english: Record<string, string> = {
+  'Quota pace reserve': '{amount} in reserve', 'Quota pace deficit': '{amount} deficit', 'Quota on pace': 'on pace', 'Quota pace unknown': 'pace unknown',
+  'Forecast burn': 'burn ~{rate} pp/h', 'Forecast tiny burn': 'burn <{rate} pp/h',
+  'Pace marker legend': 'The tick marks the balance at an even burn rate.', 'Runs out in': 'runs out in ~{time}', 'Time until reset': '{time} until reset',
+  'Lasts until reset': 'lasts until reset', 'min short': 'min', 'hour short': 'h',
   'Quota advice unknown': 'Limits are still unverified.', 'Quota advice high': 'Quota is nearly exhausted. Wait for reset.',
   'Quota advice medium': 'Quota is running low. Pace new requests.',
   'worktree-class:main': 'Main', 'worktree-class:managed': 'Managed', 'worktree-class:foreign': 'External',

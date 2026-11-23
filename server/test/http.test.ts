@@ -270,6 +270,38 @@ test('overview excludes unknown quota placeholders and marks the retained minimu
   } finally { await http.close(); }
 });
 
+test('overview reports the earliest fresh deficit exhaustion, independently of the lowest model', async () => {
+  const native = await producer();
+  const start = Math.floor(Date.now() / 1000);
+  let stale = false;
+  const http = handler({ close: () => native.close(), async read(resource, params, signal) {
+    const result = await native.read(resource, params, signal);
+    if (resource !== 'quota.snapshot') return result;
+    const account = (object(result.data).accounts as Record<string, unknown>[])[0];
+    const first = (account.windows as Record<string, unknown>[])[0];
+    const base = { ...first, valid_until: start + 900, last_remaining_percent: 32, last_reset_at: start + 7200,
+      forecast: { known: true, risk: 'high' }, evaluation: { risk: 'high', burn_percent_per_hour: 32 } };
+    account.windows = [
+      { ...base, lane: 'expired', valid_until: start - 1, evaluation: { burn_percent_per_hour: 100 } },
+      { ...base, lane: 'unknown', forecast: { known: false }, evaluation: { burn_percent_per_hour: 100 } },
+      { ...base, lane: 'reserve', last_remaining_percent: 52, evaluation: { burn_percent_per_hour: 100 } },
+      { ...base, lane: 'secondary', evaluation: { burn_percent_per_hour: 24 }, valid_until: stale ? start - 1 : start + 900 },
+      { ...base, lane: 'primary', valid_until: stale ? start - 1 : start + 900 },
+    ];
+    return result;
+  } });
+  try {
+    const data = (await get(http, 'overview', '/overview')).data.quota;
+    assert.equal(data?.lowest?.model, 'model-beta');
+    assert.equal(data?.exhaustion?.lane, 'primary');
+    assert.equal(data?.exhaustion?.resetAtMs, (start + 7200) * 1000);
+    assert.equal(data?.exhaustion?.validUntilMs, (start + 900) * 1000);
+    assert.ok(Math.abs(data!.exhaustion!.atMs - (start + 3600) * 1000) < 2000);
+    stale = true;
+    assert.equal((await get(http, 'overview', '/overview')).data.quota?.exhaustion, undefined);
+  } finally { await http.close(); }
+});
+
 test('Pool agreement remains recorded and does not acquire a verified Run link', async () => {
   const http = handler(await producer());
   try {
