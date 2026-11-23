@@ -377,7 +377,7 @@ export default function App() {
             filter={<div className="web-overview-period"><Expand title={label('Period filter') + (query.has('from') || query.has('to') ? ' · ' + label('Filtered') : '')}>
               <Period query={query} update={update} />
             </Expand></div>} /> : kind === 'incidents'
-            ? <Incidents query={query} next={cursor => update({ cursor }, true)} /> : <Quota now={Math.max(now, lastRead ?? 0)} />}
+            ? <Incidents query={query} next={cursor => update({ cursor }, true)} /> : <Quota now={Math.max(now, lastRead ?? 0)} account={query.get('account')} />}
         </>}
         </div>
         {!immersive && <footer className="web-footer">

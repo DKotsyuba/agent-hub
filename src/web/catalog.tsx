@@ -1,5 +1,5 @@
 /** Overview, Bridge, Quota and Worktree presentation over v1 observations. */
-import type { ReactNode } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 import type { Overview as OverviewData, Topic, Worktree } from '@agent-hub/domain';
 import { Button } from '../components/ui/button';
 import { Progress } from '../components/ui/progress';
@@ -7,7 +7,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 import { Panel } from '../components/hub-primitives';
 import { client, usePagedRead, useRead } from './data';
 import { modelTitle, quotaAccountTitle, quotaAdviceKind, worktreeMeasurements, sessionTitle } from './model';
-import { accountTitle, branchLabel, formatBytes, projectQuotaSnapshot, projectQuotaStatus, quotaModelRemaining, quotaWindowForecast, windowSeconds, type QuotaAccount, type QuotaSnapshot } from '../../packages/view-model/src/index';
+import { accountTitle, branchLabel, formatBytes, projectQuotaSnapshot, projectQuotaStatus, quotaAccountFocus, quotaModelRemaining, quotaWindowForecast, windowSeconds, type QuotaAccount, type QuotaSnapshot } from '../../packages/view-model/src/index';
 import { CoverageLine, EmptyRows, Expand, Facts, href, Link, ReadState, relativeTime, sessionHref, SourceEvidence, Sources, StatusBadge, Text, useEvidence, useWebText } from './ui';
 
 /** URL period bounds are shared with the Bridge and failed execution drill-downs. */
@@ -32,19 +32,40 @@ export function Period({ query, update }: { query: URLSearchParams; update: (val
   </div>;
 }
 
-/** Source health and activity lead the dashboard; raw evidence stays expandable. */
+/** Short blocks lead the dashboard in a compact grid; the long current-session list closes it. */
 export function Overview({ query, filter, now }: { query: URLSearchParams; filter: ReactNode; now: number }) {
-  const { label, percent } = useWebText();
+  const { label } = useWebText();
   const bounds = period(query);
   const read = useRead(JSON.stringify(bounds), signal => client.get('overview', { query: bounds, signal }), 'overview');
+  // Account windows come from the Quota read; it follows the Overview topic because only that topic is subscribed here.
+  const quota = useRead('overview-quota', signal => client.get('quota', { signal }), 'overview');
   const bridgeLink = <Link className="web-link" href={href('/incidents', bounds)}>{label('Incidents')}</Link>;
   return <>
     <Sources items={read.value?.observations ?? []} topic="overview" strip bridgeLink={bridgeLink} />
     <ReadState read={read}>{({ data, observations }) => {
-      const lowest = data.quota?.lowest;
-      const account = lowest ? accountTitle(lowest.account, lowest.provider ? [lowest.provider] : []) : null;
       const bridge = data.bridge;
+      const snapshot = quota.value?.data.snapshot;
       return <>
+        <div className="web-overview">
+          <div className="web-overview-stack">
+            <Panel title={label('Sessions')} extra={<div className="web-panel-actions">{filter}<Link className="web-link" href={href('/sessions', { ...bounds, status: 'failed' })}>{label('Failed executions')}</Link></div>}>
+              <div className="web-panel-body">{data.run ? <div className="web-metrics">
+                {(['active', 'started', 'succeeded', 'failed', 'finished'] as const).map(key => <Metric key={key} name={key} value={data.run![key]} />)}
+              </div> : <p className="web-empty">{label('Session data unavailable')}</p>}</div>
+            </Panel>
+            {bridge && Object.values(bridge).some(value => value.value !== null) &&
+              <Panel title="Bridge" extra={bridgeLink}>
+                <div className="web-panel-body"><div className="web-metrics">
+                  {(['accepted', 'pending', 'incidents'] as const).map(key => <Metric key={key} name={key} value={bridge[key]} />)}
+                </div></div>
+              </Panel>}
+          </div>
+          <Panel title={label('Quota')} extra={<Link className="web-link" href="/quota">{label('Accounts')}</Link>}>
+            <div className="web-panel-body">{data.quota
+              ? <OverviewQuota summary={data.quota} snapshot={snapshot ? projectQuotaSnapshot(snapshot) : null} now={now} />
+              : <p className="web-empty">{label('Quota data unavailable')}</p>}</div>
+          </Panel>
+        </div>
         <Panel className="web-current" title={label('Current sessions')} extra={<Link className="web-link" href="/sessions">{label('All sessions')}</Link>}>
           <div className="web-panel-body">
             {data.run?.current.map(item => <Link className="web-inline-row" key={item.id + item.execution} href={sessionHref(item.id, item.execution)}>
@@ -53,31 +74,77 @@ export function Overview({ query, filter, now }: { query: URLSearchParams; filte
             {!data.run && <p className="web-empty">{label('Session data unavailable')}</p>}
           </div>
         </Panel>
-        <div className="web-cards">
-          <Panel title={label('Sessions')} extra={<div className="web-panel-actions">{filter}<Link className="web-link" href={href('/sessions', { ...bounds, status: 'failed' })}>{label('Failed executions')}</Link></div>}>
-            <div className="web-panel-body">{data.run ? <div className="web-metrics">
-              {(['active', 'started', 'succeeded', 'failed', 'finished'] as const).map(key => <Metric key={key} name={key} value={data.run![key]} />)}
-            </div> : <p className="web-empty">{label('Session data unavailable')}</p>}</div>
-          </Panel>
-          <Panel title={label('Quota')} extra={<Link className="web-link" href="/quota">{label('Accounts')}</Link>}>
-            <div className="web-panel-body">{data.quota ? <>
-              {lowest && <div className="web-quota-min"><span>{label('Lowest remaining')}</span><strong>{percent(lowest.remaining)}</strong>
-                <span className="web-quota-min-model"><span>{account && account !== lowest.account ? label(account) + ' · ' : ''}{modelTitle(lowest.model)}</span>
-                  {lowest.stale && <StatusBadge state="Stale" />}</span></div>}
-              {data.quota.exhaustion && <OverviewExhaustion forecast={data.quota.exhaustion} now={now} />}
-              <Facts rows={[[ 'Accounts', data.quota.accounts], ['Exhausted', data.quota.exhausted], ['Stale', data.quota.stale], ['Unknown', data.quota.unknown]]} />
-            </> : <p className="web-empty">{label('Quota data unavailable')}</p>}</div>
-          </Panel>
-          {bridge && Object.values(bridge).some(value => value.value !== null) &&
-            <Panel title="Bridge" extra={bridgeLink}>
-              <div className="web-panel-body"><div className="web-metrics">
-                {(['accepted', 'pending', 'incidents'] as const).map(key => <Metric key={key} name={key} value={bridge[key]} />)}
-              </div></div>
-            </Panel>}
-        </div>
       </>;
     }}</ReadState>
   </>;
+}
+
+/** Distinguishes accounts that share one provider title by their stable position among siblings. */
+function quotaAccountTitles(snapshot: QuotaSnapshot, label: (text: string) => string) {
+  const titles = snapshot.accounts.map(account => label(quotaAccountTitle(account, snapshot)));
+  const siblings = new Map<string, string[]>();
+  snapshot.accounts.forEach((account, i) => siblings.set(titles[i], [...siblings.get(titles[i]) ?? [], account.account].sort()));
+  return snapshot.accounts.map((account, i) => {
+    const ids = siblings.get(titles[i])!;
+    return { title: titles[i], discriminator: ids.length > 1 ? label('Account') + ' ' + (ids.indexOf(account.account) + 1) : undefined };
+  });
+}
+
+/** One bar per account for its most constraining window, most urgent first; the summary line keeps the model minimum and counts. */
+function OverviewQuota({ summary, snapshot, now }: { summary: NonNullable<OverviewData['quota']>; snapshot: QuotaSnapshot | null; now: number }) {
+  const { label, percent, n } = useWebText();
+  const lowest = summary.lowest;
+  const lowestAccount = lowest ? accountTitle(lowest.account, lowest.provider ? [lowest.provider] : []) : null;
+  const titles = snapshot ? quotaAccountTitles(snapshot, label) : [];
+  const rows = (snapshot?.accounts ?? []).map((account, i) => ({ account, ...titles[i], focus: quotaAccountFocus(account, now / 1000) }))
+    .sort((a, b) => (a.focus?.rank ?? 9) - (b.focus?.rank ?? 9) || (a.focus?.urgency ?? 0) - (b.focus?.urgency ?? 0));
+  const forecast = summary.exhaustion;
+  // The producer forecast is repeated only when no account row already announces that account running out.
+  const covered = forecast && rows.some(row => row.account.account === forecast.account && row.focus !== null && row.focus.rank <= 1);
+  return <>
+    {rows.length > 0 && <div className="web-quota-brief-list">{rows.map(row =>
+      <OverviewQuotaRow key={row.account.account} account={row.account} title={row.title} discriminator={row.discriminator} focus={row.focus} now={now} />)}</div>}
+    {forecast && !covered && <OverviewExhaustion forecast={forecast} now={now} />}
+    <div className="web-quota-brief-foot">
+      {lowest && <p><span>{label('Lowest remaining')}</span> <strong>{percent(lowest.remaining)}</strong>
+        <span className="web-muted"> · {lowestAccount && lowestAccount !== lowest.account ? label(lowestAccount) + ' · ' : ''}{modelTitle(lowest.model)}</span>
+        {lowest.stale && <StatusBadge state="Stale" />}</p>}
+      <p className="web-muted">{([['Accounts', summary.accounts], ['Exhausted', summary.exhausted], ['Stale', summary.stale], ['Unknown', summary.unknown]] as const)
+        .map(([name, count]) => label(name) + ' ' + n(count)).join(' · ')}</p>
+    </div>
+  </>;
+}
+
+/** A tappable account line: title and balance, a slim paced bar, then the window name and its exhaustion or reset hint. */
+function OverviewQuotaRow({ account, title, discriminator, focus, now }: {
+  account: QuotaAccount; title: string; discriminator?: string; focus: ReturnType<typeof quotaAccountFocus>; now: number;
+}) {
+  const { label, percent, n, clock } = useWebText();
+  const forecast = focus?.forecast, value = forecast?.remaining ?? null;
+  const stale = focus?.rank === 3;
+  const pace = forecast && !stale ? forecast.pace : null;
+  const reset = forecast && forecast.resetAt !== null && forecast.resetAt > now / 1000 ? forecast.resetAt : null;
+  const untilReset = reset === null ? null : label('Time until reset').replace('{time}', forecastDuration(reset - now / 1000, label, n));
+  const runsOut = focus?.rank === 1 ? label('Runs out in').replace('{time}', forecastDuration(focus.urgency, label, n)) : null;
+  const window = focus && quotaWindowName(focus.window, label, false);
+  return <Link className="web-quota-brief" href={href('/quota', { account: account.account })} data-stale={stale || undefined}>
+    <span className="web-quota-brief-line"><strong>{title}{discriminator && <span className="web-muted"> · {discriminator}</span>}</strong>
+      <span className="web-quota-reading">
+        {account.latches.some(latch => latch.active) && focus?.rank !== 0 && <StatusBadge state="exhausted" />}
+        {value === null ? <span className="web-muted">{label('quota unknown')}</span> : <span className="web-quota-value">{percent(value)}</span>}</span></span>
+    {focus && value !== null && <>
+      <span className="web-quota-bar" data-tone={stale ? undefined : forecast!.tone}>
+        <Progress value={Math.max(0, Math.min(value, 100))} aria-label={title + ' · ' + window + ' · ' + label('Remaining')}
+          aria-valuetext={percent(value) + (pace === null ? '' : ' · ' + label('Expected remaining') + ' ' + percent(pace))} />
+        {pace !== null && <span className="web-quota-pace-marker" aria-hidden="true"
+          style={{ insetInlineStart: `clamp(1px, ${pace}%, calc(100% - 1px))` }} />}
+      </span>
+      <span className="web-quota-brief-line web-quota-brief-meta"><span>{window}</span>
+        {stale ? <StatusBadge state="Stale" />
+          : <span data-tone={focus.rank <= 1 ? 'error' : undefined} title={reset === null ? undefined : label('Reset') + ' · ' + clock(reset * 1000)}>
+            {runsOut ?? (focus.rank === 0 && untilReset ? label('Exhausted') + ' · ' + untilReset : untilReset ?? label(focus.rank === 0 ? 'Exhausted' : 'Reset unknown'))}</span>}</span>
+    </>}
+  </Link>;
 }
 
 /** A route-controlled continuation preserves incident filters. */
@@ -195,8 +262,11 @@ function quotaWindowName(window: Pick<QuotaAccount['windows'][number], 'window' 
 }
 
 /** Renders one account with compact samples, a model disclosure and a single evidence section. */
-function QuotaCard({ account, title, discriminator, now }: { account: QuotaAccount; title: string; discriminator?: string; now: number }) {
+function QuotaCard({ account, title, discriminator, now, selected = false }: { account: QuotaAccount; title: string; discriminator?: string; now: number; selected?: boolean }) {
   const { label, clock, percent } = useWebText();
+  const body = useRef<HTMLDivElement>(null);
+  // An account opened from the Overview is brought into view once; later refreshes do not move the page.
+  useEffect(() => { if (selected) body.current?.closest('.panel')?.scrollIntoView({ block: 'start' }); }, [selected]);
   const quotaClock = (seconds: number | null) => clock(seconds === null ? null : seconds * 1000);
   const pct = (value: number | null) => value === null ? null : percent(value);
   const windows = [...account.windows].sort((a, b) => Number(a.lane.startsWith('model:')) - Number(b.lane.startsWith('model:'))
@@ -204,11 +274,11 @@ function QuotaCard({ account, title, discriminator, now }: { account: QuotaAccou
   const samples = windows.map(window => ({ ...quotaWindowForecast(window, now / 1000), burn: window.burn }));
   const exhausted = account.latches.some(latch => latch.active) || account.models.some(model => model.state === 'exhausted')
     || samples.some((sample, i) => sample.remaining === 0 && !sample.stale && windows[i].validUntil !== null);
-  return <Panel title={title} extra={<div className="web-panel-actions">
+  return <Panel title={title} className={selected ? 'web-quota-selected' : ''} extra={<div className="web-panel-actions">
     {discriminator && <span className="web-muted web-account-discriminator" title={account.account}>{discriminator}</span>}
     {exhausted && <StatusBadge state="exhausted" />}
   </div>}>
-    <div className="web-panel-body">
+    <div className="web-panel-body" ref={body}>
       {windows.length === 0 && <p className="web-empty">{label('No account windows reported')}</p>}
       {windows.map((window, i) => <QuotaRow key={i} title={quotaWindowName(window, label, windows.some(other => other !== window && other.window === window.window && !other.lane.startsWith('model:')))}
         value={samples[i].remaining} reset={samples[i].resetAt} now={now} risk={window.risk} forecast={samples[i]}
@@ -238,8 +308,9 @@ function QuotaCard({ account, title, discriminator, now }: { account: QuotaAccou
   </Panel>;
 }
 
-/** Account samples lead the page; service and coverage diagnostics follow in one disclosure. */
-export function Quota({ now }: { now: number }) {
+/** Account samples lead the page; service and coverage diagnostics follow in one disclosure.
+ * `account` marks the card opened from an Overview row. */
+export function Quota({ now, account: selected }: { now: number; account?: string | null }) {
   const { label, clock, tag } = useWebText();
   const read = useRead('quota', signal => client.get('quota', { signal }), 'quota');
   const quotaClock = (seconds: number | null) => clock(seconds === null ? null : seconds * 1000);
@@ -252,14 +323,7 @@ export function Quota({ now }: { now: number }) {
       return !forecast.stale && forecast.pace !== null;
     }));
     const collected = snapshot?.coverage.lastCollectionAt ?? status?.lastCollectionAt;
-    const titles = snapshot?.accounts.map(account => label(quotaAccountTitle(account, snapshot))) ?? [];
-    const accountsByTitle = new Map<string, string[]>();
-    snapshot?.accounts.forEach((account, i) => {
-      const ids = accountsByTitle.get(titles[i]) ?? [];
-      ids.push(account.account);
-      accountsByTitle.set(titles[i], ids);
-    });
-    for (const ids of accountsByTitle.values()) ids.sort();
+    const titles = snapshot ? quotaAccountTitles(snapshot, label) : [];
     return <>
       {(collected != null || snapshot?.coverage.state === 'partial') && <p className="web-muted web-quota-collected">
         {label('Last collection')} · {collected == null ? label('Unknown') : relativeTime(collected * 1000, now, tag)}
@@ -268,11 +332,8 @@ export function Quota({ now }: { now: number }) {
       {hasPace && <p className="web-muted web-quota-legend">{label('Pace marker legend')}</p>}
       {snapshot ? <>
         <EmptyRows count={snapshot.accounts.length} observations={observations.filter(item => item.resource !== 'quota.status')} />
-        <div className="web-cards web-quota">{snapshot.accounts.map((account, i) => {
-          const siblings = accountsByTitle.get(titles[i])!;
-          return <QuotaCard key={account.account} account={account} title={titles[i]}
-            discriminator={siblings.length > 1 ? label('Account') + ' ' + (siblings.indexOf(account.account) + 1) : undefined} now={now} />;
-        })}</div>
+        <div className="web-cards web-quota">{snapshot.accounts.map((account, i) => <QuotaCard key={account.account} account={account}
+          title={titles[i].title} discriminator={titles[i].discriminator} now={now} selected={account.account === selected} />)}</div>
       </> : <p className="web-warning" role="status">{label('Quota data unavailable')}</p>}
       {(status || snapshot || evidence.some(scope => scope.items.length > 0)) && <Expand title="Quota source evidence">
         {status && <><h2>{label('Service status')}</h2><Facts rows={[[ 'Status', label(status.status)], ['Started', quotaClock(status.startedAt)],
