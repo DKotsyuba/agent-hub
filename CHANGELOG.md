@@ -4,6 +4,12 @@ All notable changes to Agent Hub are documented here. The format follows [Keep a
 
 ## [Unreleased]
 
+## [0.2.7] - 2026-11-23
+
+### Changed
+
+- Quota forecasts show durations of a day or more as days and hours ("2 д 10 ч" instead of "58 ч"); burn rate reads "%/ч" (percentage points of the window per hour).
+
 ## [0.2.6] - 2026-11-23
 
 ### Fixed
@@ -103,6 +109,7 @@ First public release: the terminal Hub for Linux x86-64 (standalone executable).
 
 - Archived Tasks and IDE sources are denied by the observer; the terminal has no Tasks, IDE or Run info tabs.
 
+[0.2.7]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.2.7
 [0.2.6]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.2.6
 [0.2.5]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.2.5
 [0.2.4]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.2.4
