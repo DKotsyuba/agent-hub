@@ -352,6 +352,7 @@ export default function App() {
                 <span>{label('Refresh cadence')}</span>
                 <Choice label={label('Refresh cadence')} value={String(interval)} options={[1, 3, 5, 10].map(value => [String(value), value + ' ' + label('sec')])} onChange={value => setInterval(Number(value) as 1 | 3 | 5 | 10)} />
               </div>
+              <ViewportDiagnostics />
               <div><DialogClose asChild><Button>{label('Done')}</Button></DialogClose></div>
             </DialogContent>
           </Dialog>
@@ -390,4 +391,21 @@ export default function App() {
       </main>
     </div>
   </LiveContext.Provider></Navigation.Provider>;
+}
+
+/** Shows the measured viewport and safe-area insets so PWA layout issues can be diagnosed on the device. */
+function ViewportDiagnostics() {
+  const [text, setText] = useState('');
+  useEffect(() => {
+    const probe = document.createElement('div');
+    probe.style.cssText = 'position:fixed;visibility:hidden;padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)';
+    document.body.appendChild(probe);
+    const style = getComputedStyle(probe);
+    const standalone = matchMedia('(display-mode: standalone)').matches || (navigator as Navigator & { standalone?: boolean }).standalone === true;
+    const root = document.getElementById('root')?.getBoundingClientRect();
+    setText(`screen ${screen.width}×${screen.height} · inner ${innerWidth}×${innerHeight} · visual ${Math.round(visualViewport?.width ?? 0)}×${Math.round(visualViewport?.height ?? 0)}\n`
+      + `root ${Math.round(root?.width ?? 0)}×${Math.round(root?.height ?? 0)} · safe T${style.paddingTop} R${style.paddingRight} B${style.paddingBottom} L${style.paddingLeft} · standalone ${standalone}`);
+    probe.remove();
+  }, []);
+  return <p className="web-viewport-diag">{text}</p>;
 }

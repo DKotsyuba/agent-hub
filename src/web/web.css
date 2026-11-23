@@ -379,3 +379,11 @@ html {
 .web-main { padding-bottom: calc(var(--web-main-bottom, 20px) + env(safe-area-inset-bottom, 0px)); }
 .web-shell[data-immersive] .web-main { padding-bottom: 0; }
 .web-shell[data-immersive] :is(.web-list-pane, .web-detail-pane) { padding-bottom: env(safe-area-inset-bottom, 0px); }
+
+/* iOS standalone with a black-translucent status bar sizes the initial containing block to the screen minus the
+   status bar while painting from the top edge, leaving a bottom gap of exactly the top inset. Extend by that inset. */
+@media (display-mode: standalone) {
+  html, body, #root { bottom: auto; height: calc(100% + env(safe-area-inset-top, 0px)); }
+}
+.web-standalone, .web-standalone body, .web-standalone #root { bottom: auto; height: calc(100% + env(safe-area-inset-top, 0px)); }
+.web-viewport-diag { font: 12px ui-monospace, monospace; color: var(--muted); white-space: pre-wrap; }
