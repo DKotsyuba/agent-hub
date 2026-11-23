@@ -111,10 +111,13 @@ export function Incidents({ query, next }: { query: URLSearchParams; next: (curs
   </>}</ReadState></>;
 }
 
-/** Rounds forecast durations to minutes or hours without changing their underlying estimates. */
+/** Rounds forecast durations to minutes, hours, or days and hours without changing their underlying estimates. */
 function forecastDuration(seconds: number, label: (key: string) => string, n: (amount: number) => string) {
-  return seconds < 3600 ? n(Math.max(1, Math.round(seconds / 60))) + ' ' + label('min short')
-    : n(Math.round(seconds / 3600)) + ' ' + label('hour short');
+  if (seconds < 3600) return n(Math.max(1, Math.round(seconds / 60))) + ' ' + label('min short');
+  const hours = Math.round(seconds / 3600);
+  if (hours < 24) return n(hours) + ' ' + label('hour short');
+  const days = Math.floor(hours / 24), rest = hours % 24;
+  return n(days) + ' ' + label('day short') + (rest ? ' ' + n(rest) + ' ' + label('hour short') : '');
 }
 
 /** Identifies the deficit window separately from the model with the lowest balance. */
