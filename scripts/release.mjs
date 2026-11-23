@@ -185,7 +185,9 @@ function verify(version, outdir, forbidden) {
   const prefix = archive.slice(0, -7) + '/';
   const files = run('tar', ['-tzf', archivePath]).trimEnd().split('\n');
   const allowed = new Set([...binaries, ...supporting, '', 'bin/', 'libexec/', 'etc/', 'etc/agent-hub/', 'share/', 'share/systemd/',
-    'share/web/', 'share/web/index.html', 'share/web/favicon.svg', 'share/web/assets/']);
+    'share/web/', 'share/web/index.html', 'share/web/favicon.svg', 'share/web/assets/',
+    'share/web/sw.js', 'share/web/manifest.webmanifest', 'share/web/manifest-dark.webmanifest',
+    'share/web/icon-192.png', 'share/web/icon-512.png', 'share/web/apple-touch-icon.png']);
   if (new Set(files).size !== files.length || files.some(entry => {
     const path = entry.slice(prefix.length);
     return !entry.startsWith(prefix) || (!allowed.has(path) && !/^share\/web\/assets\/[\w.-]+$/.test(path) || path.endsWith('/..'));
