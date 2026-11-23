@@ -72,9 +72,13 @@ test('HTTP fixture shows history, agreement, Quota and Worktree, and detects los
       await frame('Retained scan copy requested');
       assert.match(copied.at(-1) ?? '', /Retained session lineage/);
       setup.mockInput.pressKey('2');
-      await frame('Finished  2');
+      const poolList = await frame('▸ Finished  2');
+      assert.match(poolList, /›.*Live planning pool/);
+      assert.doesNotMatch(poolList, /Chat review pool/);
       setup.mockInput.pressKey('o');
       await frame('Chat review pool');
+      setup.mockInput.pressArrow('down');
+      await frame('› Chat review pool');
       setup.mockInput.pressEnter();
       await frame('Synthetic discussion.');
       setup.mockInput.pressArrow('left');
