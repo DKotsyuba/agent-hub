@@ -691,6 +691,49 @@ test('overview keeps partial later pages and missing Bridge clocks out of exact 
   } finally { await http.close(); }
 });
 
+test('held route lists only accepted undelivered Bridge rows and keeps absent optional fields null', async () => {
+  const native = await producer();
+  const base = { publisher: 'claude', event_id: 'e', custody_state: 'pending' };
+  const rows = [
+    { ...base, acceptance_seq: 1, delivery_state: 'hook_submitted', accepted_at_ms: now - 7 * 3600_000 },
+    { ...base, acceptance_seq: 2, delivery_state: 'held', accepted_at_ms: now - 6 * 3600_000, hold_reason: 'target unavailable', recipient: 'codex@host', attempts: 0, body: 'private text' },
+    { ...base, acceptance_seq: 3, delivery_state: 'unhanded', accepted_at_ms: now - 60_000 },
+    { ...base, acceptance_seq: 4, delivery_state: 'held', custody_state: 'refused', accepted_at_ms: now - 5 * 3600_000 },
+    { ...base, acceptance_seq: 5, delivery_state: 'held', accepted_at_ms: null },
+  ];
+  const http = handler({ close: native.close, async read(resource, params, signal) {
+    if (resource === 'bridge.deliveries') return envelope(resource, { schema_version: 1, kind: 'delivery_page',
+      data: { deliveries: rows, through_seq: 5, next_after_seq: null, coverage: 'retained_history' } });
+    return native.read(resource, params, signal);
+  } });
+  try {
+    const result = (await get(http, 'held', '/bridge/held')).data;
+    assert.equal(result.complete, true);
+    assert.deepEqual(result.items, [
+      { id: 'delivery-2', acceptedAtMs: now - 6 * 3600_000, state: 'held', holdReason: 'target unavailable', recipient: 'codex@host', attempts: 0 },
+      { id: 'delivery-3', acceptedAtMs: now - 60_000, state: 'unhanded', holdReason: null, recipient: null, attempts: null },
+    ]);
+    assert.ok(!JSON.stringify(result).includes('private text'));
+  } finally { await http.close(); }
+});
+
+test('held route reports an incomplete scan and fails closed when Bridge is unavailable', async () => {
+  const native = await producer();
+  const incomplete = handler({ close: native.close, async read(resource, params, signal) {
+    if (resource === 'bridge.deliveries') return envelope(resource, { schema_version: 1, kind: 'delivery_page',
+      data: { deliveries: [], through_seq: 9, next_after_seq: null, scan_partial: true, coverage: 'retained_history' } });
+    return native.read(resource, params, signal);
+  } });
+  const down = handler({ close: native.close, async read(resource, params, signal) {
+    if (resource.startsWith('bridge.')) return envelope(resource, null, 'unavailable');
+    return native.read(resource, params, signal);
+  } });
+  try {
+    assert.deepEqual((await get(incomplete, 'held', '/bridge/held')).data, { items: [], complete: false });
+    assert.equal((await down.fetch(request(mount + '/bridge/held'))).status, 503);
+  } finally { await incomplete.close(); await down.close(); }
+});
+
 test('HTTP Quota preserves optional account reset credits and existing windows', async () => {
   const native = await producer();
   const http = handler({ close: native.close, async read(resource, params, signal) {

@@ -18,6 +18,8 @@ import { INVENTORY_SNAPSHOT_CAPABILITY, inventorySnapshotPage, inventoryTotalsLi
 import type { InventoryPage } from './pool-inventory.ts';
 import { parseRunStatus, runLineageLabel, runStatusRequest } from './run-status.ts';
 import { parsePoolRunProof } from './pool-run-proof.ts';
+import { heldShortSummary, heldSummary } from './held.ts';
+import { heldAlarm, type HeldAlarm } from '../../packages/view-model/src/index.ts';
 import { agentWorkdir, projectRoot, sessionUsage } from './sessions.ts';
 import type { PoolSection } from './pool.ts';
 import type { Theme } from './preferences.ts';
@@ -25,7 +27,7 @@ import type { RunStatusEvidence, RunStatusRequest } from './run-status.ts';
 import type { PoolRunProofTarget } from './pool-run-proof.ts';
 import type { GroupedTranscript, TranscriptEntry } from './transcript.ts';
 import {
-  activeStatus, answerText, basename, bridgeData, collectPages, decimalCursor, failure,
+  activeStatus, answerText, basename, bridgeData, collectPages, decimalCursor, failure, heldRow,
   mergeBlocks, object, product, response, runAgent, runPage,
   supportsChunks, transcriptPage, usable,
 } from '../../src/live/protocol.ts';
@@ -1590,6 +1592,40 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
         connection = state; render();
       },
     }, controller.signal);
+  }
+  /** Held-message alarm inputs: accepted-but-undelivered rows from Hub, or from a bounded native Bridge scan. */
+  let heldItems: ReturnType<typeof heldRow>[] = [], heldComplete = true, heldBusy = false;
+  /** Computes the alarm at paint time so the displayed wait keeps advancing; Overview reuses its own delivery scan. */
+  function heldView(): HeldAlarm | null {
+    if (mode === 'demo') return null;
+    const overview = !client.http && route === 'overview' && deliveries.value;
+    const rows = overview ? (deliveries.value!.deliveries as unknown[]).map(heldRow) : heldItems;
+    const complete = overview ? deliveries.value!.scan_partial !== true && deliveries.value!.next_after_seq === null : heldComplete;
+    return heldAlarm(rows.filter((row): row is NonNullable<typeof row> => row !== null), Date.now(), complete);
+  }
+  /** Reads undelivered Bridge messages independently of the visible route; a failed read keeps the last result. */
+  async function refreshHeld(): Promise<void> {
+    if (!alive || heldBusy || mode === 'demo' || (!client.http && route === 'overview')) return;
+    heldBusy = true;
+    try {
+      if (client.http) {
+        const result = await client.http.get('held', { signal: httpLifetime.signal });
+        heldItems = result.data.items; heldComplete = result.data.complete;
+      } else {
+        const rows: unknown[] = []; let after = 0, through: number | null = null, next: number | null = null;
+        for (let page = 0; page < 5; page++) {
+          const envelope = await read('bridge.deliveries', { limit: 100, after_seq: after, ...(through === null ? {} : { through_seq: through }) });
+          if (!alive || !usable(envelope)) return;
+          const data = bridgeData(envelope.data, 'delivery_page');
+          through = Number(data.through_seq); rows.push(...(data.deliveries as unknown[]));
+          next = data.next_after_seq as number | null;
+          if (next === null || next <= after || next >= through) break;
+          after = next;
+        }
+        heldItems = rows.map(heldRow); heldComplete = next === null;
+      }
+    } catch { /* The previous alarm stays; the header does not claim a new state. */ }
+    finally { heldBusy = false; if (alive) render(); }
   }
   /** Revalidates period metrics without publishing a response for an older period. */
   async function refreshHttpOverview(): Promise<void> {
@@ -3294,6 +3330,11 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
       navX += stringWidth(label) + 3;
     }
     textAt(frame, modeX, 0, w - modeX, modeLabel, { color: C.muted, bg: C.header });
+    const heldNote = heldView();
+    if (heldNote) {
+      const room = Math.max(0, w - stringWidth(`${client.http ? 'Live' : 'Poll'}: ${pollingIntervals[pollingIndex]}s [u]`) - 8), full = heldSummary(heldNote);
+      textAt(frame, 2, 1, room, `▲ ${stringWidth(full) + 2 <= room ? full : heldShortSummary(heldNote)}`, { bold: true, color: C.error, bg: C.header });
+    }
     const pollingLabel = `${client.http ? 'Live' : 'Poll'}: ${pollingIntervals[pollingIndex]}s [u]`, pollingWidth = stringWidth(pollingLabel);
     textAt(frame, Math.max(2, w - pollingWidth - 2), 1, Math.min(pollingWidth, Math.max(0, w - 4)), pollingLabel, { color: C.accent, bg: C.header, click: () => { if (!overlay) cyclePolling(); } });
     if (w < 60 || h < 16) textAt(frame, 2, Math.max(2, Math.floor(h / 2)), Math.max(1, w - 4), 'Resize terminal to at least 60 × 16. Navigation state is retained.', { color: C.accent });
@@ -3370,11 +3411,13 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
   poolTrack.add(poolThumb); renderer.root.add(poolTrack);
   renderer.keyInput.on('keypress', onKey); renderer.on('resize', render); renderer.on('theme_mode', terminalThemeChanged); renderer.on('frame', releaseRetiredFrames);
   render(); schedulePolling(); if (!client.http) refresh();
+  void refreshHeld();
+  const heldTimer = setInterval(() => { void refreshHeld(); if (heldView()) render(); }, 20_000);
   const spinnerTimer = setInterval(() => {
     if (!spinnerRows.length) return;
     spinnerFrame = (spinnerFrame + 1) % spinnerFrames.length;
     for (const row of spinnerRows) { row.value = row.value.slice(0, 2) + spinnerFrames[spinnerFrame] + row.value.slice(3); row.text.content = row.value; }
     renderer.requestRender();
   }, 80);
-  return () => { if (!alive) return; alive = false; httpLifetime.abort(); eventController?.abort(); if (pendingPaint !== null) renderer.cancelAnimationFrame(pendingPaint); if (pollingTimer !== null) clearInterval(pollingTimer); clearInterval(spinnerTimer); spinnerRows = []; for (const controller of controllers) controller.abort(); controllers.clear(); renderer.keyInput.off('keypress', onKey); renderer.off('resize', render); renderer.off('theme_mode', terminalThemeChanged); renderer.off('frame', releaseRetiredFrames); releaseRetiredFrames(); frame?.destroyRecursively(); frame = null; historyTrack.destroyRecursively(); poolTrack.destroyRecursively(); };
+  return () => { if (!alive) return; alive = false; httpLifetime.abort(); eventController?.abort(); if (pendingPaint !== null) renderer.cancelAnimationFrame(pendingPaint); if (pollingTimer !== null) clearInterval(pollingTimer); clearInterval(spinnerTimer); clearInterval(heldTimer); spinnerRows = []; for (const controller of controllers) controller.abort(); controllers.clear(); renderer.keyInput.off('keypress', onKey); renderer.off('resize', render); renderer.off('theme_mode', terminalThemeChanged); renderer.off('frame', releaseRetiredFrames); releaseRetiredFrames(); frame?.destroyRecursively(); frame = null; historyTrack.destroyRecursively(); poolTrack.destroyRecursively(); };
 }

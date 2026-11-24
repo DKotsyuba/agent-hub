@@ -1,5 +1,10 @@
 /** Russian translations for v1-specific chrome and normalized producer enum values. */
 export const translations: Record<string, string> = {
+  'Held alarm': 'Недоставленные сообщения', 'Held title': 'Сообщения агентам не доставляются: {count} шт., самое старое ждёт {time}',
+  'Held wait hours': '{hours} ч {minutes} мин', 'Held wait minutes': '{minutes} мин',
+  'Held reason target_unavailable': 'получатель недоступен', 'Held reason socket_continuity': 'не подтверждена связь с процессом',
+  'Held reason unknown': 'причина не указана', 'Held recipient unknown': 'получатель не указан', 'Held attempts': 'попыток: {count}',
+  'Held more': 'и ещё {count}', 'Held partial': 'Проверена не вся история Bridge: сообщений может быть больше.',
   Sidebar: 'Боковая панель', 'Collapse sidebar': 'Свернуть панель', 'Expand sidebar': 'Развернуть панель',
   'Hide list': 'Скрыть список', 'Show list': 'Показать список', 'Copy ID': 'Копировать ID', 'Finished short': 'Заверш.',
   'History info': 'Об истории', 'History information': 'Сведения об истории', 'History navigation': 'Навигация по истории', 'New messages': 'Новые сообщения',
@@ -122,6 +127,11 @@ export const translations: Record<string, string> = {
 
 /** Human-readable v1 machine codes and English labels for normalized UI values. */
 export const english: Record<string, string> = {
+  'Held alarm': 'Undelivered messages', 'Held title': 'Messages to agents are not being delivered: {count}, oldest waiting {time}',
+  'Held wait hours': '{hours} h {minutes} min', 'Held wait minutes': '{minutes} min',
+  'Held reason target_unavailable': 'recipient unavailable', 'Held reason socket_continuity': 'process connection not confirmed',
+  'Held reason unknown': 'reason not reported', 'Held recipient unknown': 'recipient not reported', 'Held attempts': 'attempts: {count}',
+  'Held more': 'and {count} more', 'Held partial': 'Only part of the Bridge history was scanned: there may be more messages.',
   'pool:live': 'Live', 'pool:completed': 'Completed', 'pool:closed': 'Closed',
   'Finished short': 'Finished',
   'Quota pace reserve': '{amount} in reserve', 'Quota pace deficit': '{amount} deficit', 'Quota on pace': 'on pace', 'Quota pace unknown': 'pace unknown',

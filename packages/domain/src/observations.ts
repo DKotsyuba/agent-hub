@@ -30,6 +30,20 @@ export const bridgeIncident = object({
 /** A projected Bridge incident. */
 export type BridgeIncident = Decoded<typeof bridgeIncident>;
 
+/**
+ * One message Bridge has accepted into custody but not yet handed to its recipient. Content-free.
+ * `holdReason`, `recipient` and `attempts` are optional producer fields; absence is null, never a guess.
+ */
+export const heldMessage = object({
+  id: resourceId, acceptedAtMs: count, state: text, holdReason: nullable(text), recipient: nullable(text), attempts: nullable(count),
+});
+
+/** A projected undelivered Bridge message. */
+export type HeldMessage = Decoded<typeof heldMessage>;
+
+/** Undelivered messages from the retained Bridge delivery journal; `complete` is false when the scan was bounded. */
+export const heldMessages = object({ items: array(heldMessage), complete: bool });
+
 /** A Quota model's limit identity. */
 const quotaKey = { pool: text, source: text, window: text };
 

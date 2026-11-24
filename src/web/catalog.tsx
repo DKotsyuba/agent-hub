@@ -1,5 +1,5 @@
 /** Overview, Bridge, Quota and Worktree presentation over v1 observations. */
-import { useEffect, useRef, type ReactNode } from 'react';
+import { useContext, useEffect, useRef, type ReactNode } from 'react';
 import { RotateCcw } from 'lucide-react';
 import type { Overview as OverviewData, Topic, Worktree } from '@agent-hub/domain';
 import { badgeVariants } from '../components/ui/badge';
@@ -8,6 +8,7 @@ import { Progress } from '../components/ui/progress';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import { Panel } from '../components/hub-primitives';
 import { client, usePagedRead, useRead } from './data';
+import { HeldContext } from './held';
 import { RedeemButton, RedeemStatus, useRedeem } from './redeem';
 import { modelTitle, quotaAccountTitle, quotaAdviceKind, worktreeMeasurements, sessionTitle } from './model';
 import { accountTitle, branchLabel, formatBytes, projectQuotaSnapshot, projectQuotaStatus, quotaAccountFocus, quotaModelRemaining, quotaResetCredits, quotaWindowForecast, windowSeconds, type QuotaAccount, type QuotaSnapshot } from '../../packages/view-model/src/index';
@@ -19,8 +20,9 @@ export function period(query: URLSearchParams) {
 }
 
 /** Separately scoped metrics retain bounds and display unknown values explicitly. */
-function Metric({ name, value }: { name: string; value: { kind: string; value: number | null; coverage?: Parameters<typeof CoverageLine>[0]['value'] } }) {
+function Metric({ name, value, alarm }: { name: string; value: { kind: string; value: number | null; coverage?: Parameters<typeof CoverageLine>[0]['value'] }; alarm?: number }) {
   const { label, n } = useWebText();
+  if (alarm) return <div className="web-metric web-metric-alarm"><span>{label(name)}</span><strong>{n(alarm)}</strong><span className="web-muted">{label('Held alarm')}</span></div>;
   return <div className="web-metric"><span>{label(name)}</span><strong>{value.value === null ? label('Unknown') : (value.kind === 'lower_bound' ? '≥ ' : '') + n(value.value)}</strong><CoverageLine value={value.coverage} /></div>;
 }
 
@@ -42,6 +44,7 @@ export function Overview({ query, filter, now }: { query: URLSearchParams; filte
   const read = useRead(JSON.stringify(bounds), signal => client.get('overview', { query: bounds, signal }), 'overview');
   // Account windows come from the Quota read; it follows the Overview topic because only that topic is subscribed here.
   const quota = useRead('overview-quota', signal => client.get('quota', { signal }), 'overview');
+  const held = useContext(HeldContext);
   const bridgeLink = <Link className="web-link" href={href('/incidents', bounds)}>{label('Incidents')}</Link>;
   return <>
     <Sources items={read.value?.observations ?? []} topic="overview" strip bridgeLink={bridgeLink} />
@@ -56,10 +59,10 @@ export function Overview({ query, filter, now }: { query: URLSearchParams; filte
                 {(['active', 'started', 'succeeded', 'failed', 'finished'] as const).map(key => <Metric key={key} name={key} value={data.run![key]} />)}
               </div> : <p className="web-empty">{label('Session data unavailable')}</p>}</div>
             </Panel>
-            {bridge && Object.values(bridge).some(value => value.value !== null) &&
+            {bridge && (held || Object.values(bridge).some(value => value.value !== null)) &&
               <Panel title="Bridge" extra={bridgeLink}>
                 <div className="web-panel-body"><div className="web-metrics">
-                  {(['accepted', 'pending', 'incidents'] as const).map(key => <Metric key={key} name={key} value={bridge[key]} />)}
+                  {(['accepted', 'pending', 'incidents'] as const).map(key => <Metric key={key} name={key} value={bridge[key]} alarm={key === 'pending' ? held?.count : undefined} />)}
                 </div></div>
               </Panel>}
           </div>

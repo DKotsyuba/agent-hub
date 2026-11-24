@@ -8,7 +8,7 @@ import { Cursors } from './cursor.ts';
 import { HubError, errorResponse, logSourceFailure } from './errors.ts';
 import { Events } from './events.ts';
 import type { ObservationClient } from './observer.ts';
-import { incidents, overview, quota, worktree, worktrees, type WorktreeCache } from './observations.ts';
+import { held, incidents, overview, quota, worktree, worktrees, type WorktreeCache } from './observations.ts';
 import { pool, poolContent, poolHistory, poolRecord, pools, poolSection } from './pool.ts';
 import { ReadContext } from './projection.ts';
 import { initialTask, sessionDetail, sessionExport, sessionHistory, sessionResult, sessions } from './run.ts';
@@ -189,6 +189,7 @@ export function createHttp(native: ObservationClient, options: HttpOptions) {
         case 'worktrees': result = await worktrees(ctx, query, position, worktreeCache); break;
         case 'worktree': result = await worktree(ctx, query, worktreeCache); break;
         case 'incidents': result = await incidents(ctx, query, position); break;
+        case 'held': result = await held(ctx); break;
       }
       if (ctx.signal.aborted) throw new HubError('source_unavailable');
       const body = JSON.stringify(API_RESPONSES[query.route](result));

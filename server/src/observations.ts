@@ -1,6 +1,6 @@
 /** Independent Quota, Bridge, Overview and Worktree projections. */
 import { worktreeDetail as decodeWorktreeDetail, type Coverage, type Observation, type Overview, type Quota, type Worktree, type WorktreeDetail } from '@agent-hub/domain';
-import { activeStatus, basename, bridgeData, integer, longestWorktree, object, text, usable, type LiveWorktree } from '../../src/live/protocol.ts';
+import { activeStatus, basename, bridgeData, heldRow, integer, longestWorktree, object, text, usable, type LiveWorktree } from '../../src/live/protocol.ts';
 import { quotaSnapshot, quotaStatus } from '../../terminal/src/quota.ts';
 import { projectQuotaSnapshot, quotaWindowForecast } from '../../packages/view-model/src/index.ts';
 import { repositoriesData, worktreeDetail, worktreeFacts, worktreePage } from '../../terminal/src/worktree.ts';
@@ -120,6 +120,13 @@ export async function incidents(ctx: ReadContext, query: Input<'incidents'>, pos
   }));
   const next = result.next === null ? null : ctx.cursors.encode(query, { at: result.next, direction: 'newer', fence: null, through: String(result.through) });
   return { data: { items }, page: { ...noPage, next }, observations: [result.observation], capabilities: { bridgeIncidents: 'supported' } };
+}
+
+/** Lists accepted-but-undelivered Bridge messages from the retained journal; age and threshold are a client concern. */
+export async function held(ctx: ReadContext) {
+  const scan = await bridgeScan(ctx, 'bridge.deliveries', 0, null, 100);
+  const items = scan.items.flatMap(row => heldRow(row) ?? []);
+  return { data: { items, complete: scan.observation.coverage?.state === 'complete' }, observations: [scan.observation] };
 }
 
 /** Classifies one failed producer without dropping useful sibling data. */

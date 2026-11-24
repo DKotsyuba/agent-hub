@@ -1,6 +1,6 @@
 /** Web-only Agent Hub shell, routing, preferences, and scoped stream ownership. */
 import type { ReactNode } from 'react';
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Activity, ArrowLeft, Bot, Gauge, GitBranch, Layers3, LayoutDashboard, RefreshCw, Settings, Download, PanelLeft, List, Copy, Check } from 'lucide-react';
 import { version as webVersion } from '../../package.json';
 import type { Topic } from '@agent-hub/domain';
@@ -16,6 +16,8 @@ import { InventoryList, inventoryHref } from './lists';
 import type { Inventory } from './lists';
 import { Expand, href, Link, Navigation, relativeTime, useWebText } from './ui';
 import { useAppUpdate } from './pwa';
+import { HeldAlert, HeldContext } from './held';
+import { heldAlarm } from '../../packages/view-model/src/index';
 
 /** Primary screens and their stable addresses. */
 const navigation = [
@@ -115,6 +117,10 @@ export default function App() {
   const showHistory = immersive && (tab === 'history' || tab === 'discussion');
   const live = useLive(topicsFor(kind, id, tab), interval);
   const health = useRead('health:' + refresh + ':' + (live.connection === 'connected'), signal => client.get('health', { signal }), undefined, 30_000);
+  // Polled independently of the screen topic so the alarm shows on every page; a failed read keeps the last value.
+  const heldRead = useRead('held:' + refresh, signal => client.get('held', { signal }), undefined, 20_000);
+  const alarm = useMemo(() => heldRead.value ? heldAlarm(heldRead.value.data.items, Math.max(now, heldRead.value.observations[0]?.observedAtMs ?? 0), heldRead.value.data.complete) : null,
+    [heldRead.value, now]);
   const [serverRelease, setServerRelease] = useState<string>();
   useEffect(() => {
     if (health.value) setServerRelease(health.value.release);
@@ -325,7 +331,7 @@ export default function App() {
     {headerControls}
   </div>;
 
-  return <Navigation.Provider value={go}><LiveContext.Provider value={{ ...live, refresh, unreachable, reportRead, requestRefresh: () => setRefresh(value => value + 1) }}>
+  return <Navigation.Provider value={go}><HeldContext.Provider value={alarm}><LiveContext.Provider value={{ ...live, refresh, unreachable, reportRead, requestRefresh: () => setRefresh(value => value + 1) }}>
     <div className="web-shell" data-sidebar={expanded ? 'expanded' : 'collapsed'} data-immersive={immersive || undefined}>
       <a className="skip-link" href="#web-main">{label('Skip to content')}</a>
       <TooltipProvider delayDuration={250}><aside className="web-rail" id="web-sidebar">
@@ -359,6 +365,7 @@ export default function App() {
       </aside></TooltipProvider>
       <main id="web-main" className="web-main" tabIndex={-1}>
         {!immersive && header}
+        <HeldAlert alarm={alarm} />
         {unreachable && <p className="web-warning web-offline" role="status">{label('Offline shell')}</p>}
         {appUpdate.error && <p className="web-warning" role="status">{label('Update failed')}</p>}
         <div ref={page} className="web-page" tabIndex={inventory ? undefined : 0}>
@@ -389,6 +396,6 @@ export default function App() {
         </footer>}
       </main>
     </div>
-  </LiveContext.Provider></Navigation.Provider>;
+  </LiveContext.Provider></HeldContext.Provider></Navigation.Provider>;
 }
 

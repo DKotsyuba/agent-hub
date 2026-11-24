@@ -1,7 +1,7 @@
 /** Versioned read route map with typed parameters and success decoders. */
 import { API_PREFIX, API_VERSION, PAGE_LIMITS, opaque, pagedResponse, resourceId, response } from './common.ts';
 import { INTERVALS, detailScope, topic } from './events.ts';
-import { bridgeIncident, overview, quota, worktreeDetail, worktrees } from './observations.ts';
+import { bridgeIncident, heldMessages, overview, quota, worktreeDetail, worktrees } from './observations.ts';
 import { POOL_SECTIONS, poolContent, poolDetail, poolHistory, poolRecord, poolSection, pools } from './pools.ts';
 import { initialTask, runStatus, session, sessionDetail, sessionExport, sessionHistory, sessionResult } from './sessions.ts';
 import { type Decoded, array, invalid, object, oneOf, text } from './schema.ts';
@@ -20,7 +20,7 @@ export const API_ROUTES = {
   pools: '/pools', pool: '/pools/:id', poolSection: '/pools/:id/sections/:section',
   poolHistory: '/pools/:id/history', poolContent: '/pools/:id/content/:field',
   poolRecord: '/pools/:id/records/:record', quota: '/quota', worktrees: '/worktrees',
-  worktree: '/worktrees/:id', incidents: '/bridge/incidents', events: '/events',
+  worktree: '/worktrees/:id', incidents: '/bridge/incidents', held: '/bridge/held', events: '/events',
 } as const;
 
 /** A supported v1 route name. */
@@ -34,7 +34,7 @@ export const API_RESPONSES = {
   pools: pagedResponse(pools), pool: response(poolDetail), poolSection: pagedResponse(poolSection),
   poolHistory: pagedResponse(poolHistory), poolContent: pagedResponse(poolContent), poolRecord: pagedResponse(poolRecord),
   quota: response(quota), worktrees: pagedResponse(worktrees), worktree: response(worktreeDetail),
-  incidents: pagedResponse(object({ items: array(bridgeIncident) })),
+  incidents: pagedResponse(object({ items: array(bridgeIncident) })), held: response(heldMessages),
 } as const;
 
 /** A successful response DTO indexed by route. */
@@ -140,6 +140,7 @@ function readRouteRequest(route: RouteName, params: Map<string, string>, query: 
     case 'incidents': return done(route, {
       ...period(), includeClosed: (get('includeClosed', oneOf('true', 'false')) ?? 'false') === 'true', ...pagination(),
     });
+    case 'held': return done(route, {});
     case 'events': {
       used.add('topic');
       const topics = query.getAll('topic');

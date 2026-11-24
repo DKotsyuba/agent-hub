@@ -4,6 +4,12 @@ All notable changes to Agent Hub are documented here. The format follows [Keep a
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-11-24
+
+### Added
+
+- Held-message alarm: a red banner on every web page (and a red line in the terminal header) when a message accepted by Bridge has waited more than 10 minutes without delivery, with the count, the oldest wait, the harness and attempts per message, and a link to Bridge incidents. The Overview Bridge card shows «Ожидает» in red with the held count. Data comes from Bridge delivery rows (custody `pending`, delivery `unhanded`/`reserved`/`invoking`/`held`/`review`) via `GET /api/v1/bridge/held`; the scan is bounded and says so when history was not fully read.
+
 ## [0.3.0] - 2026-11-24
 
 ### Added
@@ -133,6 +139,7 @@ First public release: the terminal Hub for Linux x86-64 (standalone executable).
 
 - Archived Tasks and IDE sources are denied by the observer; the terminal has no Tasks, IDE or Run info tabs.
 
+[0.3.1]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.3.1
 [0.3.0]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.3.0
 [0.2.10]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.2.10
 [0.2.9]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.2.9
