@@ -16,7 +16,7 @@ const headers = { 'Cache-Control': 'no-store' };
 const ROUTE_SOURCE = {
   sessions: 'run', session: 'run', sessionHistory: 'run', initialTask: 'run', sessionResult: 'run', sessionExport: 'run',
   pools: 'pool', pool: 'pool', poolSection: 'pool', poolHistory: 'pool', poolContent: 'pool', poolRecord: 'pool',
-  quota: 'quota', worktrees: 'worktree', worktree: 'worktree', incidents: 'bridge',
+  quota: 'quota', worktrees: 'worktree', worktree: 'worktree', incidents: 'bridge', held: 'bridge',
 } as const;
 
 /** Extracts the typed normalized query for a specific route. */
@@ -253,6 +253,8 @@ function handleFixture(catalog: FixtureCatalog, scenario: FixtureScenario, query
       return json({ items, projects }, page, [...observations, catalog.observations.run]);
     }
     case 'worktree': return json(required(catalog.worktrees.find(({ worktree }) => worktree.id === query.id)), undefined, [...observations, catalog.observations.run]);
+    // Fixtures hold no undelivered Bridge messages: the alarm stays hidden.
+    case 'held': return json({ items: [], complete: true });
     case 'incidents': {
       const rows = catalog.incidents.filter(incident =>
         (query.includeClosed || incident.closed === false) && inPeriod(incident.createdAtMs, query),

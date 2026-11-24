@@ -311,6 +311,27 @@ export function bridgeData(value: unknown, kind: string): Record<string, unknown
   }
   return row;
 }
+/** Bridge delivery states that mean custody was accepted but the message has not yet been handed over. */
+export const HELD_STATES: readonly string[] = ['unhanded', 'reserved', 'invoking', 'held', 'review'];
+
+/**
+ * Projects one Bridge delivery row into a content-free undelivered message, or null when the row is delivered,
+ * terminal, unknown or lacks an accepted clock. Bridge custody `pending` with an undelivered delivery state counts;
+ * `attempts_made` and `route_name` (harness product) are read, optional `hold_reason`/`recipient` too, when present and otherwise stay null; the row's shape beyond bridgeData's checks is not assumed.
+ */
+export function heldRow(value: unknown): { id: string; acceptedAtMs: number; state: string; holdReason: string | null; recipient: string | null; attempts: number | null } | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const row = value as Record<string, unknown>;
+  const seq = row.acceptance_seq, at = row.accepted_at_ms, state = row.delivery_state;
+  if (row.custody_state !== 'pending' || typeof state !== 'string' || !HELD_STATES.includes(state)) return null;
+  if (typeof seq !== 'number' || !Number.isSafeInteger(seq) || seq < 0) return null;
+  if (typeof at !== 'number' || !Number.isSafeInteger(at) || at < 0) return null;
+  const clean = (field: unknown) => typeof field === 'string' && field.trim() ? field.trim().slice(0, 200) : null;
+  const made = row.attempts_made ?? row.attempts;
+  const attempts = typeof made === 'number' && Number.isSafeInteger(made) && made >= 0 ? made : null;
+  return { id: 'delivery-' + seq, acceptedAtMs: at, state, holdReason: clean(row.hold_reason), recipient: clean(row.recipient) ?? clean(row.route_name), attempts };
+}
+
 /** Validates retained IDE snapshots without treating installation identity as daemon health. */
 export function ideData(value: unknown): Record<string, unknown> {
   const row = product(value, 'ide_observation');

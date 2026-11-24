@@ -404,3 +404,18 @@ html {
 .web-main { padding-bottom: calc(var(--web-main-bottom, 20px) + env(safe-area-inset-bottom, 0px)); }
 .web-shell[data-immersive] .web-main { padding-bottom: 0; }
 .web-shell[data-immersive] :is(.web-list-pane, .web-detail-pane) { padding-bottom: env(safe-area-inset-bottom, 0px); }
+
+/* Held-message alarm: destructive banner at the top of every page, both themes, phone width. */
+.web-held-alert { display: flex; gap: 10px; align-items: flex-start; margin-bottom: 12px; padding: 12px 14px; border-radius: 7px;
+  border: 1px solid var(--danger); color: var(--danger); background: color-mix(in srgb, var(--danger) 12%, var(--background)); overflow-wrap: anywhere; }
+.web-held-alert > svg { flex: none; margin-top: 2px; }
+.web-held-body { display: grid; gap: 4px; min-width: 0; }
+.web-held-body > strong { font-size: 1rem; }
+.web-held-body ul { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; font-size: .875rem; }
+.web-held-body li { display: flex; flex-wrap: wrap; gap: 2px 10px; min-width: 0; }
+.web-held-recipient { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.web-held-more { font-size: .813rem; }
+.web-held-link { font-weight: 600; text-decoration: underline; color: inherit; justify-self: start; }
+.web-shell[data-immersive] .web-main > .web-held-alert { margin: 0; border-radius: 0; border-inline: 0; }
+.web-metric-alarm { color: var(--danger); background: color-mix(in srgb, var(--danger) 12%, var(--secondary)); border: 1px solid var(--danger); }
+.web-metric-alarm > span, .web-metric-alarm strong { color: var(--danger); }
