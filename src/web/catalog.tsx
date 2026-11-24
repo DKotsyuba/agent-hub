@@ -1,5 +1,6 @@
 /** Overview, Bridge, Quota and Worktree presentation over v1 observations. */
 import { useEffect, useRef, type ReactNode } from 'react';
+import { RotateCcw } from 'lucide-react';
 import type { Overview as OverviewData, Topic, Worktree } from '@agent-hub/domain';
 import { badgeVariants } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
@@ -134,7 +135,7 @@ function OverviewQuotaRow({ account, title, discriminator, focus, now }: {
       <span className="web-quota-reading">
         {credits.count !== null && credits.count > 0 && <span className={badgeVariants({ variant: 'outline', className: 'shrink-0 whitespace-nowrap' })}
           title={creditExpiry(credits.soonestExpiryMs, now, label, n)}>
-          <span className="sr-only">{label('Banked resets')} </span><span aria-hidden="true">↺&nbsp;</span>{n(credits.count)}
+          <span className="sr-only">{label('Banked resets')} </span><RotateCcw aria-hidden="true" className="mr-1 size-3" />{n(credits.count)}
         </span>}
         {account.latches.some(latch => latch.active) && focus?.rank !== 0 && <StatusBadge state="exhausted" />}
         {value === null ? <span className="web-muted">{label('quota unknown')}</span> : <span className="web-quota-value">{percent(value)}</span>}</span></span>
@@ -211,21 +212,34 @@ function creditScope(scope: string, label: (key: string) => string) {
   }
 }
 
-/** Shows the account's available reset count and credit details on compact lines. */
+/** Localizes the providers' generic credit names; specific provider labels stay verbatim. */
+function creditLabel(text: string, label: (key: string) => string) {
+  if (text === 'Banked Reset Credit') return label('Reset credit generic');
+  if (text === 'Full reset') return label('Reset credit full');
+  return text;
+}
+
+/** Shows usable resets grouped by name, scope and expiry; hidden when the inventory is unknown. */
 function QuotaResetCredits({ account, now }: { account: QuotaAccount; now: number }) {
   const { label, n } = useWebText();
   const { count, credits } = quotaResetCredits(account.resetCredits);
+  if (count === null) return null;
+  const groups = new Map<string, { name: string; scope: string; expiry: string; size: number }>();
+  for (const credit of credits) {
+    const name = creditLabel(credit.label, label);
+    const scope = creditScope(credit.scope, label);
+    const expiry = creditExpiry(credit.expiresAtMs, now, label, n);
+    const key = [name, scope, expiry].join('\u0000');
+    const group = groups.get(key);
+    if (group) group.size += 1; else groups.set(key, { name, scope, expiry, size: 1 });
+  }
   return <div className="min-w-0 text-sm">
-    <p className={count ? undefined : 'web-muted'}>{label('Banked resets')}: {count === null ? label('Reset credits no data') : n(count)}</p>
-    {credits.length > 0 && <ul className="mt-1 space-y-1">
-      {credits.map(credit => {
-        const scope = creditScope(credit.scope, label);
-        return <li key={credit.id} className="flex min-w-0 items-baseline gap-2">
-          <span className="min-w-0 flex-1 truncate" title={credit.label}>{credit.label}</span>
-          <span className="web-muted max-w-[35%] truncate" title={scope}>{scope}</span>
-          <span className="web-muted shrink-0">{creditExpiry(credit.expiresAtMs, now, label, n)}</span>
-        </li>;
-      })}
+    <p className={count ? undefined : 'web-muted'}>{label('Banked resets')}: {n(count)}</p>
+    {groups.size > 0 && <ul className="mt-1 space-y-1.5">
+      {[...groups.entries()].map(([key, group]) => <li key={key} className="min-w-0">
+        <p className="truncate" title={group.name}>{group.size > 1 && <span className="web-muted">{n(group.size)} × </span>}{group.name}</p>
+        <p className="web-muted truncate">{group.scope === '—' ? group.expiry : group.scope + ' · ' + group.expiry}</p>
+      </li>)}
     </ul>}
   </div>;
 }

@@ -4,6 +4,12 @@ All notable changes to Agent Hub are documented here. The format follows [Keep a
 
 ## [Unreleased]
 
+## [0.2.10] - 2026-11-24
+
+### Changed
+
+- Quota reset credits: identical resets are grouped ("3 × Reset"), each group shows its name on one line and scope · expiry on the next, generic provider names are localized, the Overview badge uses a vector icon, and the row is hidden when Quota cannot read the inventory.
+
 ## [0.2.9] - 2026-11-24
 
 ### Added
@@ -121,6 +127,7 @@ First public release: the terminal Hub for Linux x86-64 (standalone executable).
 
 - Archived Tasks and IDE sources are denied by the observer; the terminal has no Tasks, IDE or Run info tabs.
 
+[0.2.10]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.2.10
 [0.2.9]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.2.9
 [0.2.8]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.2.8
 [0.2.7]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.2.7
