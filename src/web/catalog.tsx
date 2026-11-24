@@ -1,13 +1,14 @@
 /** Overview, Bridge, Quota and Worktree presentation over v1 observations. */
 import { useEffect, useRef, type ReactNode } from 'react';
 import type { Overview as OverviewData, Topic, Worktree } from '@agent-hub/domain';
+import { badgeVariants } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { Progress } from '../components/ui/progress';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import { Panel } from '../components/hub-primitives';
 import { client, usePagedRead, useRead } from './data';
 import { modelTitle, quotaAccountTitle, quotaAdviceKind, worktreeMeasurements, sessionTitle } from './model';
-import { accountTitle, branchLabel, formatBytes, projectQuotaSnapshot, projectQuotaStatus, quotaAccountFocus, quotaModelRemaining, quotaWindowForecast, windowSeconds, type QuotaAccount, type QuotaSnapshot } from '../../packages/view-model/src/index';
+import { accountTitle, branchLabel, formatBytes, projectQuotaSnapshot, projectQuotaStatus, quotaAccountFocus, quotaModelRemaining, quotaResetCredits, quotaWindowForecast, windowSeconds, type QuotaAccount, type QuotaSnapshot } from '../../packages/view-model/src/index';
 import { CoverageLine, EmptyRows, Expand, Facts, href, Link, ReadState, relativeTime, sessionHref, SourceEvidence, Sources, StatusBadge, Text, useEvidence, useWebText } from './ui';
 
 /** URL period bounds are shared with the Bridge and failed execution drill-downs. */
@@ -127,9 +128,14 @@ function OverviewQuotaRow({ account, title, discriminator, focus, now }: {
   const untilReset = reset === null ? null : label('Time until reset').replace('{time}', forecastDuration(reset - now / 1000, label, n));
   const runsOut = focus?.rank === 1 ? label('Runs out in').replace('{time}', forecastDuration(focus.urgency, label, n)) : null;
   const window = focus && quotaWindowName(focus.window, label, false);
+  const credits = quotaResetCredits(account.resetCredits);
   return <Link className="web-quota-brief" href={href('/quota', { account: account.account })} data-stale={stale || undefined}>
     <span className="web-quota-brief-line"><strong>{title}{discriminator && <span className="web-muted"> · {discriminator}</span>}</strong>
       <span className="web-quota-reading">
+        {credits.count !== null && credits.count > 0 && <span className={badgeVariants({ variant: 'outline', className: 'shrink-0 whitespace-nowrap' })}
+          title={creditExpiry(credits.soonestExpiryMs, now, label, n)}>
+          <span className="sr-only">{label('Banked resets')} </span><span aria-hidden="true">↺&nbsp;</span>{n(credits.count)}
+        </span>}
         {account.latches.some(latch => latch.active) && focus?.rank !== 0 && <StatusBadge state="exhausted" />}
         {value === null ? <span className="web-muted">{label('quota unknown')}</span> : <span className="web-quota-value">{percent(value)}</span>}</span></span>
     {focus && value !== null && <>
@@ -185,6 +191,43 @@ function forecastDuration(seconds: number, label: (key: string) => string, n: (a
   if (hours < 24) return n(hours) + ' ' + label('hour short');
   const days = Math.floor(hours / 24), rest = hours % 24;
   return n(days) + ' ' + label('day short') + (rest ? ' ' + n(rest) + ' ' + label('hour short') : '');
+}
+
+/** Formats a reported expiry against the current millisecond clock. */
+function creditExpiry(at: number | null, now: number, label: (key: string) => string, n: (amount: number) => string) {
+  if (at === null) return label('Credit expiry unknown');
+  if (at <= now) return label('Credit expired');
+  return label('Credit expires in').replace('{time}', forecastDuration((at - now) / 1000, label, n));
+}
+
+/** Names the window or model refilled by a banked reset. */
+function creditScope(scope: string, label: (key: string) => string) {
+  switch (scope) {
+    case 'all': return label('Credit scope all');
+    case 'five_hour': return label('Credit scope five hours');
+    case 'seven_day': return label('Credit scope week');
+    default: return scope.startsWith('model:') && scope.length > 6
+      ? label('Credit scope model').replace('{model}', () => scope.slice(6)) : '—';
+  }
+}
+
+/** Shows the account's available reset count and credit details on compact lines. */
+function QuotaResetCredits({ account, now }: { account: QuotaAccount; now: number }) {
+  const { label, n } = useWebText();
+  const { count, credits } = quotaResetCredits(account.resetCredits);
+  return <div className="min-w-0 text-sm">
+    <p className={count ? undefined : 'web-muted'}>{label('Banked resets')}: {count === null ? label('Reset credits no data') : n(count)}</p>
+    {credits.length > 0 && <ul className="mt-1 space-y-1">
+      {credits.map(credit => {
+        const scope = creditScope(credit.scope, label);
+        return <li key={credit.id} className="flex min-w-0 items-baseline gap-2">
+          <span className="min-w-0 flex-1 truncate" title={credit.label}>{credit.label}</span>
+          <span className="web-muted max-w-[35%] truncate" title={scope}>{scope}</span>
+          <span className="web-muted shrink-0">{creditExpiry(credit.expiresAtMs, now, label, n)}</span>
+        </li>;
+      })}
+    </ul>}
+  </div>;
 }
 
 /** Identifies the deficit window separately from the model with the lowest balance. */
@@ -279,6 +322,7 @@ function QuotaCard({ account, title, discriminator, now, selected = false }: { a
     {exhausted && <StatusBadge state="exhausted" />}
   </div>}>
     <div className="web-panel-body" ref={body}>
+      <QuotaResetCredits account={account} now={now} />
       {windows.length === 0 && <p className="web-empty">{label('No account windows reported')}</p>}
       {windows.map((window, i) => <QuotaRow key={i} title={quotaWindowName(window, label, windows.some(other => other !== window && other.window === window.window && !other.lane.startsWith('model:')))}
         value={samples[i].remaining} reset={samples[i].resetAt} now={now} risk={window.risk} forecast={samples[i]}

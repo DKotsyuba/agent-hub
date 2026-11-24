@@ -691,6 +691,30 @@ test('overview keeps partial later pages and missing Bridge clocks out of exact 
   } finally { await http.close(); }
 });
 
+test('HTTP Quota preserves optional account reset credits and existing windows', async () => {
+  const native = await producer();
+  const http = handler({ close: native.close, async read(resource, params, signal) {
+    const result = await native.read(resource, params, signal);
+    if (resource === 'quota.snapshot') {
+      const [first] = object(result.data).accounts as Record<string, unknown>[];
+      first.reset_credits = { known: true, available_count: 2, observed_at: 100, credits: [{
+        id: 'credit', provider_kind: 'codex', label: 'Banked reset', scope: 'all',
+        resets_left: 2, usable_now: true, granted_at: null, expires_at: 200,
+      }] };
+    }
+    return result;
+  } });
+  try {
+    const accounts = (await get(http, 'quota', '/quota')).data.snapshot?.accounts;
+    assert.ok(accounts?.[0].windows.length);
+    assert.deepEqual(accounts[0].resetCredits, { known: true, availableCount: 2, observedAtMs: 100000, credits: [{
+      id: 'credit', providerKind: 'codex', label: 'Banked reset', scope: 'all',
+      resetsLeft: 2, usableNow: true, grantedAtMs: null, expiresAtMs: 200000,
+    }] });
+    assert.equal(accounts[1].resetCredits, undefined);
+  } finally { await http.close(); }
+});
+
 test('terminal Quota snapshot uses its own resource receipt when status is unavailable', async () => {
   const native = await producer();
   const http = handler({ close: native.close, async read(resource, params, signal) {

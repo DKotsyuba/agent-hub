@@ -1,7 +1,7 @@
 /** Contract checks for route normalization and evidence-bearing decoders. */
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { API_PREFIX, API_RESPONSES, API_ROUTES, apiError, event, initialTask, parseApiRequest } from '../src/index.ts';
+import { API_PREFIX, API_RESPONSES, API_ROUTES, apiError, event, initialTask, parseApiRequest, quota } from '../src/index.ts';
 
 /** Resolves relative test inputs without using a network transport. */
 function request(fragment: string) {
@@ -52,4 +52,15 @@ test('pool queries support lifecycle and legacy closure filters', () => {
     const query = request('/pools?state=' + state);
     assert.equal(query?.route === 'pools' && query.state, state);
   }
+});
+
+test('Quota API account decoder preserves reset credit counts and tolerates absent or malformed metadata', () => {
+  const base = { account: 'test', advice: [], models: [], windows: [], latches: [] };
+  const credits = { known: true, availableCount: 0, observedAtMs: null, credits: [] };
+  const result = quota({ status: null, snapshot: {
+    revision: null, evaluatedAtMs: null, configRevision: null,
+    coverage: { state: 'complete', unobserved: [], lastCollectionAtMs: null, lastCollectionOk: null, sources: [] },
+    accounts: [base, { ...base, resetCredits: credits }, { ...base, resetCredits: { ...credits, availableCount: '2' } }],
+  } });
+  assert.deepEqual(result.snapshot?.accounts, [base, { ...base, resetCredits: credits }, base]);
 });

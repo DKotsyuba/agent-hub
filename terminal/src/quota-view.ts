@@ -1,7 +1,7 @@
 /** Presentation model of the Quota tab and Overview card: per-account blocks, per-window bars and pace.
  * Pure and renderer-independent: it maps the already validated snapshot to rows of toned spans.
  * Unknown stays Unknown (dim, empty bar) and is never converted to zero capacity. */
-import { accountTitle, quotaModelRemaining, quotaWindowForecast, windowSeconds } from '../../packages/view-model/src/index.ts';
+import { accountTitle, quotaModelRemaining, quotaResetCredits, quotaWindowForecast, windowSeconds } from '../../packages/view-model/src/index.ts';
 import stringWidth from 'string-width';
 import { span } from './quota.ts';
 import type { QuotaAccount, QuotaModel, QuotaSnapshot, QuotaSource, QuotaWindow, Tone } from './quota.ts';
@@ -87,6 +87,7 @@ export interface WindowView {
 /** One account prepared for display. */
 export interface AccountView {
   account: string; provider: string; sources: string[]; badge: Badge; badgeTone: Tone; updatedAt: number | null; stale: boolean;
+  resets: ReturnType<typeof quotaResetCredits>;
   windows: WindowView[]; orphans: ModelRowView[]; warnings: { text: string; tone: Tone }[]; constraining: WindowView | null;
 }
 
@@ -168,7 +169,7 @@ export function accountView(account: QuotaAccount, sources: QuotaSource[], now: 
   for (const advice of unique(account.advice)) warnings.push({ text: advice, tone: 'warn' });
   const constraining = [...knownWindows].sort((a, b) => SEVERITY[b.tone] - SEVERITY[a.tone] || a.remaining! - b.remaining! || (a.resetAt ?? Infinity) - (b.resetAt ?? Infinity))[0] ?? null;
   return {
-    account: account.account, provider: providers.length ? providers.join(', ') : 'Unknown', sources: sourceNames, badge,
+    account: account.account, resets: quotaResetCredits(account.resetCredits), provider: providers.length ? providers.join(', ') : 'Unknown', sources: sourceNames, badge,
     badgeTone: badge === 'OK' ? 'good' : badge === 'UNKNOWN' ? 'muted' : badge === 'AT RISK' ? 'warn' : 'error', updatedAt, stale, windows, orphans, warnings, constraining,
   };
 }
@@ -239,6 +240,10 @@ function accountRows(view: AccountView, width: number, now: number): Row[] {
   tidy(leftRight(
     [{ text: accountTitle(view.account, view.provider.split(', ')), tone: 'accent', bold: true }, { text: `  ${accountTitle(view.account, view.provider.split(', ')) === view.account ? view.provider : view.account}`, tone: 'muted' }],
     [{ text: updated, tone: view.stale ? 'error' : 'muted' }, { text: '  ', tone: 'text' }, { text: `[${view.badge}]`, tone: view.badgeTone, bold: true }], inner));
+  const { count, soonestExpiryMs } = view.resets;
+  const expiry = soonestExpiryMs === null ? '' : soonestExpiryMs / 1000 <= now
+    ? ' · expired' : ` · expires in ${span(soonestExpiryMs / 1000 - now)}`;
+  card([{ text: `Resets: ${count ?? 'no data'}${expiry}`, tone: count ? 'text' : 'muted' }]);
   if (!view.windows.length && !view.orphans.length) { blank(); card([{ text: 'No windows reported.', tone: 'muted' }]); }
   for (const window of view.windows) {
     blank();
