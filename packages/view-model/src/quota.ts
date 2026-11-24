@@ -1,6 +1,9 @@
 /** Runtime-checked Quota snapshot (schema 2) and status projections for display only.
  * Absent or null producer values stay Unknown; they are never shown as zero capacity. */
 
+import type { ResetCredits } from '../../domain/src/index.ts';
+import { array, bool, count, nullable, number, object, text as string } from '../../domain/src/schema.ts';
+
 /** Recognized model state classes; any other value rejects the snapshot. */
 export type QuotaState = 'known' | 'unknown' | 'exhausted';
 
@@ -20,8 +23,8 @@ export interface QuotaWindow {
 }
 /** An exhaustion latch, independent of sample freshness. */
 export interface QuotaLatch { pool: string; window: string; source: string; active: boolean; observedAt: number | null; resetAt: number | null; models: string[] }
-/** One account's models, windows, latches and advice. */
-export interface QuotaAccount { account: string; models: QuotaModel[]; windows: QuotaWindow[]; latches: QuotaLatch[]; advice: string[] }
+/** One account’s models, windows, latches, advice and optional reset credits. */
+export interface QuotaAccount { account: string; models: QuotaModel[]; windows: QuotaWindow[]; latches: QuotaLatch[]; advice: string[]; resetCredits?: ResetCredits }
 /** One collection source result from the latest round. */
 export interface QuotaSource { account: string; provider: string; source: string; status: string; windows: number | null; issues: string[] }
 /** Snapshot projection; raw producer payload remains in the envelope. */
@@ -105,6 +108,47 @@ function rows(value: unknown, field: string): Record<string, unknown>[] {
   return value.map(item => record(item, field));
 }
 
+/** Agent Quota 0.2.3 credit report with producer timestamps in epoch seconds. */
+const producerResetCredits = object({
+  known: bool, available_count: nullable(count), observed_at: nullable(number),
+  credits: array(object({
+    id: string, provider_kind: string, label: string, scope: string, resets_left: nullable(count),
+    usable_now: nullable(bool), granted_at: nullable(number), expires_at: nullable(number),
+  })),
+});
+
+/** Converts a producer clock to the Hub credit representation, preserving missing clocks. */
+function creditClock(seconds: number | null): number | null {
+  const ms = seconds === null ? null : Math.round(seconds * 1000);
+  return ms !== null && Number.isSafeInteger(ms) && ms >= 0 ? ms : null;
+}
+
+/** Parses optional credit metadata independently of existing account observations. */
+function parseResetCredits(value: unknown): ResetCredits | undefined {
+  if (value == null) return undefined;
+  try {
+    const report = producerResetCredits(value);
+    return {
+      known: report.known, availableCount: report.available_count, observedAtMs: creditClock(report.observed_at),
+      credits: report.credits.map(credit => ({
+        id: credit.id, providerKind: credit.provider_kind, label: credit.label, scope: credit.scope,
+        resetsLeft: credit.resets_left, usableNow: credit.usable_now,
+        grantedAtMs: creditClock(credit.granted_at), expiresAtMs: creditClock(credit.expires_at),
+      })),
+    };
+  } catch { return undefined; }
+}
+
+/** Orders usable credits by expiry, then other credits, and exposes the first usable expiry in milliseconds. */
+export function quotaResetCredits(report: ResetCredits | undefined) {
+  if (!report?.known) return { count: null, credits: [], soonestExpiryMs: null };
+  const credits = [...report.credits].sort((a, b) =>
+    Number(b.usableNow === true) - Number(a.usableNow === true)
+    || (a.expiresAtMs ?? Infinity) - (b.expiresAtMs ?? Infinity));
+  const soonestExpiryMs = credits.find(credit => credit.usableNow === true)?.expiresAtMs ?? null;
+  return { count: report.availableCount, credits, soonestExpiryMs };
+}
+
 /** Validates the fields this view uses; unknown state values reject the whole snapshot. */
 export function quotaSnapshot(value: unknown): QuotaSnapshot {
   const data = record(value, 'snapshot');
@@ -123,6 +167,7 @@ export function quotaSnapshot(value: unknown): QuotaSnapshot {
       const account = record(item, 'account');
       return {
         account: text(account.account, 'account_id'),
+        resetCredits: parseResetCredits(account.reset_credits),
         models: rows(account.models, 'models').map(model => {
           const state = text(model.state, 'state') as QuotaState;
           if (!STATES.has(state)) throw new Error('quota_state');

@@ -16,7 +16,7 @@ function snapshot(value: unknown): NonNullable<Quota['snapshot']> {
     revision: parsed.revision, configRevision: parsed.configRevision, evaluatedAtMs: ms(parsed.evaluatedAt),
     coverage: { ...parsed.coverage, lastCollectionAtMs: ms(parsed.coverage.lastCollectionAt) },
     accounts: parsed.accounts.map(account => ({
-      account: account.account, advice: account.advice,
+      account: account.account, advice: account.advice, resetCredits: account.resetCredits,
       models: account.models.map(({ validity, resetAt, newestObservedAt, exhaustedUntil, ...model }) => ({
         ...model, validity: validity.kind === 'until' ? { kind: 'until', atMs: ms(validity.at)! } : validity,
         resetAtMs: ms(resetAt), newestObservedAtMs: ms(newestObservedAt), exhaustedUntilMs: ms(exhaustedUntil),

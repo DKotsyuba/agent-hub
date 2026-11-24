@@ -342,3 +342,16 @@ test('empty and missing snapshots render an explicit empty state', () => {
   const bare = variant(account => { account.windows = []; });
   assert.match(all(quotaRows(bare, NOW, 80)), /No window reported for:|No windows reported/);
 });
+
+test('account rows show banked reset count and the earliest usable expiry', () => {
+  const output = (snapshot: ReturnType<typeof quotaSnapshot>) => all(quotaRows(snapshot, NOW, 80));
+  assert.match(output(variant(() => {})), /Resets: no data/);
+  const report = { known: true, available_count: 0, observed_at: NOW, credits: [] };
+  assert.match(output(variant(account => { account.reset_credits = report; })), /Resets: 0/);
+  const row = { id: 'credit', provider_kind: 'codex', label: 'Banked reset', scope: 'all',
+    resets_left: 2, usable_now: true, granted_at: NOW, expires_at: NOW + 25 * 3600 };
+  assert.match(output(variant(account => {
+    account.reset_credits = { ...report, available_count: 2, credits: [row,
+      { ...row, id: 'unusable', usable_now: false, expires_at: NOW + 100 }] };
+  })), /Resets: 2 · expires in 1d 1h/);
+});

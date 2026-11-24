@@ -61,9 +61,28 @@ const quotaLatch = object({
   ...quotaKey, active: bool, observedAtMs: nullable(count), resetAtMs: nullable(count), models: array(text),
 });
 
+/** Optional reset credits in the Hub API, with timestamps in epoch milliseconds. */
+const resetCredits = object({
+  known: bool, availableCount: nullable(count), observedAtMs: nullable(count),
+  credits: array(object({
+    id: text, providerKind: text, label: text, scope: text, resetsLeft: nullable(count),
+    usableNow: nullable(bool), grantedAtMs: nullable(count), expiresAtMs: nullable(count),
+  })),
+});
+
+/** Reported banked resets and their individual expiry clocks. */
+export type ResetCredits = Decoded<typeof resetCredits>;
+
+/** Treats an unreadable optional credit report as missing without losing account windows. */
+function optionalResetCredits(value: unknown): ResetCredits | undefined {
+  if (value === undefined) return undefined;
+  try { return resetCredits(value); } catch { return undefined; }
+}
+
 /** Account projection with advice and technical detail. */
 const quotaAccount = object({
   account: text, models: array(quotaModel), windows: array(quotaWindow), latches: array(quotaLatch), advice: array(text),
+  resetCredits: optionalResetCredits,
 });
 
 /** Quota's validated collection results and coverage. */
