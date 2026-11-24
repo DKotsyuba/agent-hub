@@ -325,7 +325,7 @@ export default function App() {
     {headerControls}
   </div>;
 
-  return <Navigation.Provider value={go}><LiveContext.Provider value={{ ...live, refresh, unreachable, reportRead }}>
+  return <Navigation.Provider value={go}><LiveContext.Provider value={{ ...live, refresh, unreachable, reportRead, requestRefresh: () => setRefresh(value => value + 1) }}>
     <div className="web-shell" data-sidebar={expanded ? 'expanded' : 'collapsed'} data-immersive={immersive || undefined}>
       <a className="skip-link" href="#web-main">{label('Skip to content')}</a>
       <TooltipProvider delayDuration={250}><aside className="web-rail" id="web-sidebar">

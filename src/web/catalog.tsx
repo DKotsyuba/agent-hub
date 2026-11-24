@@ -8,6 +8,7 @@ import { Progress } from '../components/ui/progress';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import { Panel } from '../components/hub-primitives';
 import { client, usePagedRead, useRead } from './data';
+import { RedeemButton, RedeemStatus, useRedeem } from './redeem';
 import { modelTitle, quotaAccountTitle, quotaAdviceKind, worktreeMeasurements, sessionTitle } from './model';
 import { accountTitle, branchLabel, formatBytes, projectQuotaSnapshot, projectQuotaStatus, quotaAccountFocus, quotaModelRemaining, quotaResetCredits, quotaWindowForecast, windowSeconds, type QuotaAccount, type QuotaSnapshot } from '../../packages/view-model/src/index';
 import { CoverageLine, EmptyRows, Expand, Facts, href, Link, ReadState, relativeTime, sessionHref, SourceEvidence, Sources, StatusBadge, Text, useEvidence, useWebText } from './ui';
@@ -220,27 +221,37 @@ function creditLabel(text: string, label: (key: string) => string) {
 }
 
 /** Shows usable resets grouped by name, scope and expiry; hidden when the inventory is unknown. */
-function QuotaResetCredits({ account, now }: { account: QuotaAccount; now: number }) {
+function QuotaResetCredits({ account, title, now }: { account: QuotaAccount; title: string; now: number }) {
   const { label, n } = useWebText();
+  const redeem = useRedeem();
   const { count, credits } = quotaResetCredits(account.resetCredits);
   if (count === null) return null;
-  const groups = new Map<string, { name: string; scope: string; expiry: string; size: number }>();
+  const groups = new Map<string, { name: string; scope: string; expiry: string; size: number; usableId: string | null }>();
   for (const credit of credits) {
     const name = creditLabel(credit.label, label);
     const scope = creditScope(credit.scope, label);
     const expiry = creditExpiry(credit.expiresAtMs, now, label, n);
     const key = [name, scope, expiry].join('\u0000');
+    // Credits arrive usable-first by expiry, so the first usable id of a group is its soonest-expiring credit.
+    const usable = credit.usableNow === true && (credit.expiresAtMs === null || credit.expiresAtMs > now);
     const group = groups.get(key);
-    if (group) group.size += 1; else groups.set(key, { name, scope, expiry, size: 1 });
+    if (group) { group.size += 1; group.usableId ??= usable ? credit.id : null; }
+    else groups.set(key, { name, scope, expiry, size: 1, usableId: usable ? credit.id : null });
   }
+  const working = redeem.state.phase === 'working';
   return <div className="min-w-0 text-sm">
     <p className={count ? undefined : 'web-muted'}>{label('Banked resets')}: {n(count)}</p>
     {groups.size > 0 && <ul className="mt-1 space-y-1.5">
-      {[...groups.entries()].map(([key, group]) => <li key={key} className="min-w-0">
-        <p className="truncate" title={group.name}>{group.size > 1 && <span className="web-muted">{n(group.size)} × </span>}{group.name}</p>
-        <p className="web-muted truncate">{group.scope === '—' ? group.expiry : group.scope + ' · ' + group.expiry}</p>
+      {[...groups.entries()].map(([key, group]) => <li key={key} className="flex min-w-0 items-start justify-between gap-2">
+        <div className="min-w-0 flex-1">
+          <p className="truncate" title={group.name}>{group.size > 1 && <span className="web-muted">{n(group.size)} × </span>}{group.name}</p>
+          <p className="web-muted truncate">{group.scope === '—' ? group.expiry : group.scope + ' · ' + group.expiry}</p>
+        </div>
+        {group.usableId && <RedeemButton busy={working} onConfirm={redeem.start}
+          target={{ account: account.account, accountTitle: title, creditId: group.usableId, name: group.name, scope: group.scope, expiry: group.expiry }} />}
       </li>)}
     </ul>}
+    <RedeemStatus state={redeem.state} />
   </div>;
 }
 
@@ -336,7 +347,7 @@ function QuotaCard({ account, title, discriminator, now, selected = false }: { a
     {exhausted && <StatusBadge state="exhausted" />}
   </div>}>
     <div className="web-panel-body" ref={body}>
-      <QuotaResetCredits account={account} now={now} />
+      <QuotaResetCredits account={account} title={title} now={now} />
       {windows.length === 0 && <p className="web-empty">{label('No account windows reported')}</p>}
       {windows.map((window, i) => <QuotaRow key={i} title={quotaWindowName(window, label, windows.some(other => other !== window && other.window === window.window && !other.lane.startsWith('model:')))}
         value={samples[i].remaining} reset={samples[i].resetAt} now={now} risk={window.risk} forecast={samples[i]}

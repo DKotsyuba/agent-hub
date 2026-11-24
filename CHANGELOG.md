@@ -4,6 +4,12 @@ All notable changes to Agent Hub are documented here. The format follows [Keep a
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-24
+
+### Added
+
+- Quota: a "Сбросить" / "Reset" button on each group of usable banked resets (web only). It opens a confirmation naming the account, reset, what it refills and its expiry, warns that the action is irreversible, then redeems one credit through Agent Quota and follows the attempt for up to a minute. This is the Hub's first mutating action: `POST /api/v1/quota/redeem` and `GET /api/v1/quota/redeem/:request_id`, same-origin only, guarded by the `X-Agent-Hub-Action: redeem` header, JSON content type, strict validation and a double-submit guard. The native observer and the terminal client stay read-only.
+
 ## [0.2.10] - 2026-11-24
 
 ### Changed
@@ -127,6 +133,7 @@ First public release: the terminal Hub for Linux x86-64 (standalone executable).
 
 - Archived Tasks and IDE sources are denied by the observer; the terminal has no Tasks, IDE or Run info tabs.
 
+[0.3.0]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.3.0
 [0.2.10]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.2.10
 [0.2.9]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.2.9
 [0.2.8]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.2.8

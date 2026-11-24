@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { createHttp } from './http.ts';
 import { errorResponse, HubError } from './errors.ts';
 import { createNativeClient } from './observer.ts';
+import { createQuotaRedeemClient, createRedeemService } from './redeem.ts';
 import project from '../../package.json';
 
 /** Limited Bun server controls used by the application. */
@@ -119,6 +120,7 @@ async function main(): Promise<void> {
     localHost: unix !== null ? 'localhost' : '127.0.0.1:' + Number(value),
     publicOrigin: publicOrigin(process.env.AGENT_HUB_PUBLIC_ORIGIN), release: project.version,
     webRoot: resolve(root, compiled ? 'share/web' : 'dist'),
+    redeem: createRedeemService(createQuotaRedeemClient()),
   });
   const listener = await listen(http, unix === null ? { port: Number(value) } : { unix });
   /** Stops intake immediately, then waits for owned work before leaving the service. */

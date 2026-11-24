@@ -109,7 +109,7 @@ export function pagedResponse<T>(data: Decoder<T>) {
 
 /** Stable machine codes and their HTTP statuses. */
 export const ERROR_STATUS = {
-  invalid_request: 400, not_found: 404, method_not_allowed: 405, stale_boundary: 409,
+  invalid_request: 400, forbidden: 403, not_found: 404, method_not_allowed: 405, stale_boundary: 409,
   unsupported_capability: 422, saturated: 429, invalid_projection: 502, source_unavailable: 503,
 } as const;
 

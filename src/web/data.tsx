@@ -1,7 +1,7 @@
 /** Shared browser read lifecycle and SSE invalidation for the visible route. */
 import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import type { HubEvent, Observation, Topic } from '@agent-hub/domain';
-import { createHubClient, HubHttpError } from './client';
+import { createHubClient, createRedeemClient, HubHttpError } from './client';
 
 /** Uses same-origin requests and preserves the browser's finite-read error codes. */
 export const client = createHubClient({ fetch: async (input, options) => {
@@ -13,9 +13,12 @@ export const client = createHubClient({ fetch: async (input, options) => {
   }
 } });
 
+/** Same-origin transport for the redeem action; fetch failures stay distinguishable from a server refusal. */
+export const redeemClient = createRedeemClient({ fetch: (input, options) => fetch(input, { ...options, cache: 'no-store' }) });
+
 /** Current subscription invalidations, source states and explicit refresh generation. */
 export const LiveContext = createContext<{
-  visible: boolean; events: ReadonlyMap<Topic, HubEvent>; sourceEvents?: ReadonlyMap<Topic, readonly Observation[]>; refresh: number; unreachable?: boolean; reportRead?: (at: number) => void;
+  visible: boolean; events: ReadonlyMap<Topic, HubEvent>; sourceEvents?: ReadonlyMap<Topic, readonly Observation[]>; refresh: number; unreachable?: boolean; reportRead?: (at: number) => void; requestRefresh?: () => void;
 }>({ visible: true, events: new Map(), refresh: 0 });
 
 /** Closes the scoped stream on hide and revalidates through ready after reopening. */
