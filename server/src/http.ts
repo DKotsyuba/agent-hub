@@ -1,9 +1,9 @@
-/** Read-only v1 HTTP dispatch, request authority and release asset serving. */
+/** v1 HTTP dispatch (read-only except the single redeem action), request authority and release asset serving. */
 import { createHash } from 'node:crypto';
 import { lstat, readFile, realpath } from 'node:fs/promises';
 import { extname, join, sep } from 'node:path';
 import type { RunStatusRequest } from '../../terminal/src/run-status.ts';
-import { API_RESPONSES, API_VERSION, parseApiRequest } from '@agent-hub/domain';
+import { API_RESPONSES, API_VERSION, REDEEM_HEADER, REDEEM_HEADER_VALUE, REDEEM_PATH, REQUEST_ID, parseApiRequest, redeemRecord, redeemRequest } from '@agent-hub/domain';
 import { Cursors } from './cursor.ts';
 import { HubError, errorResponse, logSourceFailure } from './errors.ts';
 import { Events } from './events.ts';
@@ -13,6 +13,7 @@ import { pool, poolContent, poolHistory, poolRecord, pools, poolSection } from '
 import { ReadContext } from './projection.ts';
 import { initialTask, sessionDetail, sessionExport, sessionHistory, sessionResult, sessions } from './run.ts';
 import { shareReads } from './reads.ts';
+import type { RedeemService } from './redeem.ts';
 
 /** Bounds aggregate projection work and one serialized finite API body. */
 const FINITE_LIMIT = 24;
@@ -70,6 +71,16 @@ export interface HttpOptions {
   publicOrigin?: string;
   release: string;
   webRoot: string;
+  /** Enables the redeem action; absent means the server stays strictly read-only. */
+  redeem?: RedeemService;
+}
+
+/** Largest accepted redeem request body, matching the listener's own limit. */
+const REDEEM_BODY_LIMIT = 1024;
+
+/** Accepts only `application/json`, optionally with a UTF-8 charset. */
+function jsonContentType(value: string | null): boolean {
+  return value !== null && /^application\/json\s*(?:;\s*charset=utf-?8\s*)?$/i.test(value);
 }
 
 /** Creates an isolated handler and shutdown owner, reusable in integration tests. */
@@ -84,6 +95,45 @@ export function createHttp(native: ObservationClient, options: HttpOptions) {
   const publicHost = options.publicOrigin ? new URL(options.publicOrigin).host : null;
   const loopbackOrigin = options.localHost.startsWith('127.0.0.1:') ? 'http://' + options.localHost : null;
 
+  /** Handles the only mutating route. Every refusal happens before Quota is contacted. */
+  async function redeemSubmit(request: Request, url: URL): Promise<Response> {
+    // Same-origin proof: the general Host/Origin check already ran; a mutation additionally requires an explicit Origin.
+    if (request.headers.get('origin') === null) throw new HubError('forbidden');
+    const site = request.headers.get('sec-fetch-site');
+    if (site !== null && site !== 'same-origin') throw new HubError('forbidden');
+    if (request.headers.get(REDEEM_HEADER) !== REDEEM_HEADER_VALUE) throw new HubError('forbidden');
+    if (!options.redeem) throw new HubError('unsupported_capability');
+    if (url.search || !jsonContentType(request.headers.get('content-type'))) throw new HubError('invalid_request');
+    const length = request.headers.get('content-length');
+    if (length !== null && (!/^\d{1,5}$/.test(length) || Number(length) > REDEEM_BODY_LIMIT)) throw new HubError('invalid_request');
+    const text = await request.text();
+    if (Buffer.byteLength(text) > REDEEM_BODY_LIMIT) throw new HubError('invalid_request');
+    let input;
+    try { input = redeemRequest(JSON.parse(text)); } catch { throw new HubError('invalid_request'); }
+    return json(redeemRecord(await options.redeem.submit(input.account, input.credit_id)));
+  }
+
+  /** Reads one attempt's status. */
+  async function redeemStatus(url: URL): Promise<Response> {
+    if (!options.redeem) throw new HubError('unsupported_capability');
+    let id;
+    try { id = REQUEST_ID(url.pathname.slice(REDEEM_PATH.length + 1)); } catch { throw new HubError('invalid_request'); }
+    if (url.search) throw new HubError('invalid_request');
+    return json(redeemRecord(await options.redeem.status(id)));
+  }
+
+  /** Counts redeem work against the finite-read limit so a flood cannot queue unbounded Quota sockets. */
+  async function redeemAdmitted(run: () => Promise<Response>): Promise<Response> {
+    if (finite >= FINITE_LIMIT) throw new HubError('saturated');
+    finite++;
+    try { return await run(); } finally { finite--; }
+  }
+
+  /** Serializes one uncached JSON body. */
+  function json(value: unknown): Response {
+    return new Response(JSON.stringify(value), { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' } });
+  }
+
   /** Checks authority and input before any use of the observer. */
   async function fetch(request: Request, admitStream?: () => void): Promise<Response> {
     const requestId = crypto.randomUUID();
@@ -96,9 +146,11 @@ export function createHttp(native: ObservationClient, options: HttpOptions) {
       if (!host || host !== options.localHost && host !== publicHost || !allowedOrigin) {
         throw new HubError('invalid_request');
       }
-      if (request.method !== 'GET') throw new HubError('method_not_allowed');
       if (request.url.length > 8192) throw new HubError('invalid_request');
       const url = new URL(request.url);
+      if (request.method === 'POST' && url.pathname === REDEEM_PATH) return await redeemAdmitted(() => redeemSubmit(request, url));
+      if (request.method !== 'GET') throw new HubError('method_not_allowed');
+      if (url.pathname.startsWith(REDEEM_PATH + '/')) return await redeemAdmitted(() => redeemStatus(url));
       if (!url.pathname.startsWith('/api/') && url.pathname !== '/api') return await staticAsset(url, request, options.webRoot);
       let query;
       try { query = parseApiRequest(url); } catch { throw new HubError('invalid_request'); }

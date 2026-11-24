@@ -3,7 +3,7 @@ import { ERROR_STATUS, type ErrorCode, type RouteName } from '@agent-hub/domain'
 import type { NativeResponse, ObserverResource } from './observer.ts';
 
 const messages: Record<ErrorCode, string> = {
-  invalid_request: 'Invalid request.', not_found: 'Resource not found.',
+  invalid_request: 'Invalid request.', forbidden: 'Action not permitted.', not_found: 'Resource not found.',
   method_not_allowed: 'Only GET is supported.', stale_boundary: 'Reload this resource boundary.',
   unsupported_capability: 'Producer capability unavailable.', saturated: 'Read capacity exceeded.',
   invalid_projection: 'Invalid source response.', source_unavailable: 'Source temporarily unavailable.',

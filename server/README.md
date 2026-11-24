@@ -3,6 +3,30 @@
 The Bun entry point is `server/src/main.ts`. The read-only native observer
 and its Cargo lockfile live in `server/observer/`.
 
+The server has one mutating action, redeeming a banked Quota reset credit
+(`server/src/redeem.ts`). It does not go through the observer, which stays
+strictly read-only: a separate narrow client sends only `redeem_reset_credit`
+and `redeem_status` on the Quota socket resolved from the same connection
+configuration (`AGENT_HUB_CONFIG`, per-user, `/etc/agent-hub/connections.json`,
+Linux default `/run/agent-quota/quota.sock`, UID 999).
+
+- `POST /api/v1/quota/redeem` with JSON `{"account","credit_id"}` returns the
+  Quota record `{request_id, account, credit_id, state, reason, created_at,
+  updated_at}`. The server generates the UUID v4 `request_id`. Requirements:
+  an `Origin` equal to the configured public or loopback origin, the header
+  `X-Agent-Hub-Action: redeem`, `Content-Type: application/json`, no query,
+  at most 1 KiB, exactly the two fields. Refusals return 403 `forbidden`
+  (missing Origin or action header, cross-site `Sec-Fetch-Site`, Quota
+  permission error) or 400 `invalid_request`.
+- `GET /api/v1/quota/redeem/:request_id` returns the same record.
+- A second submission for the same account and credit while an attempt is
+  pending, unknown or redeemed returns that attempt instead of creating one.
+  Transport errors after a request may have been sent yield `state: "unknown"`
+  and are never resent under a new ID; a connection failure before sending
+  yields `state: "failed"`, `reason: "quota_unavailable"`.
+- Each attempt logs one `quota_redeem` JSON line (account, credit ID, request
+  ID, outcome).
+
 Compile the server for a release with Bun 1.4.4.
 
 ```sh

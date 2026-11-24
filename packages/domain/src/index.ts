@@ -5,3 +5,4 @@ export * from './observations.ts';
 export * from './pools.ts';
 export * from './routes.ts';
 export * from './sessions.ts';
+export * from './redeem.ts';

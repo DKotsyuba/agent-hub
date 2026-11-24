@@ -4,6 +4,7 @@ import { type ApiError, type ErrorCode, ERROR_STATUS } from '../../domain/src/in
 /** Stable safe response messages. Clients can localize using the machine code. */
 const MESSAGES: Record<ErrorCode, string> = {
   invalid_request: 'The request contains invalid parameters.',
+  forbidden: 'The action is not permitted.',
   not_found: 'The requested observation was not found.',
   method_not_allowed: 'Only GET is available.',
   stale_boundary: 'The boundary changed. Reload the relevant view.',
