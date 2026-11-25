@@ -4,6 +4,12 @@ All notable changes to Agent Hub are documented here. The format follows [Keep a
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-11-25
+
+### Fixed
+
+- iPhone standalone app: the bottom padding no longer adds the home-indicator inset a second time when iOS already stops the web view above that strip. The inset is measured at runtime (`--web-safe-bottom`), and Settings shows the measured screen, window, insets and gap for diagnosis.
+
 ## [0.3.1] - 2026-11-24
 
 ### Added
@@ -139,6 +145,7 @@ First public release: the terminal Hub for Linux x86-64 (standalone executable).
 
 - Archived Tasks and IDE sources are denied by the observer; the terminal has no Tasks, IDE or Run info tabs.
 
+[0.3.2]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.3.2
 [0.3.1]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.3.1
 [0.3.0]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.3.0
 [0.2.10]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.2.10
