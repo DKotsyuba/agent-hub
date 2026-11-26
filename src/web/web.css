@@ -44,9 +44,15 @@ html {
 }
 /* A Safari tab already has browser chrome above its content. */
 @media (display-mode: standalone) {
-  .web-shell { --web-safe-top: env(safe-area-inset-top, 0px); }
+  .web-shell { --web-safe-top: calc(env(safe-area-inset-top, 0px) + 8px); }
 }
-.web-standalone .web-shell { --web-safe-top: env(safe-area-inset-top, 0px); }
+.web-standalone .web-shell { --web-safe-top: calc(env(safe-area-inset-top, 0px) + 8px); }
+/* iOS standalone can size the layout viewport (and inset: 0) to the screen minus the top inset,
+   leaving a bare strip at the bottom. vh still spans the whole screen there, so pin the root to it. */
+@media (display-mode: standalone) {
+  html, body, #root { bottom: auto; height: 100vh; }
+}
+html.web-standalone, html.web-standalone body, html.web-standalone #root { bottom: auto; height: 100vh; }
 .web-shell .skip-link:focus { top: calc(12px + var(--web-safe-top)); left: calc(16px + env(safe-area-inset-left, 0px)); }
 
 /* The main column keeps its header and footer fixed while the active pane scrolls. */

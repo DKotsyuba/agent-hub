@@ -4,6 +4,10 @@ All notable changes to Agent Hub are documented here. The format follows [Keep a
 
 ## [Unreleased]
 
+### Fixed
+
+- In the iOS Home Screen app the page now reaches the bottom screen edge instead of stopping one status-bar height short, so the footer sits at the bottom, and the header keeps a small gap below the status bar.
+
 ## [0.3.16] - 2026-11-26
 
 ### Added
@@ -234,6 +238,7 @@ First public release: the terminal Hub for Linux x86-64 (standalone executable).
 
 - Archived Tasks and IDE sources are denied by the observer; the terminal has no Tasks, IDE or Run info tabs.
 
+[0.3.17]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.3.17
 [0.3.16]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.3.16
 [0.3.15]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.3.15
 [0.3.14]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.3.14

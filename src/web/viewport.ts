@@ -28,7 +28,9 @@ export function measureViewport(): ViewportFacts {
   const long = Math.max(screen.width, screen.height), short = Math.min(screen.width, screen.height);
   const screenHeight = landscape ? short : long, screenWidth = landscape ? long : short;
   const insetTop = inset('top'), insetBottom = inset('bottom');
-  const bottomGap = standalone ? Math.max(0, screenHeight - innerHeight) : 0;
+  // The root is pinned to 100vh in standalone mode, so its height is the painted area even when innerHeight is short.
+  const rootHeight = document.getElementById('root')?.getBoundingClientRect().height || innerHeight;
+  const bottomGap = standalone ? Math.max(0, Math.round(screenHeight - rootHeight)) : 0;
   const bottomPadding = Math.max(0, insetBottom - bottomGap);
   return { screenWidth, screenHeight, innerWidth, innerHeight, insetTop, insetBottom, bottomGap, standalone, bottomPadding };
 }
