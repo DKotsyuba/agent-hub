@@ -24,7 +24,10 @@ export interface QuotaWindow {
 /** An exhaustion latch, independent of sample freshness. */
 export interface QuotaLatch { pool: string; window: string; source: string; active: boolean; observedAt: number | null; resetAt: number | null; models: string[] }
 /** One account’s models, windows, latches, advice and optional reset credits. */
-export interface QuotaAccount { account: string; models: QuotaModel[]; windows: QuotaWindow[]; latches: QuotaLatch[]; advice: string[]; resetCredits?: ResetCredits }
+/** Paid provider credits usable after the plan window is exhausted (Codex); `balance` is an exact decimal string. */
+export interface CreditBalance { hasCredits: boolean; unlimited: boolean; balance: string | null }
+
+export interface QuotaAccount { account: string; models: QuotaModel[]; windows: QuotaWindow[]; latches: QuotaLatch[]; advice: string[]; resetCredits?: ResetCredits; creditBalance?: CreditBalance }
 /** One collection source result from the latest round. */
 export interface QuotaSource { account: string; provider: string; source: string; status: string; windows: number | null; issues: string[] }
 /** Snapshot projection; raw producer payload remains in the envelope. */
@@ -124,6 +127,15 @@ function creditClock(seconds: number | null): number | null {
 }
 
 /** Parses optional credit metadata independently of existing account observations. */
+/** Reads the optional paid-credit balance; malformed or absent metadata stays unknown instead of failing the snapshot. */
+function parseCreditBalance(value: unknown): CreditBalance | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const raw = value as Record<string, unknown>;
+  if (typeof raw.has_credits !== 'boolean' || typeof raw.unlimited !== 'boolean') return undefined;
+  const balance = typeof raw.balance === 'string' && /^-?\d+(\.\d+)?$/.test(raw.balance) ? raw.balance : null;
+  return { hasCredits: raw.has_credits, unlimited: raw.unlimited, balance };
+}
+
 function parseResetCredits(value: unknown): ResetCredits | undefined {
   if (value == null) return undefined;
   try {
@@ -142,7 +154,8 @@ function parseResetCredits(value: unknown): ResetCredits | undefined {
 /** Orders usable credits by expiry, then other credits, and exposes the first usable expiry in milliseconds. */
 export function quotaResetCredits(report: ResetCredits | undefined) {
   if (!report?.known) return { count: null, credits: [], soonestExpiryMs: null };
-  const credits = [...report.credits].sort((a, b) =>
+  // A credit with no resets left is spent; the producer keeps it for history, the card does not list it.
+  const credits = report.credits.filter(credit => credit.resetsLeft !== 0).sort((a, b) =>
     Number(b.usableNow === true) - Number(a.usableNow === true)
     || (a.expiresAtMs ?? Infinity) - (b.expiresAtMs ?? Infinity));
   const soonestExpiryMs = credits.find(credit => credit.usableNow === true)?.expiresAtMs ?? null;
@@ -168,6 +181,7 @@ export function quotaSnapshot(value: unknown): QuotaSnapshot {
       return {
         account: text(account.account, 'account_id'),
         resetCredits: parseResetCredits(account.reset_credits),
+        creditBalance: parseCreditBalance(account.credit_balance),
         models: rows(account.models, 'models').map(model => {
           const state = text(model.state, 'state') as QuotaState;
           if (!STATES.has(state)) throw new Error('quota_state');

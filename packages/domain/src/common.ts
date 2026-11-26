@@ -58,7 +58,7 @@ export const evidenceCount = tagged('kind', {
 export const issue = object({ code: resourceId, message: optional(text) });
 
 /** Source IDs used for independently observed outcomes. */
-export const source = oneOf('run', 'pool', 'quota', 'worktree', 'bridge');
+export const source = oneOf('run', 'pool', 'quota', 'worktree', 'bridge', 'stats');
 
 /** An observation outcome before any client-side stale retention. */
 export const observationOutcome = oneOf('ok', 'partial', 'unavailable', 'incompatible', 'missing', 'invalid');

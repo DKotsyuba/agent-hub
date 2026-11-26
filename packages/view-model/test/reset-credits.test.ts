@@ -43,3 +43,24 @@ test('usable credits lead by expiry with undated credits after dated ones', () =
   });
   assert.equal(report?.credits[0]?.id, 'undated');
 });
+
+test('spent credits with no resets left are not listed', () => {
+  const row = { provider_kind: 'full', label: 'Reset', scope: 'all', usable_now: false, granted_at: 80, expires_at: 200 };
+  const summary = quotaResetCredits(account({ ...base, available_count: 1, credits: [
+    { ...row, id: 'spent', resets_left: 0 },
+    { ...row, id: 'left', resets_left: 1, usable_now: true },
+    { ...row, id: 'unknown-left', resets_left: null },
+  ] }).resetCredits);
+  assert.deepEqual(summary.credits.map(credit => credit.id), ['left', 'unknown-left']);
+});
+
+test('paid credit balance is optional, exact and tolerant of malformed metadata', () => {
+  const parse = (credit_balance: unknown) => quotaSnapshot({ schema_version: 2, coverage: { state: 'complete' },
+    accounts: [{ account: 'codex', credit_balance }] }).accounts[0]!.creditBalance;
+  assert.equal(parse(undefined), undefined);
+  assert.deepEqual(parse({ has_credits: true, unlimited: false, balance: '42.50' }), { hasCredits: true, unlimited: false, balance: '42.50' });
+  assert.deepEqual(parse({ has_credits: true, unlimited: true, balance: null }), { hasCredits: true, unlimited: true, balance: null });
+  assert.deepEqual(parse({ has_credits: false, unlimited: false, balance: '0' }), { hasCredits: false, unlimited: false, balance: '0' });
+  assert.equal(parse({ has_credits: 'yes', unlimited: false }), undefined);
+  assert.equal(parse({ has_credits: true, unlimited: false, balance: '1e9' })?.balance, null);
+});

@@ -5,6 +5,7 @@ import {
 } from '../../domain/src/index.ts';
 import metadata from '../../../package.json' with { type: 'json' };
 import { type FixtureCatalog, type FixtureScenario, loadCatalog } from './catalog.ts';
+import { fixtureModelSpeed } from './model-speed.ts';
 import { fixtureCursor } from './paging.ts';
 import { FixtureError, errorResponse } from './response.ts';
 export { SCENARIOS, type FixtureScenario } from './catalog.ts';
@@ -23,7 +24,7 @@ const ROUTE_SOURCE = {
 type Query<K extends RouteName> = Extract<NonNullable<ApiRequest>, { route: K }>;
 
 /** Maps supported event scopes to independent source observations. */
-function sourcesFor(topic: Topic): Observation['source'][] {
+function sourcesFor(topic: Topic): (keyof FixtureCatalog['observations'])[] {
   if (topic === 'overview') return ['run', 'bridge', 'quota'];
   if (topic === 'incidents') return ['bridge'];
   if (topic === 'quota') return ['quota'];
@@ -115,6 +116,9 @@ function handleFixture(catalog: FixtureCatalog, scenario: FixtureScenario, query
     ready: true, apiVersion: API_VERSION, release: metadata.version, mode: 'fixture',
   }), { headers });
   if (route === 'events') return events(catalog, query, signal);
+  if (route === 'modelSpeed' || route === 'modelSpeedSeries') {
+    return Response.json(API_RESPONSES[route](fixtureModelSpeed(query, scenario, catalog.clockMs)), { headers });
+  }
 
   const source = route === 'overview' ? null : ROUTE_SOURCE[route];
   const observed = source ? catalog.observations[source] : null;

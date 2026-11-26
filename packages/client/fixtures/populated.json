@@ -1533,14 +1533,14 @@
         "members": [
           {
             "id": "m-seat-00",
-            "name": "implement",
+            "name": "Исследователь",
             "role": "implement",
-            "task": "Write the change",
+            "task": "Исследователь: проверь общий план и вопросы",
             "state": "active",
-            "runtime": "unknown",
+            "runtime": "synthetic-run",
             "seat": {
               "id": "m-seat-00",
-              "profile": "implement",
+              "profile": "лидер",
               "admission": "admitted",
               "joined": true
             },
@@ -1549,23 +1549,83 @@
               "execution": null,
               "match": "unverified"
             },
-            "lineage": null
+            "lineage": null,
+            "run": {
+              "id": "demo-inspect",
+              "execution": null,
+              "sequence": 1,
+              "status": "running",
+              "runtime": "claude-code",
+              "model": "model-alpha",
+              "effort": null,
+              "profile": "лидер",
+              "name": null,
+              "summary": "Исследователь: проверь общий план и вопросы",
+              "workdir": null,
+              "projectId": null,
+              "projectInferred": false,
+              "phase": "running",
+              "phaseStartedAtMs": 1794010380000,
+              "idleMs": null,
+              "createdAtMs": 1794010380000,
+              "finishedAtMs": null,
+              "observedAtMs": 1794011099000,
+              "progressAtMs": null,
+              "elapsedMs": 720000,
+              "silenceMs": null,
+              "lastAction": null,
+              "failureKind": null,
+              "failureText": null,
+              "answerAvailable": null
+            }
           },
           {
             "id": "m-seat-01",
-            "name": "review",
+            "name": "Ревьюер",
             "role": "review",
-            "task": "Review the change",
-            "state": "pending",
-            "runtime": "unknown",
+            "task": "Ревьюер: проверь изменение и тесты",
+            "state": "active",
+            "runtime": "synthetic-run",
             "seat": {
               "id": "m-seat-01",
-              "profile": "review",
-              "admission": "pending",
-              "joined": false
+              "profile": "reviewer",
+              "admission": "admitted",
+              "joined": true
             },
-            "session": null,
-            "lineage": null
+            "session": {
+              "sessionId": "demo-index",
+              "execution": null,
+              "match": "unverified"
+            },
+            "lineage": null,
+            "run": {
+              "id": "demo-index",
+              "execution": null,
+              "sequence": 1,
+              "status": "running",
+              "runtime": "claude-code",
+              "model": "model-beta",
+              "effort": null,
+              "profile": "reviewer",
+              "name": null,
+              "summary": "Ревьюер: проверь изменение и тесты",
+              "workdir": null,
+              "projectId": null,
+              "projectInferred": false,
+              "phase": "idle",
+              "phaseStartedAtMs": 1794011040000,
+              "idleMs": 1500000,
+              "createdAtMs": 1794009300000,
+              "finishedAtMs": null,
+              "observedAtMs": 1794011100000,
+              "progressAtMs": null,
+              "elapsedMs": 1800000,
+              "silenceMs": null,
+              "lastAction": null,
+              "failureKind": null,
+              "failureText": null,
+              "answerAvailable": null
+            }
           }
         ],
         "proposals": [

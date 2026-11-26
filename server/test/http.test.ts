@@ -127,7 +127,10 @@ test('supported GET routes project native fixtures through the frozen contract',
     assert.equal((await get(http, 'sessionExport', '/sessions/demo-finished/export')).data.coverage.state, 'partial');
     assert.equal((await get(http, 'pools', '/pools')).data.items[0].id, 'demo-pool');
     assert.equal((await get(http, 'pool', '/pools/demo-pool')).data.pool.id, 'demo-pool');
-    assert.equal((await get(http, 'poolSection', '/pools/demo-pool/sections/members')).data.items.length, 1);
+    const members = (await get(http, 'poolSection', '/pools/demo-pool/sections/members')).data.items;
+    assert.equal(members.length, 1);
+    // No Run binding leaves the display row explicitly absent rather than guessed.
+    if ('seat' in members[0]) assert.equal(members[0].run, null);
     assert.equal((await get(http, 'poolHistory', '/pools/demo-pool/history')).data.items.length, 1);
     assert.equal((await get(http, 'poolContent', '/pools/demo-pool/content/purpose')).data.content.text, 'A pinned synthetic goal.');
     assert.equal((await get(http, 'quota', '/quota')).data.snapshot?.accounts.length, 2);
@@ -476,6 +479,10 @@ test('strict tasks and exact exports require a Pool-fenced historical execution'
       assert.deepEqual(params, example.request);
       return envelope(resource, example.result);
     }
+    if (resource === 'run.agent_integration') {
+      assert.deepEqual(params, { agent_id: selector.agent_id });
+      return envelope(resource, { schema_version: 1, agent: example.result.view.agent, communication: { state: 'unknown', reason: 'terminal' } });
+    }
     if (resource === 'run.initial_task') {
       assert.equal(params?.pin_id, selector.pin_id);
       const total = Buffer.byteLength(task);
@@ -510,6 +517,10 @@ test('strict tasks and exact exports require a Pool-fenced historical execution'
     if (members.data.section !== 'members') return;
     const token = members.data.items[0].session?.execution;
     assert.ok(token && token.startsWith('bound-'));
+    // The verified Run view supplies the member's own session row, rendered like Sessions.
+    const run = members.data.items[0].run!;
+    assert.deepEqual({ status: run.status, phase: run.phase, phaseStartedAtMs: run.phaseStartedAtMs, model: run.model, finishedAtMs: run.finishedAtMs },
+      { status: 'succeeded', phase: 'terminal', phaseStartedAtMs: 1000, model: 'fixture', finishedAtMs: 1000 });
     const path = '/sessions/' + selector.agent_id;
     const initial = await get(http, 'initialTask', path + '/initial-task?execution=' + token);
     assert.equal(initial.data.state === 'verified' && initial.data.proof.kind, 'strict');

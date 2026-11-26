@@ -8,7 +8,8 @@ import { client, usePagedRead } from './data';
 import { modelTitle, poolBadge, poolTitle, sessionTitle, worktreeMeasurements } from './model';
 import { branchLabel, formatBytes } from '../../packages/view-model/src/index';
 import { Next, period, Period } from './catalog';
-import { EmptyRows, Expand, href, Link, ReadState, SessionStatus, Sources, StatusBadge, useWebText } from './ui';
+import { EmptyRows, Expand, href, Link, ReadState, SessionFooter, SessionStatus, sessionHref, Sources, StatusBadge, useWebText } from './ui';
+import type { Session } from '@agent-hub/domain';
 
 export type Inventory = 'sessions' | 'pools' | 'worktrees';
 
@@ -23,20 +24,23 @@ function filters(kind: Inventory, query: URLSearchParams) {
 }
 
 /** A row keeps its accessible name and focus identity stable on background refresh; status leads the name. */
-function Row({ id, target, selected, title, hint, status, children }: {
-  id: string; target: string; selected: boolean; title: string; hint?: string; status?: ReactNode; children?: ReactNode;
+export function Row({ id, target, selected, title, hint, status, children }: {
+  id: string; target?: string; selected: boolean; title: string; hint?: string; status?: ReactNode; children?: ReactNode;
 }) {
-  return <Link href={target} data-focus-key={id} aria-current={selected ? 'page' : undefined} className="web-record">
+  const content = <>
     <div className="web-record-heading">{status && <span className="web-record-status">{status}</span>}<strong title={hint ?? title}>{title}</strong></div>
     <div className="web-record-copy">{children}</div>
-  </Link>;
+  </>;
+  return target
+    ? <Link href={target} data-focus-key={id} aria-current={selected ? 'page' : undefined} className="web-record">{content}</Link>
+    : <div className="web-record" data-focus-key={id}>{content}</div>;
 }
 
 /** List pane shows fetched counts as loaded counts, with independent source coverage. */
 export function InventoryList({ kind, query, id, now, update }: {
   kind: Inventory; query: URLSearchParams; id: string | null; now: number; update: (values: Record<string, string | null>, keepCursor?: boolean) => void;
 }) {
-  const { label, clock, duration, n } = useWebText();
+  const { label, n } = useWebText();
   const [technical, setTechnical] = useState(false);
   const { cursor, ...request } = filters(kind, query);
   const read = usePagedRead([kind, request], cursor, (cursor, signal) => client.get(kind, { query: { ...request, cursor }, signal }), kind);
@@ -85,15 +89,8 @@ export function InventoryList({ kind, query, id, now, update }: {
         <p className="web-muted web-loaded">{label('Loaded')} {n(shown.length)}{shown.length !== data.items.length && ' / ' + n(data.items.length)}</p>
         <EmptyRows count={shown.length} observations={observations} />
         <div className="web-records">{shown.map(row => {
-          if ('workdir' in row) return <Row key={row.id + ':' + row.execution} id={row.id + ':' + row.execution}
-            target={detailUrl(row.id, row.execution)} selected={id === row.id && (!query.has('execution') || row.execution === query.get('execution'))}
-            title={sessionTitle(row) ?? label('Session detail')} hint={row.id} status={<SessionStatus row={row} now={now} />}>
-            <span>{[row.model && modelTitle(row.model), row.workdir?.split('/').filter(Boolean).at(-1)].filter(Boolean).join(' · ')}</span>
-            <span className="web-record-preview">{row.lastAction ?? (row.name ? row.summary : null)}</span>{row.failureKind && <span className="error-text">{row.failureKind}{row.failureText && ' · ' + row.failureText}</span>}
-            <span>{row.finishedAtMs != null
-              ? [label('Finished at') + ' ' + clock(row.finishedAtMs), row.elapsedMs != null && label('took') + ' ' + duration(row.elapsedMs)].filter(Boolean).join(' · ')
-              : [label('Launched') + ' ' + clock(row.createdAtMs), row.createdAtMs != null && label('running for') + ' ' + duration(Math.max(0, now - row.createdAtMs))].filter(Boolean).join(' · ')}</span>
-          </Row>;
+          if ('workdir' in row) return <SessionCard key={row.id + ':' + row.execution} row={row} now={now} target={detailUrl(row.id, row.execution)}
+            selected={id === row.id && (!query.has('execution') || row.execution === query.get('execution'))} />;
           if ('purposePreview' in row) return <Row key={row.id} id={row.id} target={detailUrl(row.id)} selected={id === row.id} title={poolTitle(row) ?? label('Pool detail')} status={<StatusBadge state={poolBadge(row)} />}>
             <span>{row.kind && label(row.kind)}</span><span className="web-record-preview">{row.name && row.purposePreview}</span>
           </Row>;
@@ -114,4 +111,15 @@ export function InventoryList({ kind, query, id, now, update }: {
 /** Parent address keeps inventory filters while stripping detail-specific query values. */
 export function inventoryHref(kind: Inventory, query: URLSearchParams) {
   return href('/' + kind, { ...filters(kind, query), ...(kind === 'sessions' ? { folder: query.get('folder') } : {}) });
+}
+
+/** One session row exactly as the Sessions list shows it; pool members reuse it for their Run agent. */
+export function SessionCard({ row, now, selected = false, target }: { row: Session; now: number; selected?: boolean; target?: string }) {
+  const { label } = useWebText();
+  return <Row id={row.id + ':' + row.execution} target={target ?? sessionHref(row.id, row.execution)} selected={selected}
+    title={sessionTitle(row) ?? label('Session detail')} hint={row.id} status={<SessionStatus row={row} now={now} />}>
+    <span>{[row.model && modelTitle(row.model), row.workdir?.split('/').filter(Boolean).at(-1)].filter(Boolean).join(' · ')}</span>
+    <span className="web-record-preview">{row.lastAction ?? (row.name ? row.summary : null)}</span>{row.failureKind && <span className="error-text">{row.failureKind}{row.failureText && ' · ' + row.failureText}</span>}
+    <SessionFooter row={row} now={now} />
+  </Row>;
 }

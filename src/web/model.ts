@@ -1,5 +1,5 @@
 /** Web history and presentation projections. */
-import { poolLifecycle, type Pool, type PoolHistory, type Session, type SessionHistory, type Worktree } from '@agent-hub/domain';
+import { poolLifecycle, type Pool, type PoolHistory, type PoolMember, type Session, type SessionHistory, type Worktree } from '@agent-hub/domain';
 import { accountTitle, type QuotaAccount, type QuotaSnapshot } from '../../packages/view-model/src/index';
 
 /** Maps pool lifecycle to singular row labels while retaining the badge tone. */
@@ -14,6 +14,22 @@ export function sessionTitle(row: Session) {
   const label = name && name !== row.id ? name : row.summary?.trim().replace(/\s+/g, ' ') || undefined;
   const profile = row.profile?.trim();
   return label && profile && profile !== label ? label + ' (' + profile + ')' : label;
+}
+
+/**
+ * Prefers a member's own role prefix before its name and keeps the seat profile visible like a
+ * session. A task head that already names the profile («Исследователь (лидер)») is not repeated.
+ */
+export function memberTitle(item: Pick<PoolMember, 'id' | 'name' | 'task' | 'seat'>) {
+  const task = item.task?.trim();
+  const colon = task?.indexOf(':') ?? -1;
+  const head = colon > 0 ? task!.slice(0, colon).trim() : '';
+  const name = item.name?.trim();
+  const label = head && head.length <= 40 ? head : name && name !== item.id ? name : undefined;
+  const profile = item.seat?.profile?.trim();
+  if (!label || !profile || profile === label) return label;
+  const suffix = ' (' + profile + ')';
+  return label.endsWith(suffix) ? label : label + suffix;
 }
 
 /** Producer phases in which the agent's own step is executing rather than waiting or stopping. */

@@ -4,6 +4,61 @@ All notable changes to Agent Hub are documented here. The format follows [Keep a
 
 ## [Unreleased]
 
+## [0.3.16] - 2026-11-26
+
+### Added
+
+- The web Model speed page reads generation speed and time to first token from Agent Stats, with rolling windows, grouped summaries, and model trends.
+
+## [0.3.15] - 2026-11-26
+
+### Changed
+
+- The Codex credit balance is rounded to two decimals with digit grouping.
+
+## [0.3.14] - 2026-11-26
+
+### Fixed
+
+- The Hub API now carries Agent Quota `credit_balance` through the server projection, so the Codex credit balance actually reaches the Quota card.
+
+## [0.3.13] - 2026-11-26
+
+### Added
+
+- Quota cards show the Codex paid credit balance («Кредиты: 42.50», «без ограничений») from Agent Quota `credit_balance`; absent metadata stays hidden.
+
+## [0.3.12] - 2026-11-26
+
+### Fixed
+
+- Quota cards no longer list spent reset credits (no resets left); the producer still reports them for history.
+
+## [0.3.11] - 2026-11-26
+
+### Changed
+
+- Pool «Участники» renders each member with a readable Run agent exactly like its Sessions row (same component: status, title, model and folder, launch footer, link to the transcript); the separate «Подробнее» blocks are gone. Chat-pool seats now read their Run row too (they name the agent directly, without an owner binding).
+
+## [0.3.10] - 2026-11-26
+
+### Fixed
+
+- The fallback Run read for pool members is projected to the member display shape, so the response no longer drops it.
+
+## [0.3.9] - 2026-11-26
+
+### Fixed
+
+- Pool members read their Run status from the active Run inventory (the same source as Sessions), so live chat-pool members show «Выполняется»/«Ожидает», the model and the run footer; the per-agent read is only a fallback. An unknown runtime is no longer printed.
+
+## [0.3.8] - 2026-11-26
+
+### Added
+
+- Pool «Участники» rows now read like Sessions rows: the linked Run agent's live status leads each member («Выполняется» with a spinner or «Ожидает · 12 мин (с 14:05)»), followed by the role label with the seat profile, the model and runtime, the task, and a launch/finish footer with the run time. Clicking a member opens its session transcript (history tab); seat, admission, join state, Run ID and execution lineage are collapsed under «Подробнее». Members without a linked or readable Run keep a neutral state badge and stay unlinked.
+- Pool members carry the linked Run's display row (`status`, `phase`, `phase_started_at`, `idle_seconds`, model and clocks) from the verified Run proof view or a bounded Run read; the field is optional, so older payloads still decode and unlinked members report it as null.
+
 ## [0.3.7] - 2026-11-26
 
 ### Fixed
@@ -179,6 +234,15 @@ First public release: the terminal Hub for Linux x86-64 (standalone executable).
 
 - Archived Tasks and IDE sources are denied by the observer; the terminal has no Tasks, IDE or Run info tabs.
 
+[0.3.16]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.3.16
+[0.3.15]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.3.15
+[0.3.14]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.3.14
+[0.3.13]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.3.13
+[0.3.12]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.3.12
+[0.3.11]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.3.11
+[0.3.10]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.3.10
+[0.3.9]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.3.9
+[0.3.8]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.3.8
 [0.3.7]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.3.7
 [0.3.6]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.3.6
 [0.3.5]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.3.5
