@@ -2,7 +2,7 @@
 import type { ReactNode } from 'react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useViewportInsets } from './viewport';
-import { Activity, ArrowLeft, Bot, Gauge, GitBranch, Layers3, LayoutDashboard, RefreshCw, Settings, Download, PanelLeft, List, Copy, Check } from 'lucide-react';
+import { Activity, ArrowLeft, ChartNoAxesCombined, Bot, Gauge, GitBranch, Layers3, LayoutDashboard, RefreshCw, Settings, Download, PanelLeft, List, Copy, Check } from 'lucide-react';
 import { version as webVersion } from '../../package.json';
 import type { Topic } from '@agent-hub/domain';
 import { Button } from '../components/ui/button';
@@ -17,6 +17,7 @@ import { InventoryList, inventoryHref } from './lists';
 import type { Inventory } from './lists';
 import { Expand, href, Link, Navigation, relativeTime, useWebText } from './ui';
 import { useAppUpdate } from './pwa';
+import { ModelSpeed } from './model-speed';
 import { HeldAlert, HeldContext } from './held';
 import { heldState } from '../../packages/view-model/src/index';
 
@@ -25,6 +26,7 @@ const navigation = [
   ['overview', '/', 'Overview', LayoutDashboard], ['sessions', '/sessions', 'Sessions', Bot],
   ['pools', '/pools', 'Pools', Layers3], ['quota', '/quota', 'Quota', Gauge],
   ['worktrees', '/worktrees', 'Worktree', GitBranch],
+  ['model-speed', '/model-speed', 'Model speed', ChartNoAxesCombined],
 ] as const;
 
 /** URL is the sole source of screen, selection, tab and filter identity. */
@@ -80,6 +82,7 @@ function CopyId({ id }: { id: string }) {
 
 /** Picks only the inventory and visible detail topics, plus its metadata dependencies. */
 function topicsFor(kind: ReturnType<typeof locationView>['kind'], id: string | null, tab: string): Topic[] {
+  if (kind === 'model-speed') return [];
   if (!id) return [kind];
   if (kind === 'sessions') return [kind, `session:${id}:detail`,
     ...(tab !== 'result' ? [`session:${id}:initial-task` as Topic] : []),
@@ -133,8 +136,10 @@ export default function App() {
     if (health.value) setServerRelease(health.value.release);
   }, [health.value]);
   const updateAvailable = appUpdate.waiting || (!!serverRelease && serverRelease !== webVersion);
-  const unreachable = health.error === 'network_unavailable' && live.connection !== 'connected';
-  const connection = unreachable ? 'Server unreachable' : live.connection;
+  const transport = kind === 'model-speed'
+    ? (health.error ? 'disconnected' : health.value ? 'connected' : 'connecting') : live.connection;
+  const unreachable = health.error === 'network_unavailable' && transport !== 'connected';
+  const connection = unreachable ? 'Server unreachable' : transport;
   const heading = useRef<HTMLHeadingElement>(null);
   const page = useRef<HTMLDivElement>(null);
   const list = useRef<HTMLElement>(null);
@@ -273,7 +278,7 @@ export default function App() {
     const key = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey || settings
           || (event.target instanceof HTMLElement && event.target.closest('input,select,textarea,[contenteditable=true],[role=combobox],[role=dialog]'))) return;
-      const destination = /^[0-4]$/.test(event.key) ? navigation[+event.key] : undefined;
+      const destination = /^[0-5]$/.test(event.key) ? navigation[+event.key] : undefined;
       if (destination) go(destination[1]);
       if (event.key === 'r') setRefresh(value => value + 1);
       if (event.key === '?') setSettings(true);
@@ -302,7 +307,7 @@ export default function App() {
       aria-label={label(appUpdate.updating ? 'Updating app' : 'Update app')} title={label(appUpdate.updating ? 'Updating app' : 'Update app')}>
       <Download size={16} aria-hidden="true" /><span>{label(appUpdate.updating ? 'Updating app' : 'Update app')}</span>
     </Button>}
-    <span className="web-connection" title={label(connection)}><span className={live.connection === 'connected' ? 'online' : ''} /><span>{label(connection)}</span></span>
+    <span className="web-connection" title={label(connection)}><span className={connection === 'connected' ? 'online' : ''} /><span>{label(connection)}</span></span>
     <Button variant="ghost" size="icon" onClick={() => setRefresh(value => value + 1)}
       aria-label={label('Refresh data')} title={label('Refresh data')}><RefreshCw size={16} /></Button>
   </div>;
@@ -357,7 +362,7 @@ export default function App() {
             </Button></DialogTrigger></RailHint>
             <DialogContent className="settings-dialog">
               <DialogTitle>{label('Settings')}</DialogTitle>
-              <DialogDescription>{label('Keyboard shortcuts')} · {label('0–4 Switch screen · R Refresh · / Search · ? Help')}</DialogDescription>
+              <DialogDescription>{label('Keyboard shortcuts')} · {label('0–5 Switch screen · R Refresh · / Search · ? Help')}</DialogDescription>
               <div className="web-settings-fields">
                 <span>{label('Appearance')}</span>
                 <Choice label={label('Appearance')} value={theme} options={['system', 'light', 'dark'].map(value => [value, label(value)])} onChange={setTheme} />
@@ -393,7 +398,7 @@ export default function App() {
             filter={<div className="web-overview-period"><Expand title={label('Period filter') + (query.has('from') || query.has('to') ? ' · ' + label('Filtered') : '')}>
               <Period query={query} update={update} />
             </Expand></div>} /> : kind === 'incidents'
-            ? <Incidents query={query} next={cursor => update({ cursor }, true)} /> : <Quota now={Math.max(now, lastRead ?? 0)} account={query.get('account')} />}
+            ? <Incidents query={query} next={cursor => update({ cursor }, true)} /> : kind === 'model-speed' ? <ModelSpeed /> : <Quota now={Math.max(now, lastRead ?? 0)} account={query.get('account')} />}
         </>}
         </div>
         {!immersive && <footer className="web-footer">

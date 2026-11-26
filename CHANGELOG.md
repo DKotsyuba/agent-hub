@@ -4,6 +4,10 @@ All notable changes to Agent Hub are documented here. The format follows [Keep a
 
 ## [Unreleased]
 
+### Added
+
+- The web Model speed page reads generation speed and time to first token from Agent Stats, with rolling windows, grouped summaries, and model trends.
+
 ## [0.3.15] - 2026-11-26
 
 ### Changed

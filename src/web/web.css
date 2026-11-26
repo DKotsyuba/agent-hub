@@ -367,7 +367,7 @@ html {
   .web-cards, .web-overview { grid-template-columns: minmax(0, 1fr); }
   .web-main { padding-block-start: 16px; }
   .web-heading { gap: 8px; margin-bottom: 12px; }
-  .web-rail nav { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); }
+  .web-rail nav { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); }
   .web-rail nav a { justify-content: center; flex-direction: column; text-align: center; gap: 3px; line-height: 1.15; min-height: 52px; padding-inline: 2px; font-size: .75rem; }
   .web-rail nav svg { width: 16px; height: 16px; }
   .web-settings-trigger { min-height: 44px; min-width: 44px; }
@@ -425,3 +425,42 @@ html {
 .web-shell[data-immersive] .web-main > .web-held-alert { margin: 0; border-radius: 0; border-inline: 0; }
 .web-metric-alarm { color: var(--danger); background: color-mix(in srgb, var(--danger) 12%, var(--secondary)); border: 1px solid var(--danger); }
 .web-metric-alarm > span, .web-metric-alarm strong { color: var(--danger); }
+
+.speed-panel { min-width: 0; }
+.speed-filters { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 16px; }
+.speed-filter { display: grid; gap: 5px; font-size: .875rem; }
+.speed-filters .choice-trigger { max-width: 100%; }
+.speed-scroll { overflow-x: auto; container-type: inline-size; }
+.speed-scroll > div { overflow: visible; }
+.speed-table { min-width: 680px; font-variant-numeric: tabular-nums; }
+.speed-table :is(th, td) { padding-inline: 10px; }
+.speed-row { cursor: pointer; }
+.speed-row th { text-align: start; }
+.speed-row th button { max-width: 28ch; height: auto; min-height: 36px; padding: 5px 0; text-align: left; white-space: normal; overflow-wrap: anywhere; }
+.speed-table td { overflow-wrap: anywhere; }
+.speed-range { min-width: 112px; display: grid; gap: 4px; }
+.speed-range small, .speed-chart-times { color: var(--muted); }
+.speed-track { position: relative; display: block; height: 5px; background: var(--secondary); border-radius: 5px; }
+.speed-track span { position: absolute; top: 0; bottom: 0; min-width: 2px; background: var(--primary); border-radius: inherit; }
+.speed-trend { width: min(740px, calc(100cqw - 26px)); padding-block: 12px; white-space: normal; overflow-wrap: anywhere; }
+.speed-trend h3 { margin: 0 0 12px; font-weight: 600; }
+.speed-charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 255px), 1fr)); gap: 12px; }
+.speed-figure { margin: 0; min-width: 0; }
+.speed-figure svg { display: block; width: 100%; max-height: 88px; color: var(--primary); }
+.speed-line, .speed-baseline { fill: none; stroke: currentColor; stroke-width: 2; }
+.speed-baseline { stroke: var(--border); }
+.speed-figure circle { fill: currentColor; }
+.speed-chart-times { display: flex; justify-content: space-between; gap: 8px; font-size: .75rem; }
+.speed-mobile-label { display: none; }
+
+@media (max-width: 820px) {
+  .speed-table { display: block; min-width: 0; }
+  .speed-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .speed-table tbody { display: grid; gap: 8px; }
+  .speed-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border: 1px solid var(--border); border-radius: 8px; }
+  .speed-table .speed-row th { grid-column: 1 / -1; }
+  .speed-table .speed-row td { padding-block: 6px 10px; white-space: normal; }
+  .speed-mobile-label { display: block; margin-bottom: 3px; color: var(--muted); font-size: .75rem; }
+  .speed-range { min-width: 0; }
+  .speed-trend-row, .speed-trend-row td { display: block; }
+}

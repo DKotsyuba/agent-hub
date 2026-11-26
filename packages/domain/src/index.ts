@@ -1,4 +1,5 @@
 /** Public API v1 DTOs and decoders. */
+export * from './model-speed.ts';
 export * from './common.ts';
 export * from './events.ts';
 export * from './observations.ts';

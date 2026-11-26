@@ -13,6 +13,7 @@ import { pool, poolContent, poolHistory, poolRecord, pools, poolSection } from '
 import { ReadContext } from './projection.ts';
 import { initialTask, sessionDetail, sessionExport, sessionHistory, sessionResult, sessions } from './run.ts';
 import { shareReads } from './reads.ts';
+import { readModelSpeed } from './model-speed.ts';
 import type { RedeemService } from './redeem.ts';
 
 /** Bounds aggregate projection work and one serialized finite API body. */
@@ -20,7 +21,7 @@ const FINITE_LIMIT = 24;
 const RESPONSE_LIMIT = 4 * 1024 * 1024;
 
 const ID = '[A-Za-z0-9][A-Za-z0-9._-]{0,199}';
-const SPA = new RegExp('^/(?:|incidents|quota|worktrees(?:/' + ID + ')?'
+const SPA = new RegExp('^/(?:|incidents|quota|model-speed|worktrees(?:/' + ID + ')?'
   + '|sessions(?:/' + ID + '(?:/(?:history|result|details))?)?'
   + '|pools(?:/' + ID + '(?:/(?:members|discussion|details|record|proposals|decisions|criteria|votes|deliveries))?)?)$');
 const ASSET = /^\/(?:sw\.js|assets\/[A-Za-z0-9][A-Za-z0-9._-]*|[A-Za-z0-9][A-Za-z0-9._-]*\.(?:ico|svg|png|webmanifest|txt))$/;
@@ -73,6 +74,8 @@ export interface HttpOptions {
   webRoot: string;
   /** Enables the redeem action; absent means the server stays strictly read-only. */
   redeem?: RedeemService;
+  /** Overrides the fixed Agent Stats endpoint for isolated socket tests. */
+  statsSocket?: string;
 }
 
 /** Largest accepted redeem request body, matching the listener's own limit. */
@@ -185,6 +188,8 @@ export function createHttp(native: ObservationClient, options: HttpOptions) {
         case 'poolHistory': result = await poolHistory(ctx, query, position); break;
         case 'poolContent': result = await poolContent(ctx, query, position); break;
         case 'poolRecord': result = await poolRecord(ctx, query, position); break;
+        case 'modelSpeed':
+        case 'modelSpeedSeries': result = await readModelSpeed(query, ctx.signal, options.statsSocket); break;
         case 'quota': result = await quota(ctx); break;
         case 'worktrees': result = await worktrees(ctx, query, position, worktreeCache); break;
         case 'worktree': result = await worktree(ctx, query, worktreeCache); break;

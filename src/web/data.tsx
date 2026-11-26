@@ -42,7 +42,7 @@ export function useLive(topics: readonly Topic[], interval: 1 | 3 | 5 | 10) {
     };
   }, []);
   useEffect(() => {
-    if (!visible) return;
+    if (!visible || !key) return;
     const controller = new AbortController();
     const events = new Map<Topic, HubEvent>();
     const sourceEvents = new Map<Topic, Map<string, Observation>>();
@@ -72,7 +72,7 @@ export function useLive(topics: readonly Topic[], interval: 1 | 3 | 5 | 10) {
       window.clearTimeout(pending);
     };
   }, [key, interval, visible]);
-  return { visible: visible && scope.key === key, events: scope.events, sourceEvents: scope.sourceEvents, connection };
+  return { visible: visible && (!key || scope.key === key), events: scope.events, sourceEvents: scope.sourceEvents, connection };
 }
 
 /** Restricts stream invalidation to the read's own topic or the ready frame. */
