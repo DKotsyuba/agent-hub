@@ -11,7 +11,7 @@ test('typed HTTP defaults to GET, rejects redirects and reports stale boundaries
     fetch(input, init) { assert.equal(init?.method, 'GET'); assert.equal(init?.redirect, 'error'); return fixture(input, init); },
   });
   assert.equal((await hub.get('health')).mode, 'fixture');
-  assert.equal((await hub.get('sessions')).data.items.length, 5);
+  assert.equal((await hub.get('sessions')).data.items.length, 6);
   await assert.rejects(hub.get('session', { params: { id: 'demo-inspect' }, query: { execution: 'invalid-selector' } }),
     error => error instanceof HubHttpError && error.status === 409 && error.code === 'stale_boundary');
   const calls: (string | null)[] = [];
