@@ -4,6 +4,8 @@ All notable changes to Agent Hub are documented here. The format follows [Keep a
 
 ## [Unreleased]
 
+## [0.3.6] - 2026-11-26
+
 ### Added
 
 - Session rows now show what each agent is doing before its name: «Выполняется» with a spinning loader while its step runs, «Ожидает · 12 мин (с 14:05)» with the reported wait and start clock when an explicit-finish agent waits to be woken, and the lifecycle badge for finished or failed runs. The same status leads the session detail header, and agents are labelled `name (profile)` with the Run ID kept in the tooltip and details. Run `phase`, `phase_started_at` and `idle_seconds` (plus `profile`) are carried through the server into session lists, Overview «Текущие сессии» and session details; unrecognized phases keep their own neutral label. The web fixture scenario gains a waiting agent.
@@ -166,6 +168,7 @@ First public release: the terminal Hub for Linux x86-64 (standalone executable).
 
 - Archived Tasks and IDE sources are denied by the observer; the terminal has no Tasks, IDE or Run info tabs.
 
+[0.3.6]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.3.6
 [0.3.5]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.3.5
 [0.3.4]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.3.4
 [0.3.3]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.3.3
