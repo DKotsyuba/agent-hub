@@ -7,8 +7,9 @@ import { sessionPhase, sessionTitle, waitingText } from '../model.ts';
 import { translations } from '../strings.ts';
 
 /** One phase-bearing session row with only the fields the mapping reads. */
-function row(status: Session['status'], phase: string | null, phaseStartedAtMs: number | null = null, idleMs: number | null = null) {
-  return { status, phase, phaseStartedAtMs, idleMs };
+function row(status: Session['status'], phase: string | null, phaseStartedAtMs: number | null = null, idleMs: number | null = null,
+  observedAtMs: number | null = null) {
+  return { status, phase, phaseStartedAtMs, idleMs, observedAtMs };
 }
 
 /** Reads a label from an intentionally partial session row. */
@@ -26,18 +27,22 @@ function waitLabel(waitMs: number | null, sinceMs: number | null) {
   });
 }
 
-test('a running producer phase is shown as working and a missing phase keeps the running status', () => {
-  assert.deepEqual(sessionPhase(row('running', 'running'), 0), { kind: 'working' });
-  for (const phase of ['preparing', 'spawning', 'accepted']) assert.deepEqual(sessionPhase(row('starting', phase), 0), { kind: 'working' }, phase);
-  assert.deepEqual(sessionPhase(row('running', null), 0), { kind: 'working' });
+test('a running producer phase is working, timed from its phase start; a missing phase keeps the running status', () => {
+  const none = { kind: 'working', sinceMs: null, waitMs: null };
+  assert.deepEqual(sessionPhase(row('running', 'running'), 0), none);
+  for (const phase of ['preparing', 'spawning', 'accepted']) assert.deepEqual(sessionPhase(row('starting', phase), 0), none, phase);
+  assert.deepEqual(sessionPhase(row('running', null), 0), none);
+  assert.deepEqual(sessionPhase(row('running', 'running', 1_000), 61_000), { kind: 'working', sinceMs: 1_000, waitMs: 60_000 });
 });
 
-test('an idle phase reports the wait from the phase start and the producer idle time', () => {
-  const now = Date.UTC(2026, 10, 26, 13, 17);
-  const since = now - 12 * 60_000;
-  assert.deepEqual(sessionPhase(row('running', 'idle', since), now), { kind: 'waiting', sinceMs: since, waitMs: 720_000 });
-  // The producer's own observation is a floor when the reader clock runs behind.
-  assert.deepEqual(sessionPhase(row('running', 'idle', since, 900_000), now), { kind: 'waiting', sinceMs: since, waitMs: 900_000 });
+test('an idle wait starts at observation minus the reported idle time, not at a refreshed phase start', () => {
+  const now = Date.UTC(2026, 10, 26, 18, 14);
+  const observed = now - 30_000;
+  // Run refreshed the phase start 10 s ago, but the agent has been idle for 26 minutes.
+  assert.deepEqual(sessionPhase(row('running', 'idle', now - 10_000, 26 * 60_000, observed), now),
+    { kind: 'waiting', sinceMs: observed - 26 * 60_000, waitMs: 30_000 + 26 * 60_000 });
+  // Without the idle observation the phase start is the only source.
+  assert.deepEqual(sessionPhase(row('running', 'idle', now - 720_000), now), { kind: 'waiting', sinceMs: now - 720_000, waitMs: 720_000 });
   assert.deepEqual(sessionPhase(row('running', 'idle', null, 300_000), now), { kind: 'waiting', sinceMs: null, waitMs: 300_000 });
   assert.deepEqual(sessionPhase(row('running', 'idle', null, null), now), { kind: 'waiting', sinceMs: null, waitMs: null });
   assert.deepEqual(sessionPhase(row('running', 'idle', now + 60_000), now), { kind: 'waiting', sinceMs: now + 60_000, waitMs: 0 });

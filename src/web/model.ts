@@ -25,8 +25,8 @@ const terminalStatuses = new Set(['succeeded', 'failed', 'timed_out', 'cancelled
 export type SessionPhase =
   /** No usable phase for this lifecycle: the status badge is shown exactly as reported. */
   | { kind: 'status' }
-  /** The agent's step is executing; the caller adds the spinner. */
-  | { kind: 'working' }
+  /** The agent's step is executing since `sinceMs`; the caller adds the spinner. */
+  | { kind: 'working'; sinceMs: number | null; waitMs: number | null }
   /** The agent finished its step and waits to be woken, with its reported wait and start. */
   | { kind: 'waiting'; sinceMs: number | null; waitMs: number | null }
   /** A phase this build does not classify; the raw producer name is shown neutrally. */
@@ -36,26 +36,28 @@ export type SessionPhase =
  * Maps the producer phase without inventing one: a running agent is working, an idle one waits,
  * and an unrecognized phase keeps its own name instead of being forced into either claim.
  */
-export function sessionPhase(row: Pick<Session, 'status' | 'phase' | 'phaseStartedAtMs' | 'idleMs'>, now: number): SessionPhase {
+export function sessionPhase(row: Pick<Session, 'status' | 'phase' | 'phaseStartedAtMs' | 'idleMs' | 'observedAtMs'>, now: number): SessionPhase {
   if (terminalStatuses.has(row.status)) return { kind: 'status' };
   const phase = row.phase?.trim() || null;
   if (phase === 'idle') {
-    const sinceMs = row.phaseStartedAtMs;
-    const elapsed = sinceMs === null ? null : Math.max(0, now - sinceMs);
-    // The producer's own idle observation is a floor, so a clock skew never shortens the shown wait.
-    const waitMs = elapsed === null ? row.idleMs : row.idleMs === null ? elapsed : Math.max(elapsed, row.idleMs);
-    return { kind: 'waiting', sinceMs, waitMs };
+    // Run refreshes phase_started_at on idle health checks; the reported idle duration at observation
+    // time is the real start of the wait. The phase start is only a fallback for producers without it.
+    const sinceMs = row.idleMs !== null && row.observedAtMs !== null ? row.observedAtMs - row.idleMs : row.phaseStartedAtMs;
+    return { kind: 'waiting', sinceMs, waitMs: sinceMs === null ? row.idleMs : Math.max(0, now - sinceMs) };
   }
-  if (phase !== null && workingPhases.has(phase)) return { kind: 'working' };
+  const working = { kind: 'working' as const, sinceMs: row.phaseStartedAtMs,
+    waitMs: row.phaseStartedAtMs === null ? null : Math.max(0, now - row.phaseStartedAtMs) };
+  if (phase !== null && workingPhases.has(phase)) return working;
   if (row.status !== 'running' && row.status !== 'starting') return { kind: 'status' };
   // Older producers omit the phase entirely; the running status is still their own report.
-  return phase === null ? { kind: 'working' } : { kind: 'phase', phase };
+  return phase === null ? working : { kind: 'phase', phase };
 }
 
 /** Formats the waiting label as `Waiting · 12 min (since 14:05)` from reported values only. */
 export function waitingText(waitMs: number | null, sinceMs: number | null,
-  format: { label: (key: string) => string; duration: (milliseconds: number) => string; at: (milliseconds: number) => string }) {
-  const parts = [format.label('Waiting')];
+  format: { label: (key: string) => string; duration: (milliseconds: number) => string; at: (milliseconds: number) => string },
+  state: 'Waiting' | 'Working' = 'Waiting') {
+  const parts = [format.label(state)];
   if (waitMs !== null) parts.push(format.duration(waitMs));
   const since = sinceMs === null ? '' : ' (' + format.label('since') + ' ' + format.at(sinceMs) + ')';
   return parts.join(' · ') + since;

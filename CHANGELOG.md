@@ -4,6 +4,17 @@ All notable changes to Agent Hub are documented here. The format follows [Keep a
 
 ## [Unreleased]
 
+## [0.3.7] - 2026-11-26
+
+### Fixed
+
+- The waiting time starts when the agent actually went idle (observation time minus Run's reported idle time), not at the last idle health check, so «Ожидает · 26 мин (с 18:48)» is consistent.
+
+### Changed
+
+- Working agents show how long the current step has been running and since when: «Выполняется · 12 мин (с 18:30)».
+- The row footer shows the launch time and total run time («Запущен 18:30 · работает 44 мин»), or the finish time and duration for finished sessions.
+
 ## [0.3.6] - 2026-11-26
 
 ### Added
@@ -168,6 +179,7 @@ First public release: the terminal Hub for Linux x86-64 (standalone executable).
 
 - Archived Tasks and IDE sources are denied by the observer; the terminal has no Tasks, IDE or Run info tabs.
 
+[0.3.7]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.3.7
 [0.3.6]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.3.6
 [0.3.5]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.3.5
 [0.3.4]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.3.4

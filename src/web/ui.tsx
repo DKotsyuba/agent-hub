@@ -91,7 +91,7 @@ export function StatusBadge({ state }: { state: string }) {
 
 /** Shows what a session is doing before its name: working, waiting with its duration, or the lifecycle status. */
 export function SessionStatus({ row, now }: {
-  row: Pick<Session, 'status' | 'phase' | 'phaseStartedAtMs' | 'idleMs'>; now: number;
+  row: Pick<Session, 'status' | 'phase' | 'phaseStartedAtMs' | 'idleMs' | 'observedAtMs'>; now: number;
 }) {
   const { label, duration, at } = useWebText();
   const phase = sessionPhase(row, now);
@@ -99,7 +99,7 @@ export function SessionStatus({ row, now }: {
   if (phase.kind === 'waiting') return <Badge variant="outline" className="web-status web-status-phase" data-tone="neutral">
     {waitingText(phase.waitMs, phase.sinceMs, { label, duration, at })}</Badge>;
   if (phase.kind === 'working') return <Badge variant="outline" className="web-status web-status-phase" data-tone="active">
-    <LoaderCircle size={12} className="web-spin" aria-hidden="true" />{label('Working')}</Badge>;
+    <LoaderCircle size={12} className="web-spin" aria-hidden="true" />{waitingText(phase.waitMs, phase.sinceMs, { label, duration, at }, 'Working')}</Badge>;
   return <Badge variant="outline" className="web-status web-status-phase" data-tone="neutral">{label(phase.phase)}</Badge>;
 }
 
