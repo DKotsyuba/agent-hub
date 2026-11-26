@@ -1,7 +1,7 @@
 /** Held-message alarm: threshold edge, absence, ordering, reasons and the producer-row parser. */
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { HELD_THRESHOLD_MS, heldAlarm, heldDuration, heldReasonKind, shortRecipient } from '../src/index.ts';
+import { HELD_STALE_MS, HELD_THRESHOLD_MS, heldAlarm, heldState, heldDuration, heldReasonKind, shortRecipient } from '../src/index.ts';
 import { heldRow } from '../../../src/live/protocol.ts';
 
 const now = 1_800_000_000_000;
@@ -72,4 +72,68 @@ test('the producer row parser accepts only accepted-custody undelivered rows and
   assert.equal(heldRow({ ...row, hold_reason: 7, recipient: {}, attempts: -1 })?.attempts, null);
   assert.equal(heldRow(null), null);
   assert.equal(heldRow([]), null);
+});
+
+const day = 24 * 3_600_000;
+
+test('a message older than seven days is stale: no alarm, only the muted count', () => {
+  assert.equal(HELD_STALE_MS, 7 * day);
+  const edge = heldState([{ acceptedAtMs: now - 7 * day }], now);
+  assert.equal(edge.alarm?.count, 1);
+  assert.equal(edge.stale, 0);
+  const old = heldState([{ acceptedAtMs: now - 21 * day }], now);
+  assert.equal(old.alarm, null);
+  assert.equal(old.stale, 1);
+  assert.equal(heldAlarm([{ acceptedAtMs: now - 21 * day }], now), null);
+  const mixed = heldState([{ acceptedAtMs: now - 21 * day }, { acceptedAtMs: now - minutes(20) }], now);
+  assert.equal(mixed.alarm?.count, 1);
+  assert.equal(mixed.alarm?.stale, 1);
+  assert.deepEqual(heldDuration(mixed.alarm!.oldestWaitMs), { hours: 0, minutes: 20 });
+});
+
+test('a new hold alarms after a long terminal history because the overview total is trusted', () => {
+  const state = heldState([{ acceptedAtMs: now - minutes(30), recipient: 'new' }], now, false, undefined, { pending: 1, oldestScannedAtMs: now - minutes(500) });
+  assert.equal(state.alarm?.count, 1);
+  assert.equal(state.alarm?.complete, true);
+  assert.equal(state.alarm?.partial, false);
+});
+
+test('overview counts above the rows seen keep the alarm and mark the list partial', () => {
+  const seen = [{ acceptedAtMs: now - minutes(30) }];
+  const unknownAge = heldState(seen, now, false, undefined, { pending: 3 });
+  assert.equal(unknownAge.alarm?.count, 3);
+  assert.equal(unknownAge.alarm?.partial, true);
+  assert.equal(unknownAge.alarm?.complete, true);
+  assert.equal(unknownAge.alarm?.lines.length, 1);
+  assert.equal(unknownAge.alarm?.oldestWaitMs, minutes(30));
+  const floored = heldState(seen, now, false, undefined, { pending: 2, oldestScannedAtMs: now - minutes(500) });
+  assert.equal(floored.alarm?.count, 2);
+  assert.equal(floored.alarm?.partial, true);
+  const unseenStale = heldState(seen, now, false, undefined, { pending: 3, oldestScannedAtMs: now - 9 * day });
+  assert.equal(unseenStale.alarm?.count, 1);
+  assert.equal(unseenStale.alarm?.partial, false);
+  assert.equal(unseenStale.stale, 2);
+  assert.equal(heldState([], now, false, undefined, { pending: 2, oldestScannedAtMs: now - 9 * day }).alarm, null);
+  assert.equal(heldState([], now, false, undefined, { pending: 2, oldestScannedAtMs: now - 9 * day }).stale, 2);
+  const fresh = heldState([], now, false, undefined, { pending: 1, oldestScannedAtMs: now - minutes(3) });
+  assert.equal(fresh.alarm, null);
+});
+
+test('oldest wait with only unseen overdue messages is the oldest scanned row age', () => {
+  const state = heldState([], now, false, undefined, { pending: 1, oldestScannedAtMs: now - minutes(90) });
+  assert.equal(state.alarm?.count, 1);
+  assert.equal(state.alarm?.oldestWaitMs, minutes(90));
+  assert.equal(state.alarm?.lines.length, 0);
+});
+
+test('without overview counts (an older Bridge) only scanned rows count and a bounded scan is a lower bound', () => {
+  const rows = [{ acceptedAtMs: now - minutes(30) }];
+  const bounded = heldState(rows, now, false, undefined, { pending: null });
+  assert.equal(bounded.alarm?.count, 1);
+  assert.equal(bounded.alarm?.complete, false);
+  assert.equal(bounded.alarm?.partial, true);
+  const whole = heldState(rows, now, true, undefined, {});
+  assert.equal(whole.alarm?.complete, true);
+  assert.equal(whole.alarm?.partial, false);
+  assert.equal(heldState(rows, now, true, undefined, { pending: undefined }).alarm?.count, 1);
 });

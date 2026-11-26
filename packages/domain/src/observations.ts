@@ -41,8 +41,15 @@ export const heldMessage = object({
 /** A projected undelivered Bridge message. */
 export type HeldMessage = Decoded<typeof heldMessage>;
 
-/** Undelivered messages from the retained Bridge delivery journal; `complete` is false when the scan was bounded. */
-export const heldMessages = object({ items: array(heldMessage), complete: bool });
+/**
+ * Undelivered messages from the newest part of the retained Bridge delivery journal; `complete` is false when the scan
+ * was bounded. `pending` is Bridge's own overview count of undelivered messages (absent from an older Bridge) and is
+ * the source of truth for the total; `oldestScannedAtMs` is the accepted clock of the oldest row the scan reached,
+ * so every message missing from `items` is at least that old.
+ */
+export const heldMessages = object({
+  items: array(heldMessage), complete: bool, pending: optional(count), oldestScannedAtMs: optional(nullable(count)),
+});
 
 /** A Quota model's limit identity. */
 const quotaKey = { pool: text, source: text, window: text };

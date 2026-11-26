@@ -8,6 +8,7 @@ import { createDemoClient } from '../../terminal/src/demo.ts';
 import runStatus from '../../terminal/test/fixtures/run-status-v1.json';
 import chat from '../../terminal/test/fixtures/pool-chat-v1.json';
 import { object, sha256 } from '../../src/live/protocol.ts';
+import { heldAlarm, heldState } from '../../packages/view-model/src/index.ts';
 import { createHttp } from '../src/http.ts';
 import { createHubClient } from '../../packages/client/src/index.ts';
 import { loadHttpExport, loadHttpInitialTask, loadHttpPoolExport, loadHttpResult } from '../../terminal/src/http-content.ts';
@@ -717,6 +718,100 @@ test('held route lists only accepted undelivered Bridge rows and keeps absent op
   } finally { await http.close(); }
 });
 
+/** A fake Bridge journal honoring the observer's ascending `after_seq`/`through_seq`/`limit` window contract. */
+function journal(rows: Record<string, unknown>[], counts: Record<string, number> | null, calls: Record<string, unknown>[] = []) {
+  const native = producer();
+  return native.then(inner => ({ calls, http: handler({ close: inner.close, async read(resource, params, signal) {
+    if (resource === 'bridge.overview') {
+      if (counts === null) return envelope(resource, { schema_version: 1, kind: 'bridge_overview', data: { retention: {}, coverage: 'retained_history' } });
+      return inner.read(resource, params, signal).then(payload => ({ ...payload, data: { ...object(payload.data), data: { ...object(object(payload.data).data), counts: { ...object(object(object(payload.data).data).counts), ...counts } } } }));
+    }
+    if (resource !== 'bridge.deliveries') return inner.read(resource, params, signal);
+    calls.push({ ...params });
+    const high = rows.length ? Number(rows.at(-1)!.acceptance_seq) : 0;
+    const after = Number(params?.after_seq ?? 0), through = params?.through_seq === undefined ? high : Number(params.through_seq), limit = Number(params?.limit ?? 100);
+    assert.ok(after === 0 || params?.through_seq !== undefined, 'a continuation needs through_seq');
+    const window = rows.filter(row => Number(row.acceptance_seq) > after && Number(row.acceptance_seq) <= through);
+    const page = window.slice(0, limit);
+    return envelope(resource, { schema_version: 1, kind: 'delivery_page', data: { deliveries: page, through_seq: through,
+      next_after_seq: window.length > limit ? Number(page.at(-1)!.acceptance_seq) : null, coverage: 'retained_history' } });
+  } }) }));
+}
+
+const zeroCounts = { unhanded: 0, reserved: 0, invoking: 0, held: 0, review: 0 };
+/** An accepted, already handed-over history row. */
+const handed = (seq: number, base = 0) => ({ acceptance_seq: seq, publisher: 'claude', event_id: 'e' + seq, custody_state: 'accepted', delivery_state: 'hook_submitted', accepted_at_ms: now - base - (700 - seq) * 60_000 });
+/** A pending held row accepted `minutes` ago. */
+const stuck = (seq: number, minutes: number) => ({ acceptance_seq: seq, publisher: 'claude', event_id: 'e' + seq, custody_state: 'pending', delivery_state: 'held', accepted_at_ms: now - minutes * 60_000, recipient: 'codex@host' });
+
+test('held route finds a new hold after more than 500 terminal rows by counting from the overview and scanning newest first', async () => {
+  const rows = [...Array.from({ length: 600 }, (_, index) => handed(index + 1)), stuck(601, 30)];
+  const { http, calls } = await journal(rows, { ...zeroCounts, held: 1 });
+  try {
+    const result = (await get(http, 'held', '/bridge/held')).data;
+    assert.equal(result.pending, 1);
+    assert.deepEqual(result.items.map(item => item.id), ['delivery-601']);
+    assert.equal(result.complete, false);
+    assert.deepEqual(calls, [{ limit: 1, after_seq: 0 }, ...[501, 401, 301, 201, 101].map(after => ({ limit: 100, after_seq: after, through_seq: after + 100 }))]);
+    const alarm = heldAlarm(result.items, now, result.complete, undefined, { pending: result.pending, oldestScannedAtMs: result.oldestScannedAtMs });
+    assert.equal(alarm?.count, 1);
+    assert.equal(alarm?.partial, false);
+    assert.equal(alarm?.complete, true);
+  } finally { await http.close(); }
+});
+
+test('held route reports an overview total above the rows it saw; the unseen message stays in the alarm while its age is unknown', async () => {
+  const rows = [stuck(1, 60 * 24 * 3), ...Array.from({ length: 600 }, (_, index) => handed(index + 2)), stuck(602, 45)];
+  const { http } = await journal(rows, { ...zeroCounts, held: 2 });
+  try {
+    const result = (await get(http, 'held', '/bridge/held')).data;
+    assert.equal(result.pending, 2);
+    assert.deepEqual(result.items.map(item => item.id), ['delivery-602']);
+    assert.equal(result.oldestScannedAtMs, now - (700 - 103) * 60_000);
+    const state = heldState(result.items, now, result.complete, undefined, { pending: result.pending, oldestScannedAtMs: result.oldestScannedAtMs });
+    assert.equal(state.alarm?.count, 2);
+    assert.equal(state.alarm?.partial, true);
+    assert.equal(state.alarm?.lines.length, 1);
+    assert.equal(state.stale, 0);
+  } finally { await http.close(); }
+});
+
+test('a three-week-old dead message beyond the scan is stale, not an alarm, while a new hold still alarms', async () => {
+  const week = 7 * 24 * 3600_000;
+  const rows = [stuck(1, 60 * 24 * 21), ...Array.from({ length: 600 }, (_, index) => handed(index + 2, 8 * 24 * 3600_000)), stuck(602, 45)];
+  const { http } = await journal(rows, { ...zeroCounts, held: 2 });
+  try {
+    const result = (await get(http, 'held', '/bridge/held')).data;
+    assert.ok(now - result.oldestScannedAtMs! > week);
+    const state = heldState(result.items, now, result.complete, undefined, { pending: result.pending, oldestScannedAtMs: result.oldestScannedAtMs });
+    assert.equal(state.alarm?.count, 1);
+    assert.equal(state.stale, 1);
+    assert.equal(state.alarm?.partial, false);
+  } finally { await http.close(); }
+});
+
+test('held route scans a short history completely and counts review, reserved and invoking states', async () => {
+  const rows = [handed(1), stuck(2, 30), handed(3)];
+  const { http } = await journal(rows, { ...zeroCounts, held: 1, review: 2, reserved: 1, invoking: 3 });
+  try {
+    const result = (await get(http, 'held', '/bridge/held')).data;
+    assert.equal(result.pending, 7);
+    assert.equal(result.complete, true);
+    assert.deepEqual(result.items.map(item => item.id), ['delivery-2']);
+  } finally { await http.close(); }
+});
+
+test('held route against a Bridge without overview counts omits the total and still scans the rows', async () => {
+  const { http } = await journal([handed(1), stuck(2, 30)], null);
+  try {
+    const result = (await get(http, 'held', '/bridge/held')).data;
+    assert.equal(result.pending, undefined);
+    assert.equal(result.complete, true);
+    assert.deepEqual(result.items.map(item => item.id), ['delivery-2']);
+    assert.equal(heldAlarm(result.items, now, result.complete, undefined, { pending: result.pending, oldestScannedAtMs: result.oldestScannedAtMs })?.count, 1);
+  } finally { await http.close(); }
+});
+
 test('held route reports an incomplete scan and fails closed when Bridge is unavailable', async () => {
   const native = await producer();
   const incomplete = handler({ close: native.close, async read(resource, params, signal) {
@@ -729,7 +824,7 @@ test('held route reports an incomplete scan and fails closed when Bridge is unav
     return native.read(resource, params, signal);
   } });
   try {
-    assert.deepEqual((await get(incomplete, 'held', '/bridge/held')).data, { items: [], complete: false });
+    assert.deepEqual((await get(incomplete, 'held', '/bridge/held')).data, { items: [], complete: false, pending: 1, oldestScannedAtMs: null });
     assert.equal((await down.fetch(request(mount + '/bridge/held'))).status, 503);
   } finally { await incomplete.close(); await down.close(); }
 });

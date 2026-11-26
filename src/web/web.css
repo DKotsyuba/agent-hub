@@ -417,6 +417,9 @@ html {
 .web-held-body li { display: flex; flex-wrap: wrap; gap: 2px 10px; min-width: 0; }
 .web-held-recipient { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .web-held-more { font-size: .813rem; }
+.web-held-stale { font-size: .813rem; opacity: .85; }
+.web-held-stale-only { margin: 0 0 12px; font-size: .813rem; }
+.web-held-stale-only a { color: inherit; text-decoration: underline; }
 .web-held-link { font-weight: 600; text-decoration: underline; color: inherit; justify-self: start; }
 .web-shell[data-immersive] .web-main > .web-held-alert { margin: 0; border-radius: 0; border-inline: 0; }
 .web-metric-alarm { color: var(--danger); background: color-mix(in srgb, var(--danger) 12%, var(--secondary)); border: 1px solid var(--danger); }

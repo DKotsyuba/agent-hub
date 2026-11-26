@@ -20,8 +20,9 @@ test('Bridge overview follows its frozen cursor and keeps independent sources', 
   const client: ObservationClient = {
     async read(resource, params = {}, signal) {
       if (resource !== 'bridge.deliveries') return demo.read(resource, params, signal);
-      calls.push(params);
       const after = Number(params.after_seq ?? 0);
+      // The independent held-message scan walks newest-first windows (a limit-1 probe, then after_seq 1); only the Overview's own ascending scan is recorded.
+      if (params.limit !== 1 && !(after === 1 && params.through_seq === 101)) calls.push(params);
       if (after > 0 && failContinuation) return { schema_version: 1, source: 'bridge', resource, observed_at_ms: Date.now(), outcome: 'unavailable', error: { code: 'offline', message: 'Source unavailable' }, data: null };
       const rows = after === 0 ? Array.from({ length: 100 }, (_, index) => ({ acceptance_seq: index + 1, publisher: 'synthetic', event_id: `old-${index}`, custody_state: 'accepted', delivery_state: 'unknown', accepted_at_ms: Date.now() - 2 * 86400_000 })) : [{ acceptance_seq: replayContinuation ? 1 : 101, publisher: 'synthetic', event_id: 'today', custody_state: 'accepted', delivery_state: 'unknown', accepted_at_ms: Date.now() - 1000 }];
       return { schema_version: 1, source: 'bridge', resource, observed_at_ms: Date.now(), outcome: after > 0 && partialContinuation ? 'partial' : 'ok', error: null, data: { schema_version: 1, kind: 'delivery_page', data: { deliveries: rows, through_seq: 101, next_after_seq: after === 0 ? 100 : null, coverage: 'retained_history' } } };

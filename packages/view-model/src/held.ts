@@ -3,6 +3,9 @@
 /** Messages accepted by Bridge are alarming once they wait strictly longer than this. */
 export const HELD_THRESHOLD_MS = 10 * 60_000;
 
+/** Messages undelivered for longer than this are stale: shown as a muted line, never as the alarm. */
+export const HELD_STALE_MS = 7 * 24 * 3_600_000;
+
 /** Number of message lines an alarm lists. */
 export const HELD_LINES = 3;
 
@@ -28,14 +31,33 @@ export interface HeldLine {
   attempts: number | null;
 }
 
+/** What the producer reports besides the scanned rows. */
+export interface HeldScope {
+  /** Bridge overview total of undelivered messages; absent or null from an older Bridge. */
+  pending?: number | null;
+  /** Accepted clock of the oldest scanned row; every message missing from the rows is at least that old. */
+  oldestScannedAtMs?: number | null;
+}
+
 /** An active alarm; null from heldAlarm means there is nothing to show. */
 export interface HeldAlarm {
   count: number;
+  /** Longest wait among the rows actually seen; when `partial` it is a lower bound of the true oldest wait. */
   oldestWaitMs: number;
   /** Oldest first, at most HELD_LINES. */
   lines: HeldLine[];
-  /** False when the producer scan was bounded, so the true count may be higher. */
+  /** False when the count itself is a lower bound: no producer total and the row scan was bounded. */
   complete: boolean;
+  /** True when counted messages are missing from the rows, so the list and oldest wait are a subset. */
+  partial: boolean;
+  /** Messages older than seven days that are not part of the alarm. */
+  stale: number;
+}
+
+/** The alarm plus the muted stale-message count; stale messages can exist without an alarm. */
+export interface HeldState {
+  alarm: HeldAlarm | null;
+  stale: number;
 }
 
 /** Classifies a producer hold reason by its normalized words. */
@@ -57,27 +79,46 @@ export function shortRecipient(recipient: string | null | undefined, max = 36): 
 }
 
 /**
- * Selects messages held strictly longer than the threshold at `now`. Rows without a plausible accepted clock
- * (not finite, or later than now) are ignored rather than guessed. Absent or empty input yields null.
+ * Classifies undelivered messages at `now`. Rows without a plausible accepted clock (not finite, or later than now) are
+ * ignored rather than guessed. A message alarms once it waits strictly longer than `thresholdMs`; one older than `staleMs`
+ * is counted as stale instead. When the producer reports its total (`scope.pending`), messages missing from `items` are
+ * still counted: they are older than the oldest scanned row, so they are stale when that row is, alarming when it is past
+ * the threshold, and alarming when its age is unknown. Without a total only the rows are counted.
  */
-export function heldAlarm(items: readonly HeldInput[] | null | undefined, now: number, complete = true, thresholdMs = HELD_THRESHOLD_MS): HeldAlarm | null {
-  if (!items?.length) return null;
-  const overdue = items
-    .filter(item => Number.isFinite(item.acceptedAtMs) && item.acceptedAtMs <= now && now - item.acceptedAtMs > thresholdMs)
+export function heldState(items: readonly HeldInput[] | null | undefined, now: number, complete = true, thresholdMs = HELD_THRESHOLD_MS, scope: HeldScope = {}, staleMs = HELD_STALE_MS): HeldState {
+  const rows = items ?? [];
+  const age = (item: HeldInput) => Number.isFinite(item.acceptedAtMs) && item.acceptedAtMs <= now ? now - item.acceptedAtMs : null;
+  const stale = rows.filter(item => (age(item) ?? 0) > staleMs).length;
+  const overdue = rows.filter(item => { const wait = age(item); return wait !== null && wait > thresholdMs && wait <= staleMs; })
     .sort((a, b) => a.acceptedAtMs - b.acceptedAtMs);
-  if (!overdue.length) return null;
+  const total = typeof scope.pending === 'number' && Number.isFinite(scope.pending) ? scope.pending : null;
+  const unseen = total === null ? 0 : Math.max(0, total - rows.length);
+  const floor = typeof scope.oldestScannedAtMs === 'number' && Number.isFinite(scope.oldestScannedAtMs) && scope.oldestScannedAtMs <= now ? now - scope.oldestScannedAtMs : null;
+  const unseenStale = unseen > 0 && floor !== null && floor > staleMs ? unseen : 0;
+  const unseenOverdue = unseen > 0 && !unseenStale && (floor === null || floor > thresholdMs) ? unseen : 0;
+  const count = overdue.length + unseenOverdue;
+  const staleCount = stale + unseenStale;
+  if (!count) return { alarm: null, stale: staleCount };
+  const partial = unseenOverdue > 0 || total === null && !complete;
   return {
-    count: overdue.length,
-    oldestWaitMs: now - overdue[0].acceptedAtMs,
-    complete,
-    lines: overdue.slice(0, HELD_LINES).map(item => {
-      const reason = item.holdReason?.trim() || null;
-      return {
-        recipient: shortRecipient(item.recipient), reasonKind: heldReasonKind(reason),
-        reasonText: reason ?? item.state?.trim() ?? null, waitMs: now - item.acceptedAtMs, attempts: item.attempts ?? null,
-      };
-    }),
+    stale: staleCount,
+    alarm: {
+      count, complete: total !== null || complete, partial, stale: staleCount,
+      oldestWaitMs: overdue.length ? now - overdue[0].acceptedAtMs : floor ?? thresholdMs,
+      lines: overdue.slice(0, HELD_LINES).map(item => {
+        const reason = item.holdReason?.trim() || null;
+        return {
+          recipient: shortRecipient(item.recipient), reasonKind: heldReasonKind(reason),
+          reasonText: reason ?? item.state?.trim() ?? null, waitMs: now - item.acceptedAtMs, attempts: item.attempts ?? null,
+        };
+      }),
+    },
   };
+}
+
+/** The alarm half of `heldState`; null means there is nothing to alarm on. */
+export function heldAlarm(items: readonly HeldInput[] | null | undefined, now: number, complete = true, thresholdMs = HELD_THRESHOLD_MS, scope: HeldScope = {}): HeldAlarm | null {
+  return heldState(items, now, complete, thresholdMs, scope).alarm;
 }
 
 /** Splits a wait into whole hours and the remaining whole minutes, never below one minute. */

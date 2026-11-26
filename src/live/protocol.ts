@@ -332,6 +332,71 @@ export function heldRow(value: unknown): { id: string; acceptedAtMs: number; sta
   return { id: 'delivery-' + seq, acceptedAtMs: at, state, holdReason: clean(row.hold_reason), recipient: clean(row.recipient) ?? clean(row.route_name), attempts };
 }
 
+/**
+ * Sums Bridge's overview `counts` over the undelivered delivery states, the source of truth for how many accepted
+ * messages are pending whatever the history size. Returns null when the overview is absent or lacks a count (an
+ * older Bridge), so callers fall back to the scanned rows instead of guessing.
+ */
+export function pendingCount(value: unknown): number | null {
+  try {
+    const counts = object(product(value, 'bridge_overview').counts);
+    let total = 0;
+    for (const state of HELD_STATES) {
+      const part = counts[state];
+      if (typeof part !== 'number' || !Number.isSafeInteger(part) || part < 0) return null;
+      total += part;
+    }
+    return Number.isSafeInteger(total) ? total : null;
+  } catch { return null; }
+}
+
+/** Newest-first Bridge delivery scan result; `rows` holds the newest windows first. */
+export interface DeliveryScan {
+  rows: unknown[];
+  /** True when the scan reached the first retained sequence number, so no older row exists. */
+  reachedStart: boolean;
+  /** True when Bridge itself reported a bounded page or a window overflowed. */
+  partial: boolean;
+  /** Accepted clock of the oldest scanned row, or null; every unscanned row is older than it. */
+  oldestScannedAtMs: number | null;
+}
+
+/**
+ * Walks `bridge.deliveries` from the newest rows backwards. The observer only pages ascending (exclusive `after_seq`,
+ * inclusive `through_seq`, `after_seq` > 0 needs `through_seq`), so one `limit: 1` probe learns the high-water mark and
+ * each following read takes the window `(upper - limit, upper]`, which cannot hold more than `limit` rows. `page`
+ * returns the validated delivery page, or null when the read was unusable (stop; null on the probe fails the scan).
+ * Throws 'bridge_window' on rows outside their window.
+ */
+export async function scanDeliveriesNewestFirst(
+  page: (afterSeq: number, throughSeq: number | null, limit: number) => Promise<Record<string, unknown> | null>,
+  limit = 100, maxWindows = 5,
+): Promise<DeliveryScan | null> {
+  const probe = await page(0, null, 1);
+  if (!probe) return null;
+  const high = integer(probe.through_seq);
+  const rows: unknown[] = [];
+  let upper = high, reachedStart = high === 0, partial = probe.scan_partial === true;
+  let lowest: { seq: number; at: number | null } | null = null;
+  for (let index = 0; index < maxWindows && upper > 0; index++) {
+    const lower = Math.max(0, upper - limit);
+    const data = await page(lower, upper, limit);
+    if (!data) { partial = true; break; }
+    if (integer(data.through_seq) !== upper) throw new Error('bridge_window');
+    partial ||= data.scan_partial === true || data.next_after_seq !== null;
+    for (const value of data.deliveries as unknown[]) {
+      const row = object(value), seq = integer(row.acceptance_seq);
+      if (seq <= lower || seq > upper) throw new Error('bridge_window');
+      const at = row.accepted_at_ms;
+      if (!lowest || seq < lowest.seq) lowest = { seq, at: typeof at === 'number' && Number.isSafeInteger(at) && at >= 0 ? at : null };
+      rows.push(value);
+    }
+    upper = lower;
+    if (lower === 0) { reachedStart = true; break; }
+  }
+  return { rows, reachedStart, partial, oldestScannedAtMs: lowest?.at ?? null };
+}
+
 /** Validates retained IDE snapshots without treating installation identity as daemon health. */
 export function ideData(value: unknown): Record<string, unknown> {
   const row = product(value, 'ide_observation');

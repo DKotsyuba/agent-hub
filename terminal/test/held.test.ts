@@ -7,6 +7,7 @@ import { heldShortSummary, heldSummary } from '../src/held.ts';
 import { mountHub } from '../src/hub.ts';
 import type { ObservationClient } from '../src/api.ts';
 import { heldAlarm } from '../../packages/view-model/src/index.ts';
+import { pendingCount, scanDeliveriesNewestFirst } from '../../src/live/protocol.ts';
 
 const MINUTE = 60_000;
 
@@ -50,4 +51,37 @@ test('the Overview header carries the red held line only past ten minutes', asyn
     await new Promise(resolve => setTimeout(resolve, 150));
     assert.ok(!quiet.captureCharFrame().includes('not delivered'));
   } finally { unmountQuiet(); await fresh.close(); await quiet.dispose(); }
+});
+
+/** Serves the observer's ascending window contract over `total` rows. */
+function windows(total: number, calls: [number, number | null, number][] = []) {
+  return async (after: number, through: number | null, limit: number) => {
+    calls.push([after, through, limit]);
+    const high = through ?? total;
+    const deliveries = Array.from({ length: Math.max(0, Math.min(high, after + limit) - after) }, (_, index) => ({ acceptance_seq: after + index + 1, accepted_at_ms: 1000 + after + index }));
+    return { deliveries, through_seq: high, next_after_seq: null, coverage: 'retained_history' } as Record<string, unknown>;
+  };
+}
+
+test('the newest-first scan probes the high-water mark, then walks windows backwards', async () => {
+  const calls: [number, number | null, number][] = [];
+  const scan = (await scanDeliveriesNewestFirst(windows(650, calls)))!;
+  assert.deepEqual(calls, [[0, null, 1], [550, 650, 100], [450, 550, 100], [350, 450, 100], [250, 350, 100], [150, 250, 100]]);
+  assert.equal(scan.rows.length, 500);
+  assert.equal(scan.reachedStart, false);
+  assert.equal(scan.oldestScannedAtMs, 1000 + 150);
+  const short = (await scanDeliveriesNewestFirst(windows(130)))!;
+  assert.equal(short.rows.length, 130);
+  assert.equal(short.reachedStart, true);
+  const empty = (await scanDeliveriesNewestFirst(windows(0)))!;
+  assert.deepEqual([empty.rows.length, empty.reachedStart, empty.oldestScannedAtMs], [0, true, null]);
+  assert.equal(await scanDeliveriesNewestFirst(async () => null), null);
+});
+
+test('the overview total sums the undelivered states and is null for an older Bridge', () => {
+  const overview = (counts: Record<string, number>) => ({ schema_version: 1, kind: 'bridge_overview', data: { counts, retention: {}, coverage: 'retained_history' } });
+  assert.equal(pendingCount(overview({ unhanded: 1, reserved: 2, invoking: 3, held: 4, review: 5, accepted: 99 })), 15);
+  assert.equal(pendingCount(overview({ unhanded: 1 })), null);
+  assert.equal(pendingCount({ schema_version: 1, kind: 'bridge_overview', data: {} }), null);
+  assert.equal(pendingCount(null), null);
 });
