@@ -128,11 +128,7 @@ function member(raw: Record<string, unknown>): PoolMember {
 
 /** Narrows the Run row to the live display fields a Pool member carries. */
 function memberRun(row: Session): NonNullable<PoolMember['run']> {
-  return {
-    status: row.status, phase: row.phase, phaseStartedAtMs: row.phaseStartedAtMs, idleMs: row.idleMs,
-    observedAtMs: row.observedAtMs, model: row.model, createdAtMs: row.createdAtMs, elapsedMs: row.elapsedMs,
-    finishedAtMs: row.finishedAtMs,
-  };
+  return row;
 }
 
 /** Projects the selected criterion or decision without inventing an evaluation. */
@@ -166,7 +162,11 @@ async function linkedMember(ctx: ReadContext, value: Record<string, unknown>, id
   const base = member(value);
   const binding = bindings == null ? undefined : records(bindings).find(item => object(item.member).member_id === base.id && item.pool_id === id);
   const sessionId = text(binding?.run_id);
-  if (!binding || !sessionId) return base;
+  if (!binding || !sessionId) {
+    // Chat seats name their Run agent directly; read its row the same way.
+    if (base.session) base.run = await runSessionRow(ctx, base.session.sessionId);
+    return base;
+  }
   base.session = { sessionId, execution: null, match: 'unverified' };
   // A bare or unproven binding can still contribute the Run row's own display fields.
   const readRun = async () => { const row = await runSessionRow(ctx, sessionId); return row ? memberRun(row) : null; };

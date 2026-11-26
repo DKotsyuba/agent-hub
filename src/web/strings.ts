@@ -92,7 +92,7 @@ export const translations: Record<string, string> = {
   unverified: 'Не подтверждено', verified: 'Подтверждено', mismatch: 'Несовпадение', exact: 'Точное исполнение',
   Execution: 'Исполнение', 'Last progress': 'Последний прогресс', Elapsed: 'Прошло', Silence: 'Без изменений',
   'Last action': 'Последнее действие', 'Failure kind': 'Тип ошибки', Failure: 'Ошибка', Delivery: 'Доставка', Cleanup: 'Очистка',
-  Working: 'Выполняется', Waiting: 'Ожидает', since: 'с', Launched: 'Запущен', 'Finished at': 'Завершён', 'running for': 'работает', took: 'длился', Phase: 'Фаза', 'Phase started': 'Начало фазы',
+  Working: 'Выполняется', Waiting: 'Ожидает', since: 'с', Launched: 'Запущен', 'No linked session': 'Сессия не привязана', 'Finished at': 'Завершён', 'running for': 'работает', took: 'длился', Phase: 'Фаза', 'Phase started': 'Начало фазы',
   'History attribution': 'Привязка истории', 'Answer attribution': 'Привязка ответа', 'Execution lineage': 'Цепочка исполнений',
   executionUsage: 'Расход за исполнение', cumulativeUsage: 'Суммарный расход', toolCounts: 'Вызовы инструментов', 'Initial task': 'Начальная задача',
   Match: 'Соответствие', 'Store fenced': 'Хранилище зафиксировано', Pin: 'Закрепление', 'Selected execution': 'Выбранное исполнение',
@@ -176,5 +176,5 @@ export const english: Record<string, string> = {
   revision_fenced: 'Revision fenced', offset_unfenced: 'Unfenced offset', tool_call: 'Tool call',
   tool_result: 'Tool result', timed_out: 'Timed out', latched_no_reset: 'Exhausted · reset unknown',
   not_succeeded: 'Success not recorded',
-  Working: 'Working', Waiting: 'Waiting', since: 'since', Launched: 'Launched', 'Finished at': 'Finished', 'running for': 'running for', took: 'took', Phase: 'Phase', 'Phase started': 'Phase started',
+  Working: 'Working', Waiting: 'Waiting', since: 'since', Launched: 'Launched', 'No linked session': 'No linked session', 'Finished at': 'Finished', 'running for': 'running for', took: 'took', Phase: 'Phase', 'Phase started': 'Phase started',
 };

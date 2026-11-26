@@ -1,4 +1,4 @@
-/** Decodes Pool member rows with and without the optional linked Run display row. */
+/** Decodes Pool member rows with and without the linked Run agent's session row. */
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { member } from '../src/index.ts';
@@ -14,8 +14,11 @@ test('a Pool member row decodes with an absent, null or linked Run row', () => {
   assert.equal(member(base).run, undefined);
   assert.equal(member({ ...base, run: null }).run, null);
   const run = {
-    status: 'running', phase: 'idle', phaseStartedAtMs: 1_000, idleMs: 720_000, observedAtMs: 721_000,
-    model: 'claude-sonnet-5-5', createdAtMs: 0, elapsedMs: 721_000, finishedAtMs: null,
+    id: 'ag-20261107-002455-e0caf0d956', execution: null, sequence: 1, status: 'running', runtime: 'claude-code',
+    model: 'claude-sonnet-5-5', effort: null, profile: 'implement', name: null, summary: 'Write the change', workdir: null,
+    projectId: null, projectInferred: false, phase: 'idle', phaseStartedAtMs: 1_000, idleMs: 720_000, createdAtMs: 0,
+    finishedAtMs: null, observedAtMs: 721_000, progressAtMs: null, elapsedMs: 721_000, silenceMs: null, lastAction: null,
+    failureKind: null, failureText: null, answerAvailable: null,
   };
   assert.deepEqual(member({ ...base, run }).run, run);
   assert.throws(() => member({ ...base, run: { ...run, status: 'sleeping' } }), /run\.status/);

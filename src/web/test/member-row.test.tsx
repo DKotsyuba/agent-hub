@@ -15,8 +15,11 @@ const working: PoolMember = {
   seat: { id: 'seat-00', profile: 'лидер', admission: 'admitted', joined: true },
   session: { sessionId: 'ag-20261107-002455-e0caf0d956', execution: null, match: 'unverified' },
   run: {
-    status: 'running', phase: 'running', phaseStartedAtMs: 0, idleMs: null, observedAtMs: 0,
-    model: 'claude-sonnet-5-5', createdAtMs: 0, elapsedMs: 0, finishedAtMs: null,
+    id: 'ag-20261107-002455-e0caf0d956', execution: null, sequence: 1, status: 'running', runtime: 'claude-code',
+    model: 'claude-sonnet-5-5', effort: 'high', profile: 'implement', name: null,
+    summary: 'Исследователь (лидер): проверь план', workdir: '/home/pluto/projects/strategy-lab', projectId: null, projectInferred: false,
+    phase: 'running', phaseStartedAtMs: 0, idleMs: null, createdAtMs: 0, finishedAtMs: null, observedAtMs: 0,
+    progressAtMs: null, elapsedMs: 0, silenceMs: null, lastAction: null, failureKind: null, failureText: null, answerAvailable: null,
   },
   lineage: null,
 };
@@ -26,17 +29,16 @@ function markup(item: PoolMember, now: number) {
   return renderToStaticMarkup(<LocaleProvider><Member item={item} now={now} /></LocaleProvider>);
 }
 
-test('a working member shows its phase, role label, model, task and a link to the session transcript', () => {
+test('a working member renders exactly its Sessions row: status, title, model and folder, footer and transcript link', () => {
   const now = Date.UTC(2026, 10, 26, 13, 17);
   const item = { ...working, run: { ...working.run!, phaseStartedAtMs: now - 720_000, observedAtMs: now } };
   const html = markup(item, now);
   assert.match(html, /href="\/sessions\/ag-20261107-002455-e0caf0d956"/);
   assert.match(html, /web-spin/);
   assert.match(html, />Выполняется · 12 мин/);
-  assert.match(html, />Исследователь \(лидер\)</);
-  assert.match(html, /Claude Sonnet 5\.5 · claude-code/);
-  assert.match(html, /Исследователь \(лидер\): проверь план/);
-  assert.match(html, /Подробнее/);
+  assert.match(html, /Claude Sonnet 5\.5 · strategy-lab/);
+  assert.match(html, /Запущен/);
+  assert.doesNotMatch(html, /Подробнее/);
 });
 
 test('a member without a Run row keeps a neutral state badge and is not a link', () => {
@@ -46,6 +48,7 @@ test('a member without a Run row keeps a neutral state badge and is not a link',
   };
   const html = markup(item, 0);
   assert.match(html, /data-tone="neutral"/);
-  assert.match(html, />pending</);
+  assert.match(html, />Ожидает</);
+  assert.match(html, /Сессия не привязана/);
   assert.doesNotMatch(html, /<a /);
 });

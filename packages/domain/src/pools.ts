@@ -1,6 +1,6 @@
 /** Pool inventory, membership, discussion, completion and recorded agreement data. */
 import { coverage, decimal, opaque, resourceId, sha256 } from './common.ts';
-import { lineageEvidence, runStatus, sessionLink, textChunk } from './sessions.ts';
+import { lineageEvidence, runStatus, session, sessionLink, textChunk } from './sessions.ts';
 import { type Decoded, array, bool, count, nullable, object, oneOf, optional, tagged, text } from './schema.ts';
 
 /** A completion or agreement record is selectable only when Pool reports its reference. */
@@ -57,11 +57,8 @@ const seat = object({
  * model and clocks. It is omitted by older servers and null when the member is unlinked or
  * the Run row is unavailable, so the same check cannot invent a live state.
  */
-const memberRun = object({
-  status: runStatus, phase: nullable(text), phaseStartedAtMs: nullable(count), idleMs: nullable(count),
-  observedAtMs: nullable(count), model: nullable(text), createdAtMs: nullable(count),
-  elapsedMs: nullable(count), finishedAtMs: nullable(count),
-});
+/** The linked Run agent's own session row, rendered exactly like the Sessions list. */
+const memberRun = session;
 
 /** A roster entry and any available Run identity and live-row evidence. */
 export const member = object({

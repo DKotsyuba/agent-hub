@@ -517,12 +517,10 @@ test('strict tasks and exact exports require a Pool-fenced historical execution'
     if (members.data.section !== 'members') return;
     const token = members.data.items[0].session?.execution;
     assert.ok(token && token.startsWith('bound-'));
-    // The verified Run view supplies the member's own live display row.
-    assert.deepEqual(members.data.items[0].run, {
-      status: 'succeeded', phase: 'terminal', phaseStartedAtMs: 1000, idleMs: null,
-      observedAtMs: Math.round(1794011095.2567778 * 1000), model: 'fixture',
-      createdAtMs: Math.round(1794011095.1142561 * 1000), elapsedMs: 0, finishedAtMs: 1000,
-    });
+    // The verified Run view supplies the member's own session row, rendered like Sessions.
+    const run = members.data.items[0].run!;
+    assert.deepEqual({ status: run.status, phase: run.phase, phaseStartedAtMs: run.phaseStartedAtMs, model: run.model, finishedAtMs: run.finishedAtMs },
+      { status: 'succeeded', phase: 'terminal', phaseStartedAtMs: 1000, model: 'fixture', finishedAtMs: 1000 });
     const path = '/sessions/' + selector.agent_id;
     const initial = await get(http, 'initialTask', path + '/initial-task?execution=' + token);
     assert.equal(initial.data.state === 'verified' && initial.data.proof.kind, 'strict');

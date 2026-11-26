@@ -8,7 +8,7 @@ import { client, errorCode, LiveContext, usePagedRead, useRead } from './data';
 import { readPoolContent, readPoolExport, readPoolRecord, readSessionText } from './content';
 import { Discussion, Transcript } from './history';
 import { memberTitle, mergeChat, modelTitle, poolTitle, sessionTitle } from './model';
-import { Row } from './lists';
+import { Row, SessionCard } from './lists';
 import { CoverageLine, EmptyRows, Expand, Facts, Link, ReadState, sessionHref, SessionFooter, SessionStatus, Sources, StatusBadge, Text, type EvidenceScope, useWebText } from './ui';
 
 /** Clipboard output is only released after the complete read validates; Escape aborts the operation. */
@@ -140,26 +140,16 @@ export function SessionDetails({ id, execution, tab, tabs, heading, now }: {
 }
 
 /** A member row leads with what the linked Run agent is doing, then its role, task and times. */
-export function Member({ item, caps, now }: { item: PoolMember; caps?: Capabilities; now: number }) {
+export function Member({ item, now }: { item: PoolMember; caps?: Capabilities; now: number }) {
   const { label } = useWebText();
-  const session = item.session, run = item.run ?? null;
-  const title = memberTitle(item) ?? item.id;
-  return <article className="web-member">
-    <Row id={item.id} target={session ? sessionHref(session.sessionId, session.execution) : undefined} selected={false}
-      title={title} hint={item.id} status={run ? <SessionStatus row={run} now={now} />
-        : <StatusBadge state={item.state ?? item.seat?.admission ?? 'unknown'} />}>
-      <span>{[run?.model && modelTitle(run.model), item.runtime !== 'unknown' && item.runtime].filter(Boolean).join(' · ')}</span>
-      {item.task && <span className="web-record-preview" title={item.task}>{item.task}</span>}
-      {run && <SessionFooter row={run} now={now} />}
-    </Row>
-    <details className="web-expand">
-      <summary>{label('More details')}</summary>
-      <Facts rows={[[ 'Role', item.role], ['State', item.state], ['Runtime', item.runtime], ['Seat', item.seat?.id],
-        ['Profile', item.seat?.profile], ['Admission', item.seat && label(item.seat.admission)], ['Joined', item.seat?.joined],
-        ['Run agent', session?.sessionId], ['Match', session && label(session.match)]]} />
-      {item.lineage && caps?.runProofs === 'supported' && <Expand title="Execution lineage"><Lineage value={item.lineage} /></Expand>}
-    </details>
-  </article>;
+  // A member with a readable Run agent is shown exactly like its row in Sessions.
+  if (item.run) return <SessionCard row={item.run} now={now} />;
+  const session = item.session;
+  return <Row id={item.id} target={session ? sessionHref(session.sessionId, session.execution) : undefined} selected={false}
+    title={memberTitle(item) ?? item.id} hint={session?.sessionId ?? item.id} status={<StatusBadge state={item.state ?? item.seat?.admission ?? 'unknown'} />}>
+    {item.task && <span className="web-record-preview" title={item.task}>{item.task}</span>}
+    {!session && <span className="web-muted">{label('No linked session')}</span>}
+  </Row>;
 }
 
 /** Each section paginates its own revision and optional proposal selection. */
