@@ -53,3 +53,14 @@ test('spent credits with no resets left are not listed', () => {
   ] }).resetCredits);
   assert.deepEqual(summary.credits.map(credit => credit.id), ['left', 'unknown-left']);
 });
+
+test('paid credit balance is optional, exact and tolerant of malformed metadata', () => {
+  const parse = (credit_balance: unknown) => quotaSnapshot({ schema_version: 2, coverage: { state: 'complete' },
+    accounts: [{ account: 'codex', credit_balance }] }).accounts[0]!.creditBalance;
+  assert.equal(parse(undefined), undefined);
+  assert.deepEqual(parse({ has_credits: true, unlimited: false, balance: '42.50' }), { hasCredits: true, unlimited: false, balance: '42.50' });
+  assert.deepEqual(parse({ has_credits: true, unlimited: true, balance: null }), { hasCredits: true, unlimited: true, balance: null });
+  assert.deepEqual(parse({ has_credits: false, unlimited: false, balance: '0' }), { hasCredits: false, unlimited: false, balance: '0' });
+  assert.equal(parse({ has_credits: 'yes', unlimited: false }), undefined);
+  assert.equal(parse({ has_credits: true, unlimited: false, balance: '1e9' })?.balance, null);
+});

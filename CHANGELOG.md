@@ -4,6 +4,12 @@ All notable changes to Agent Hub are documented here. The format follows [Keep a
 
 ## [Unreleased]
 
+## [0.3.13] - 2026-11-26
+
+### Added
+
+- Quota cards show the Codex paid credit balance («Кредиты: 42.50», «без ограничений») from Agent Quota `credit_balance`; absent metadata stays hidden.
+
 ## [0.3.12] - 2026-11-26
 
 ### Fixed
@@ -210,6 +216,7 @@ First public release: the terminal Hub for Linux x86-64 (standalone executable).
 
 - Archived Tasks and IDE sources are denied by the observer; the terminal has no Tasks, IDE or Run info tabs.
 
+[0.3.13]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.3.13
 [0.3.12]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.3.12
 [0.3.11]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.3.11
 [0.3.10]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.3.10

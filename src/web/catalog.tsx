@@ -228,7 +228,8 @@ function QuotaResetCredits({ account, title, now }: { account: QuotaAccount; tit
   const { label, n } = useWebText();
   const redeem = useRedeem();
   const { count, credits } = quotaResetCredits(account.resetCredits);
-  if (count === null) return null;
+  const paid = account.creditBalance;
+  if (count === null && !paid) return null;
   const groups = new Map<string, { name: string; scope: string; expiry: string; size: number; usableId: string | null }>();
   for (const credit of credits) {
     const name = creditLabel(credit.label, label);
@@ -243,7 +244,8 @@ function QuotaResetCredits({ account, title, now }: { account: QuotaAccount; tit
   }
   const working = redeem.state.phase === 'working';
   return <div className="min-w-0 text-sm">
-    <p className={count ? undefined : 'web-muted'}>{label('Banked resets')}: {n(count)}</p>
+    {paid && <p className={paid.hasCredits ? undefined : 'web-muted'}>{label('Paid credits')}: {paid.unlimited ? label('unlimited credits') : paid.balance ?? (paid.hasCredits ? label('available') : '0')}</p>}
+    {count !== null && <p className={count ? undefined : 'web-muted'}>{label('Banked resets')}: {n(count)}</p>}
     {groups.size > 0 && <ul className="mt-1 space-y-1.5">
       {[...groups.entries()].map(([key, group]) => <li key={key} className="flex min-w-0 items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
