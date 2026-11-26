@@ -60,7 +60,7 @@ html {
 }
 .web-page:not(:has(> .web-split)):focus-visible,
 .web-list-pane:focus-visible, .web-detail-pane:focus-visible { outline-offset: -3px; }
-.web-rail { display: flex; flex-direction: column; gap: 30px; padding: 24px 16px calc(24px + env(safe-area-inset-bottom, 0px)); border-right: 1px solid var(--border); background: var(--rail); }
+.web-rail { display: flex; flex-direction: column; gap: 30px; padding: 24px 16px calc(24px + var(--web-safe-bottom, env(safe-area-inset-bottom, 0px))); border-right: 1px solid var(--border); background: var(--rail); }
 .web-rail-hint { display: none; }
 .web-title-line { display: flex; align-items: center; gap: 8px; }
 .web-brand { display: flex; align-items: center; gap: 12px; padding: 5px 6px; font-size: 1.17rem; }
@@ -401,9 +401,11 @@ html {
 }
 
 /* Keep the last content row above the home indicator while the pane itself reaches the screen edge. */
-.web-main { padding-bottom: calc(var(--web-main-bottom, 20px) + env(safe-area-inset-bottom, 0px)); }
+/* --web-safe-bottom is measured at runtime (viewport.ts) so an inset already outside the web view is not added twice. */
+.web-main { padding-bottom: calc(var(--web-main-bottom, 20px) + var(--web-safe-bottom, env(safe-area-inset-bottom, 0px))); }
 .web-shell[data-immersive] .web-main { padding-bottom: 0; }
-.web-shell[data-immersive] :is(.web-list-pane, .web-detail-pane) { padding-bottom: env(safe-area-inset-bottom, 0px); }
+.web-shell[data-immersive] :is(.web-list-pane, .web-detail-pane) { padding-bottom: var(--web-safe-bottom, env(safe-area-inset-bottom, 0px)); }
+.web-viewport-facts { color: var(--muted); font-size: .75rem; font-variant-numeric: tabular-nums; }
 
 /* Held-message alarm: destructive banner at the top of every page, both themes, phone width. */
 .web-held-alert { display: flex; gap: 10px; align-items: flex-start; margin-bottom: 12px; padding: 12px 14px; border-radius: 7px;

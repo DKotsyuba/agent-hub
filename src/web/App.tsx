@@ -1,6 +1,7 @@
 /** Web-only Agent Hub shell, routing, preferences, and scoped stream ownership. */
 import type { ReactNode } from 'react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useViewportInsets } from './viewport';
 import { Activity, ArrowLeft, Bot, Gauge, GitBranch, Layers3, LayoutDashboard, RefreshCw, Settings, Download, PanelLeft, List, Copy, Check } from 'lucide-react';
 import { version as webVersion } from '../../package.json';
 import type { Topic } from '@agent-hub/domain';
@@ -108,6 +109,7 @@ export default function App() {
   const [interval, setInterval] = useState<1 | 3 | 5 | 10>(3);
   const [refresh, setRefresh] = useState(0);
   const [settings, setSettings] = useState(false);
+  const viewport = useViewportInsets();
   const [now, setNow] = useState(Date.now);
   const [lastRead, reportRead] = useState<number>();
   const appUpdate = useAppUpdate();
@@ -358,6 +360,7 @@ export default function App() {
                 <span>{label('Refresh cadence')}</span>
                 <Choice label={label('Refresh cadence')} value={String(interval)} options={[1, 3, 5, 10].map(value => [String(value), value + ' ' + label('sec')])} onChange={value => setInterval(Number(value) as 1 | 3 | 5 | 10)} />
               </div>
+              {viewport && <p className="web-viewport-facts">{label('Screen')} {viewport.screenWidth}×{viewport.screenHeight} · {label('Window')} {viewport.innerWidth}×{viewport.innerHeight} · ↑{viewport.insetTop} ↓{viewport.insetBottom} · {label('Gap')} {viewport.bottomGap}{viewport.standalone ? ' · PWA' : ''}</p>}
               <div><DialogClose asChild><Button>{label('Done')}</Button></DialogClose></div>
             </DialogContent>
           </Dialog>
