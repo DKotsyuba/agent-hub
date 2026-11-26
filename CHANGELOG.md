@@ -4,6 +4,12 @@ All notable changes to Agent Hub are documented here. The format follows [Keep a
 
 ## [Unreleased]
 
+## [0.3.20] - 2026-11-27
+
+### Fixed
+
+- The phone tab bar labels the worktrees tab "Worktree" instead of an untranslated key.
+
 ## [0.3.19] - 2026-11-27
 
 ### Fixed
@@ -252,6 +258,7 @@ First public release: the terminal Hub for Linux x86-64 (standalone executable).
 
 - Archived Tasks and IDE sources are denied by the observer; the terminal has no Tasks, IDE or Run info tabs.
 
+[0.3.20]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.3.20
 [0.3.19]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.3.19
 [0.3.18]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.3.18
 [0.3.17]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.3.17
