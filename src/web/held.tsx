@@ -1,8 +1,19 @@
 /** Red alarm for Bridge messages accepted into custody but still undelivered after the threshold. */
-import { createContext } from 'react';
-import { TriangleAlert } from 'lucide-react';
+import { createContext, useEffect, useState } from 'react';
+import { TriangleAlert, X } from 'lucide-react';
 import { heldDuration, type HeldAlarm, type HeldLine } from '../../packages/view-model/src/index';
 import { href, Link, useWebText } from './ui';
+
+/** Where a dismissal is remembered per browser, and how long it lasts. */
+const DISMISS_KEY = 'agent-hub.held-dismissed', DISMISS_MS = 60 * 60 * 1000;
+
+/** Reads the remembered dismissal; malformed or unavailable storage counts as none. */
+function readDismissal(): { count: number; at: number } | null {
+  try {
+    const value = JSON.parse(localStorage.getItem(DISMISS_KEY) ?? 'null') as { count?: unknown; at?: unknown } | null;
+    return value && typeof value.count === 'number' && typeof value.at === 'number' ? { count: value.count, at: value.at } : null;
+  } catch { return null; }
+}
 
 /** Active alarm shared with the Overview Bridge card; null while nothing is held past the threshold. */
 export const HeldContext = createContext<HeldAlarm | null>(null);
@@ -38,7 +49,16 @@ export function HeldAlert({ alarm, stale = 0 }: { alarm: HeldAlarm | null; stale
   const { label, n } = useWebText();
   const time = useHeldTime();
   const reason = useReason();
+  const [dismissed, setDismissed] = useState(readDismissal);
+  // A dismissal lasts an hour and ends early once more messages are held than when it was given.
+  useEffect(() => { if (dismissed && alarm && alarm.count > dismissed.count) setDismissed(null); }, [alarm, dismissed]);
   if (!alarm) return stale > 0 ? <p className="web-held-stale-only web-muted" role="status"><StaleHeld count={stale} link /></p> : null;
+  if (dismissed && Date.now() - dismissed.at < DISMISS_MS && alarm.count <= dismissed.count) return null;
+  const dismiss = () => {
+    const next = { count: alarm.count, at: Date.now() };
+    try { localStorage.setItem(DISMISS_KEY, JSON.stringify(next)); } catch { /* storage unavailable: dismiss for this view only */ }
+    setDismissed(next);
+  };
   const more = alarm.count - alarm.lines.length;
   return <section className="web-held-alert" role="alert" aria-label={label('Held alarm')}>
     <TriangleAlert size={20} aria-hidden="true" />
@@ -56,5 +76,8 @@ export function HeldAlert({ alarm, stale = 0 }: { alarm: HeldAlarm | null; stale
       {stale > 0 && <StaleHeld count={stale} />}
       <Link className="web-held-link" href={href('/incidents')}>{label('Bridge incidents')}</Link>
     </div>
+    <button type="button" className="web-held-dismiss" onClick={dismiss} aria-label={label('Held dismiss')} title={label('Held dismiss')}>
+      <X size={18} aria-hidden="true" />
+    </button>
   </section>;
 }

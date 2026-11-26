@@ -411,6 +411,9 @@ html {
 .web-held-alert { display: flex; gap: 10px; align-items: flex-start; margin-bottom: 12px; padding: 12px 14px; border-radius: 7px;
   border: 1px solid var(--danger); color: var(--danger); background: color-mix(in srgb, var(--danger) 12%, var(--background)); overflow-wrap: anywhere; }
 .web-held-alert > svg { flex: none; margin-top: 2px; }
+.web-held-body { flex: 1 1 auto; }
+.web-held-dismiss { flex: none; display: inline-flex; align-items: center; justify-content: center; min-width: 44px; min-height: 44px; margin: -10px -8px 0 0; border: 0; border-radius: 7px; background: transparent; color: inherit; cursor: pointer; }
+.web-held-dismiss:hover { background: color-mix(in srgb, var(--danger) 18%, transparent); }
 .web-held-body { display: grid; gap: 4px; min-width: 0; }
 .web-held-body > strong { font-size: 1rem; }
 .web-held-body ul { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; font-size: .875rem; }
