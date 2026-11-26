@@ -42,13 +42,19 @@ export async function runInventory(ctx: ReadContext, active = false) {
   return { inventory, items, rows: items.map(sessionRow), observation: observed(envelope, ms(inventory.observed), coverage(active ? 'current' : 'retained', complete && inventory.complete, 'revision_fenced')) };
 }
 
+/** Converts a reported duration in seconds to API milliseconds; unknown stays null. */
+function seconds(value: number | null): number | null {
+  return value === null || value < 0 ? null : Math.round(value * 1000);
+}
+
 /** Projects only Run fields understood by the API. */
 export function sessionRow(agent: RunAgent): Session {
   const work = agentWorkdir(agent);
   return session({
     id: agent.id, sequence: agent.sequence, execution: text(agent.raw.execution_ref),
     name: agent.name, summary: agent.summary, workdir: work?.path ?? null, projectId: work ? projectId(projectRoot(work.path)) : null, projectInferred: work?.inferred ?? false,
-    status: agent.status, runtime: text(agent.raw.runtime), model: agent.model, effort: agent.effort,
+    status: agent.status, runtime: text(agent.raw.runtime), model: agent.model, effort: agent.effort, profile: agent.profile,
+    phase: agent.phase, phaseStartedAtMs: ms(agent.phaseStartedAt), idleMs: seconds(agent.idle),
     createdAtMs: ms(agent.raw.created_at), finishedAtMs: ms(agent.finished), observedAtMs: ms(agent.observed),
     progressAtMs: ms(agent.progress), elapsedMs: ms(agent.elapsed), silenceMs: ms(agent.silence), lastAction: text(agent.raw.last_action),
     failureKind: text(agent.raw.failure_kind), failureText: text(agent.raw.failure_text), answerAvailable: agent.answerAvailable,

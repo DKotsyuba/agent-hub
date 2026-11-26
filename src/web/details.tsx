@@ -8,7 +8,7 @@ import { client, errorCode, LiveContext, usePagedRead, useRead } from './data';
 import { readPoolContent, readPoolExport, readPoolRecord, readSessionText } from './content';
 import { Discussion, Transcript } from './history';
 import { mergeChat, modelTitle, poolTitle, sessionTitle } from './model';
-import { CoverageLine, EmptyRows, Expand, Facts, Link, ReadState, sessionHref, Sources, StatusBadge, Text, type EvidenceScope, useWebText } from './ui';
+import { CoverageLine, EmptyRows, Expand, Facts, Link, ReadState, sessionHref, SessionStatus, Sources, StatusBadge, Text, type EvidenceScope, useWebText } from './ui';
 
 /** Clipboard output is only released after the complete read validates; Escape aborts the operation. */
 function CopyAction({ title, load }: { title: string; load: (signal: AbortSignal) => Promise<string> }) {
@@ -98,15 +98,17 @@ function InitialTaskProof({ id, execution, capabilities }: { id: string; executi
 type DetailTabs = (tabs: string[], content: ReactNode, extra?: string[]) => ReactNode;
 
 /** The shell supplies actions and focus while details supply source-reported metadata. */
-export type DetailHeading = (name?: string, status?: ReactNode, model?: string) => ReactNode;
+export type DetailHeading = (name?: string, status?: ReactNode, model?: string, options?: { statusFirst?: boolean }) => ReactNode;
 
 /** Sessions display one selected execution, independent lineage evidence, and its retained transcript. */
-export function SessionDetails({ id, execution, tab, tabs, heading }: { id: string; execution: string | null; tab: string; tabs: DetailTabs; heading: DetailHeading }) {
+export function SessionDetails({ id, execution, tab, tabs, heading, now }: {
+  id: string; execution: string | null; tab: string; tabs: DetailTabs; heading: DetailHeading; now: number;
+}) {
   const { label, clock, duration } = useWebText();
   const read = useRead(id + ':' + execution, signal => client.get('session', { params: { id }, query: { execution }, signal }), `session:${id}:detail`);
   const session = read.value?.data.session;
-  return <>{heading(session && sessionTitle(session), session && <StatusBadge state={session.status} />,
-    session && [session.model && modelTitle(session.model), session.runtime].filter(Boolean).join(' · '))}
+  return <>{heading(session && sessionTitle(session), session && <SessionStatus row={session} now={now} />,
+    session && [session.model && modelTitle(session.model), session.runtime].filter(Boolean).join(' · '), { statusFirst: true })}
     <ReadState read={read}>{({ data, observations, capabilities }) => {
       const row = data.session;
       return tabs(['history', 'result', 'details'], <>
@@ -116,7 +118,8 @@ export function SessionDetails({ id, execution, tab, tabs, heading }: { id: stri
         {tab === 'details' && <>
           <Text>{row.summary}</Text>
           <Facts rows={[[ 'Execution', row.sequence], ['Project', row.projectId && row.projectId + (row.projectInferred ? ' · ' + label('Inferred') : '')],
-            ['Working directory', row.workdir], ['Created', clock(row.createdAtMs)], ['Finished', clock(row.finishedAtMs)], ['Observed', clock(row.observedAtMs)],
+            ['Working directory', row.workdir], ['Profile', row.profile], ['Phase', row.phase], ['Phase started', clock(row.phaseStartedAtMs)],
+            ['Created', clock(row.createdAtMs)], ['Finished', clock(row.finishedAtMs)], ['Observed', clock(row.observedAtMs)],
             ['Last progress', clock(row.progressAtMs)], ['Elapsed', duration(row.elapsedMs)], ['Silence', duration(row.silenceMs)], ['Last action', row.lastAction],
             ['Failure kind', row.failureKind], ['Failure', row.failureText], ['Delivery', data.delivery], ['Cleanup', data.cleanup],
             ['History attribution', label(data.historyAttribution)], ['Answer attribution', label(data.answerAttribution)]]} />

@@ -84,6 +84,8 @@ html {
 .web-link:hover { text-decoration: underline; text-underline-offset: 3px; }
 .web-inline-row, .web-row-meta, .web-record-heading { display: flex; gap: 8px 12px; align-items: baseline; flex-wrap: wrap; }
 .web-inline-row { justify-content: space-between; align-items: center; min-height: 44px; padding-block: 8px; }
+/* Session rows lead with their phase, so the lead pair stays next to each other instead of splitting. */
+.web-inline-row-lead { justify-content: flex-start; }
 .web-inline-row + .web-inline-row { border-top: 1px solid var(--border); }
 .web-inline-row:hover { color: var(--primary); }
 .web-row-meta { color: var(--muted); margin-block: 3px 10px; font-size: .875rem; }
@@ -214,8 +216,11 @@ html {
 .web-search { display: grid; gap: 4px; margin: 8px 0; color: var(--muted); }
 .web-records { display: grid; gap: 6px; }
 .web-record { display: block; padding: 10px 12px; border: 1px solid var(--border); border-radius: 7px; }
-.web-record-heading { justify-content: space-between; align-items: center; }
-.web-record-status { display: inline-flex; gap: 5px; align-items: center; color: var(--primary); }
+.web-record-heading { justify-content: flex-start; align-items: center; }
+.web-record-status { display: inline-flex; gap: 5px; align-items: center; flex: none; color: var(--primary); }
+/* Phase badges carry the spinner or the wait duration, so they keep their own spacing. */
+.web-status-phase { gap: 4px; }
+.web-status-phase svg { flex: none; }
 .web-record-copy { display: grid; gap: 2px; color: var(--muted); margin-top: 4px; font-size: .875rem; }
 .web-record-preview { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
 .web-record-copy > span:empty { display: none; }
@@ -245,6 +250,8 @@ html {
   padding: 6px 12px 2px; }
 .web-detail-heading, .web-detail-identity, .web-detail-actions, .web-identity { display: flex; min-width: 0; align-items: center; gap: 6px; }
 .web-detail-heading { min-height: 42px; }
+/* A session header leads with its phase, so a long wait label keeps a full line for the name below it. */
+.web-detail-heading[data-status-first] { flex-wrap: wrap; }
 .web-detail-actions, .web-controls.web-header-controls { flex: none; flex-wrap: nowrap; }
 .web-detail-heading h1 { min-width: 0; font-size: clamp(1rem, 2vw, 1.25rem); line-height: 1.3; letter-spacing: -.025em; }
 .web-detail-heading :is(h1, .web-heading-model), .web-detail-identity :is(code, .web-mobile-model) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

@@ -12,7 +12,7 @@ import { HeldContext } from './held';
 import { RedeemButton, RedeemStatus, useRedeem } from './redeem';
 import { modelTitle, quotaAccountTitle, quotaAdviceKind, worktreeMeasurements, sessionTitle } from './model';
 import { accountTitle, branchLabel, formatBytes, projectQuotaSnapshot, projectQuotaStatus, quotaAccountFocus, quotaModelRemaining, quotaResetCredits, quotaWindowForecast, windowSeconds, type QuotaAccount, type QuotaSnapshot } from '../../packages/view-model/src/index';
-import { CoverageLine, EmptyRows, Expand, Facts, href, Link, ReadState, relativeTime, sessionHref, SourceEvidence, Sources, StatusBadge, Text, useEvidence, useWebText } from './ui';
+import { CoverageLine, EmptyRows, Expand, Facts, href, Link, ReadState, relativeTime, sessionHref, SessionStatus, SourceEvidence, Sources, StatusBadge, Text, useEvidence, useWebText } from './ui';
 
 /** URL period bounds are shared with the Bridge and failed execution drill-downs. */
 export function period(query: URLSearchParams) {
@@ -74,8 +74,8 @@ export function Overview({ query, filter, now }: { query: URLSearchParams; filte
         </div>
         <Panel className="web-current" title={label('Current sessions')} extra={<Link className="web-link" href="/sessions">{label('All sessions')}</Link>}>
           <div className="web-panel-body">
-            {data.run?.current.map(item => <Link className="web-inline-row" key={item.id + item.execution} href={sessionHref(item.id, item.execution)}>
-              <strong title={item.id}>{sessionTitle(item) ?? item.id}</strong><StatusBadge state={item.status} /></Link>)}
+            {data.run?.current.map(item => <Link className="web-inline-row web-inline-row-lead" key={item.id + item.execution} href={sessionHref(item.id, item.execution)}>
+              <SessionStatus row={item} now={now} /><strong title={item.id}>{sessionTitle(item) ?? item.id}</strong></Link>)}
             {data.run && <EmptyRows count={data.run.current.length} observations={observations.filter(item => item.source === 'run')} />}
             {!data.run && <p className="web-empty">{label('Session data unavailable')}</p>}
           </div>

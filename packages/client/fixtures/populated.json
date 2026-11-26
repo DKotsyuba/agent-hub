@@ -83,7 +83,7 @@
   "overview": {
     "run": {
       "active": {
-        "value": 2,
+        "value": 3,
         "kind": "exact"
       },
       "started": {
@@ -113,6 +113,7 @@
           "runtime": "synthetic-run",
           "model": "model-alpha",
           "effort": "high",
+          "profile": "builder",
           "projectId": "hub",
           "projectInferred": true,
           "workdir": "/demo/agent-hub",
@@ -123,6 +124,9 @@
           "elapsedMs": 192000,
           "silenceMs": 7000,
           "lastAction": "Read history",
+          "phase": "running",
+          "phaseStartedAtMs": 1794010619000,
+          "idleMs": null,
           "failureKind": null,
           "failureText": null,
           "answerAvailable": false
@@ -137,6 +141,7 @@
           "runtime": "synthetic-run",
           "model": "model-beta",
           "effort": "high",
+          "profile": "indexer",
           "projectId": "hub",
           "projectInferred": true,
           "workdir": "/demo/agent-hub",
@@ -147,6 +152,37 @@
           "elapsedMs": 192000,
           "silenceMs": 7000,
           "lastAction": "Read history",
+          "phase": "running",
+          "phaseStartedAtMs": 1794010619000,
+          "idleMs": null,
+          "failureKind": null,
+          "failureText": null,
+          "answerAvailable": false
+        },
+        {
+          "id": "demo-waiting",
+          "execution": "exec-waiting",
+          "sequence": 1,
+          "status": "running",
+          "name": "Wait for review events",
+          "summary": "Turn finished; the agent waits for the next event.",
+          "runtime": "synthetic-run",
+          "model": "model-beta",
+          "effort": "high",
+          "profile": "reviewer",
+          "projectId": "hub",
+          "projectInferred": true,
+          "workdir": "/demo/agent-hub",
+          "createdAtMs": 1794000300000,
+          "finishedAtMs": null,
+          "observedAtMs": 1794011100000,
+          "progressAtMs": 1794010380000,
+          "elapsedMs": 192000,
+          "silenceMs": 720000,
+          "lastAction": "Turn finished",
+          "phase": "idle",
+          "phaseStartedAtMs": 1794010380000,
+          "idleMs": 720000,
           "failureKind": null,
           "failureText": null,
           "answerAvailable": false
@@ -193,6 +229,7 @@
           "runtime": "synthetic-run",
           "model": "model-alpha",
           "effort": "high",
+          "profile": "builder",
           "projectId": "hub",
           "projectInferred": true,
           "workdir": "/demo/agent-hub",
@@ -203,6 +240,9 @@
           "elapsedMs": 192000,
           "silenceMs": 7000,
           "lastAction": "Read history",
+          "phase": "running",
+          "phaseStartedAtMs": 1794010619000,
+          "idleMs": null,
           "failureKind": null,
           "failureText": null,
           "answerAvailable": false
@@ -395,6 +435,7 @@
           "runtime": "synthetic-run",
           "model": "model-beta",
           "effort": "high",
+          "profile": "indexer",
           "projectId": "hub",
           "projectInferred": true,
           "workdir": "/demo/agent-hub",
@@ -405,6 +446,9 @@
           "elapsedMs": 192000,
           "silenceMs": 7000,
           "lastAction": "Read history",
+          "phase": "running",
+          "phaseStartedAtMs": 1794010619000,
+          "idleMs": null,
           "failureKind": null,
           "failureText": null,
           "answerAvailable": false
@@ -597,6 +641,7 @@
           "runtime": "synthetic-run",
           "model": "model-alpha",
           "effort": "high",
+          "profile": "reviewer",
           "projectId": "hub",
           "projectInferred": true,
           "workdir": "/demo/agent-hub/.worktrees/review",
@@ -607,6 +652,9 @@
           "elapsedMs": 192000,
           "silenceMs": 7000,
           "lastAction": "Read history",
+          "phase": "terminal",
+          "phaseStartedAtMs": 1794010650000,
+          "idleMs": null,
           "failureKind": null,
           "failureText": null,
           "answerAvailable": true
@@ -810,6 +858,7 @@
           "runtime": "synthetic-run",
           "model": "model-alpha",
           "effort": "high",
+          "profile": "builder",
           "projectId": "hub",
           "projectInferred": true,
           "workdir": "/demo/agent-hub",
@@ -820,6 +869,9 @@
           "elapsedMs": 192000,
           "silenceMs": 7000,
           "lastAction": "Read history",
+          "phase": "terminal",
+          "phaseStartedAtMs": 1794010880000,
+          "idleMs": null,
           "failureKind": "fixture_failure",
           "failureText": "Synthetic failure in saved history.",
           "answerAvailable": false
@@ -1000,6 +1052,7 @@
           "runtime": "synthetic-run",
           "model": "model-alpha",
           "effort": "high",
+          "profile": "archivist",
           "projectId": "hub",
           "projectInferred": true,
           "workdir": "/demo/agent-hub",
@@ -1010,6 +1063,9 @@
           "elapsedMs": 192000,
           "silenceMs": 7000,
           "lastAction": "Read history",
+          "phase": "terminal",
+          "phaseStartedAtMs": 1794010800000,
+          "idleMs": null,
           "failureKind": null,
           "failureText": null,
           "answerAvailable": false
@@ -1240,6 +1296,212 @@
             },
             "storeFenced": true,
             "activePin": true
+          }
+        }
+      }
+    },
+    {
+      "detail": {
+        "session": {
+          "id": "demo-waiting",
+          "execution": "exec-waiting",
+          "sequence": 1,
+          "status": "running",
+          "name": "Wait for review events",
+          "summary": "Turn finished; the agent waits for the next event.",
+          "runtime": "synthetic-run",
+          "model": "model-beta",
+          "effort": "high",
+          "profile": "reviewer",
+          "projectId": "hub",
+          "projectInferred": true,
+          "workdir": "/demo/agent-hub",
+          "createdAtMs": 1794000300000,
+          "finishedAtMs": null,
+          "observedAtMs": 1794011100000,
+          "progressAtMs": 1794010380000,
+          "elapsedMs": 192000,
+          "silenceMs": 720000,
+          "lastAction": "Turn finished",
+          "phase": "idle",
+          "phaseStartedAtMs": 1794010380000,
+          "idleMs": 720000,
+          "failureKind": null,
+          "failureText": null,
+          "answerAvailable": false
+        },
+        "lineage": null,
+        "historyAttribution": "retained_lineage",
+        "answerAttribution": "unavailable",
+        "executionUsage": [
+          {
+            "metric": "output_tokens",
+            "count": "123"
+          }
+        ],
+        "cumulativeUsage": [],
+        "toolCounts": [
+          {
+            "metric": "Read",
+            "count": "1"
+          }
+        ],
+        "delivery": null,
+        "cleanup": null
+      },
+      "history": {
+        "sessionId": "demo-waiting",
+        "execution": "exec-waiting",
+        "format": "grouped",
+        "attribution": "retained_lineage",
+        "entries": [
+          {
+            "head": {
+              "id": "block-1",
+              "position": "1",
+              "role": "user",
+              "name": null,
+              "sourceRef": null,
+              "text": "Inspect the saved execution history. Identify missing records and explain what can be confirmed from the available evidence.",
+              "atMs": 1794010901000,
+              "error": null,
+              "complete": true
+            },
+            "calls": [],
+            "results": [],
+            "partialBefore": false,
+            "partialAfter": false
+          },
+          {
+            "head": {
+              "id": "block-2",
+              "position": "2",
+              "role": "assistant",
+              "name": null,
+              "sourceRef": null,
+              "text": "I am checking the available records.",
+              "atMs": 1794010902000,
+              "error": null,
+              "complete": true
+            },
+            "calls": [],
+            "results": [],
+            "partialBefore": false,
+            "partialAfter": false
+          },
+          {
+            "head": {
+              "id": "block-3",
+              "position": "3",
+              "role": "tool_call",
+              "name": "Search earlier messages",
+              "sourceRef": "demo-search",
+              "text": "{\"pattern\":\"earlier synthetic history\"}",
+              "atMs": 1794010903000,
+              "error": null,
+              "complete": true
+            },
+            "calls": [
+              {
+                "id": "block-3",
+                "position": "3",
+                "role": "tool_call",
+                "name": "Search earlier messages",
+                "sourceRef": "demo-search",
+                "text": "{\"pattern\":\"earlier synthetic history\"}",
+                "atMs": 1794010903000,
+                "error": null,
+                "complete": true
+              }
+            ],
+            "results": [
+              {
+                "id": "block-4",
+                "position": "4",
+                "role": "tool_result",
+                "name": "Search earlier messages",
+                "sourceRef": "demo-search",
+                "text": "No earlier synthetic records.",
+                "atMs": 1794010904000,
+                "error": false,
+                "complete": true,
+                "endAtMs": 1794010904000
+              }
+            ],
+            "partialBefore": false,
+            "partialAfter": false
+          },
+          {
+            "head": {
+              "id": "block-5",
+              "position": "5",
+              "role": "tool_result",
+              "name": "Inspect",
+              "sourceRef": "orphan",
+              "text": "Output with no retained call.",
+              "atMs": 1794010905000,
+              "error": null,
+              "complete": true
+            },
+            "calls": [],
+            "results": [],
+            "partialBefore": false,
+            "partialAfter": false
+          },
+          {
+            "head": {
+              "id": "block-6",
+              "position": "6",
+              "role": "assistant",
+              "name": null,
+              "sourceRef": null,
+              "text": "Synthetic result: the available execution history was reviewed.\nNo real service was contacted.",
+              "atMs": 1794010906000,
+              "error": null,
+              "complete": true
+            },
+            "calls": [],
+            "results": [],
+            "partialBefore": false,
+            "partialAfter": false
+          }
+        ],
+        "coverage": {
+          "scope": "retained",
+          "state": "complete",
+          "boundary": "run-transcript-6"
+        }
+      },
+      "initialTask": {
+        "state": "verified",
+        "content": {
+          "text": "Inspect the saved execution history. Identify missing records and explain what can be confirmed from the available evidence.",
+          "offsetBytes": 0,
+          "totalBytes": 124
+        },
+        "proof": {
+          "kind": "current",
+          "root": {
+            "execution": "exec-waiting",
+            "sequence": 1,
+            "sha256": "e6fa9a6a6aec496e44de74edc08cb95533772ac8bf1534859765c178da3cfa78"
+          }
+        }
+      },
+      "result": null,
+      "exports": {
+        "retained": {
+          "mode": "retained",
+          "content": {
+            "text": "user: Inspect the saved execution history. Identify missing records and explain what can be confirmed from the available evidence.\nassistant: I am checking the available records.\ntool_call: {\"pattern\":\"earlier synthetic history\"}\ntool_result: No earlier synthetic records.\ntool_result: Output with no retained call.\nassistant: Synthetic result: the available execution history was reviewed.\nNo real service was contacted.",
+            "offsetBytes": 0,
+            "totalBytes": 421
+          },
+          "boundary": "retained-end-6",
+          "coverage": {
+            "scope": "retained",
+            "state": "partial",
+            "reason": "Earlier entries may have been removed."
           }
         }
       }

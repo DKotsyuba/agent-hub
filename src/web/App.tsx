@@ -308,9 +308,9 @@ export default function App() {
   </div>;
   const fixtureBadge = health.value?.mode === 'fixture' && <span className="web-fixture">{label('Fixture data')}</span>;
 
-  /** Aligns the current record name, status and actions above both detail views. */
-  const compactHeader: DetailHeading = (name, status, model) => <header className="web-detail-header">
-    <div className="web-detail-heading">
+  /** Aligns the current record name, status and actions above both detail views; sessions lead with their phase. */
+  const compactHeader: DetailHeading = (name, status, model, options) => <header className="web-detail-header">
+    <div className="web-detail-heading" data-status-first={options?.statusFirst || undefined}>
       <div className="web-detail-actions">
         {sidebarToggle}
         <Button variant="ghost" size="icon" className="web-list-toggle"
@@ -318,8 +318,9 @@ export default function App() {
           title={label(listVisible ? 'Hide list' : 'Show list')} onClick={() => setListVisible(value => !value)}><List size={18} /></Button>
         {backLink}
       </div>
+      {options?.statusFirst && status}
       <h1 ref={heading} tabIndex={-1} title={name}>{name || fallbackTitle}</h1>
-      {status}
+      {!options?.statusFirst && status}
       {model && <span className="web-heading-model" title={model}>{model}</span>}
       {headerControls}
     </div>
@@ -379,10 +380,10 @@ export default function App() {
         <div ref={page} className="web-page" tabIndex={inventory ? undefined : 0}>
         {inventory ? <div className={'web-split' + (id ? ' web-has-detail' : '') + (immersive && !listVisible ? ' web-list-collapsed' : '')}>
           <section id="web-inventory" ref={list} tabIndex={0} className="web-list-pane" aria-label={label(title)}>
-            <InventoryList key={inventory} kind={inventory as Inventory} query={query} id={id} update={update} />
+            <InventoryList key={inventory} kind={inventory as Inventory} query={query} id={id} now={Math.max(now, lastRead ?? 0)} update={update} />
           </section>
           {id && <section ref={detail} tabIndex={immersive ? undefined : 0} className="web-detail-pane" aria-label={label('Details')} key={kind + ':' + id + ':' + query.get('execution')}>
-            {inventory === 'sessions' ? <SessionDetails id={id} execution={query.get('execution')} tab={tab} tabs={tabs} heading={compactHeader} />
+            {inventory === 'sessions' ? <SessionDetails id={id} execution={query.get('execution')} tab={tab} tabs={tabs} heading={compactHeader} now={Math.max(now, lastRead ?? 0)} />
               : inventory === 'pools' ? <PoolDetails id={id} tab={tab} tabs={tabs} heading={compactHeader} proposal={query.get('proposal')} select={proposal => update({ proposal }, true)} />
               : <WorktreeDetails id={id} />}
           </section>}

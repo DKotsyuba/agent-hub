@@ -4,6 +4,10 @@ All notable changes to Agent Hub are documented here. The format follows [Keep a
 
 ## [Unreleased]
 
+### Added
+
+- Session rows now show what each agent is doing before its name: «Выполняется» with a spinning loader while its step runs, «Ожидает · 12 мин (с 14:05)» with the reported wait and start clock when an explicit-finish agent waits to be woken, and the lifecycle badge for finished or failed runs. The same status leads the session detail header, and agents are labelled `name (profile)` with the Run ID kept in the tooltip and details. Run `phase`, `phase_started_at` and `idle_seconds` (plus `profile`) are carried through the server into session lists, Overview «Текущие сессии» and session details; unrecognized phases keep their own neutral label. The web fixture scenario gains a waiting agent.
+
 ## [0.3.5] - 2026-11-26
 
 ### Changed

@@ -2,12 +2,13 @@
 import type { AnchorHTMLAttributes, ReactNode } from 'react';
 import { createContext, useContext, useId, useState } from 'react';
 import { ChevronDown, LoaderCircle } from 'lucide-react';
-import type { Coverage, Observation, Topic } from '@agent-hub/domain';
+import type { Coverage, Observation, Session, Topic } from '@agent-hub/domain';
 import { useLocale } from '../i18n';
 import { ru } from '../locales';
 import { Badge } from '../components/ui/badge';
 import { english, translations } from './strings';
 import { LiveContext, type Read } from './data';
+import { sessionPhase, waitingText } from './model';
 
 /** Localizes authored v1 chrome and typed tokens; callers render producer prose directly. */
 export function useWebText() {
@@ -18,7 +19,9 @@ export function useWebText() {
     return tools.locale === 'ru' && Object.hasOwn(ru, text) ? ru[text as keyof typeof ru] : text;
   };
   return { ...tools, label,
-    clock: (ms: number | null | undefined) => ms == null ? '—' : new Date(ms).toLocaleString(tools.tag, { dateStyle: 'medium', timeStyle: 'short' }) };
+    clock: (ms: number | null | undefined) => ms == null ? '—' : new Date(ms).toLocaleString(tools.tag, { dateStyle: 'medium', timeStyle: 'short' }),
+    // Short local clock time for names and wait labels; the long form stays in `clock`.
+    at: (ms: number) => tools.time(new Date(ms).toISOString()) };
 }
 
 /** Link navigation stays native for modified clicks and new tabs. */
@@ -84,6 +87,20 @@ export function StatusBadge({ state }: { state: string }) {
     : ['failed', 'timed_out', 'exhausted', 'invalid', 'high', 'critical'].includes(state) ? 'error'
     : ['partial', 'unavailable', 'incompatible', 'missing', 'Stale', 'medium'].includes(state) ? 'warning' : 'neutral';
   return <Badge variant="outline" className="web-status" data-tone={tone}>{label(state)}</Badge>;
+}
+
+/** Shows what a session is doing before its name: working, waiting with its duration, or the lifecycle status. */
+export function SessionStatus({ row, now }: {
+  row: Pick<Session, 'status' | 'phase' | 'phaseStartedAtMs' | 'idleMs'>; now: number;
+}) {
+  const { label, duration, at } = useWebText();
+  const phase = sessionPhase(row, now);
+  if (phase.kind === 'status') return <StatusBadge state={row.status} />;
+  if (phase.kind === 'waiting') return <Badge variant="outline" className="web-status web-status-phase" data-tone="neutral">
+    {waitingText(phase.waitMs, phase.sinceMs, { label, duration, at })}</Badge>;
+  if (phase.kind === 'working') return <Badge variant="outline" className="web-status web-status-phase" data-tone="active">
+    <LoaderCircle size={12} className="web-spin" aria-hidden="true" />{label('Working')}</Badge>;
+  return <Badge variant="outline" className="web-status web-status-phase" data-tone="neutral">{label(phase.phase)}</Badge>;
 }
 
 /** Chooses one source badge from its independent resource observations. */

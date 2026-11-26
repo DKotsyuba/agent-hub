@@ -11,13 +11,18 @@ export const sessionLink = object({
   match: oneOf('verified', 'unverified', 'missing', 'mismatch', 'unknown'),
 });
 
-/** A list row for a current or retained execution. Clocks are epoch milliseconds. */
+/**
+ * A list row for a current or retained execution. Clocks are epoch milliseconds.
+ * `phase` is the producer's own preparation/execution phase, shown as reported; `idleMs` is its
+ * observed idle duration and `phaseStartedAtMs` the start of the current phase.
+ */
 export const session = object({
   id: resourceId, execution: nullable(opaque), sequence: nullable(count), status: runStatus,
-  name: nullable(text), summary: nullable(text), runtime: nullable(text), model: nullable(text), effort: nullable(text),
+  name: nullable(text), summary: nullable(text), runtime: nullable(text), model: nullable(text), effort: nullable(text), profile: nullable(text),
   projectId: nullable(resourceId), projectInferred: bool, workdir: nullable(text),
   createdAtMs: nullable(count), finishedAtMs: nullable(count), observedAtMs: nullable(count),
   progressAtMs: nullable(count), elapsedMs: nullable(count), silenceMs: nullable(count), lastAction: nullable(text),
+  phase: nullable(text), phaseStartedAtMs: nullable(count), idleMs: nullable(count),
   failureKind: nullable(text), failureText: nullable(text), answerAvailable: nullable(bool),
 });
 

@@ -8,10 +8,57 @@ export function poolBadge(row: Pool): string {
   return state === 'unknown' ? 'Unknown' : 'pool:' + state;
 }
 
-/** Selects a readable session label from its reported name or task summary. */
+/** Selects a readable session label from its reported name or task summary, keeping the profile visible. */
 export function sessionTitle(row: Session) {
   const name = row.name?.trim();
-  return name && name !== row.id ? name : row.summary?.trim().replace(/\s+/g, ' ') || undefined;
+  const label = name && name !== row.id ? name : row.summary?.trim().replace(/\s+/g, ' ') || undefined;
+  const profile = row.profile?.trim();
+  return label && profile && profile !== label ? label + ' (' + profile + ')' : label;
+}
+
+/** Producer phases in which the agent's own step is executing rather than waiting or stopping. */
+const workingPhases = new Set(['running', 'preparing', 'spawning', 'accepted']);
+/** Producer lifecycle statuses that already ended; they are shown as the status badge. */
+const terminalStatuses = new Set(['succeeded', 'failed', 'timed_out', 'cancelled', 'lost']);
+
+/** What one session row is doing, as far as its own producer reported. */
+export type SessionPhase =
+  /** No usable phase for this lifecycle: the status badge is shown exactly as reported. */
+  | { kind: 'status' }
+  /** The agent's step is executing; the caller adds the spinner. */
+  | { kind: 'working' }
+  /** The agent finished its step and waits to be woken, with its reported wait and start. */
+  | { kind: 'waiting'; sinceMs: number | null; waitMs: number | null }
+  /** A phase this build does not classify; the raw producer name is shown neutrally. */
+  | { kind: 'phase'; phase: string };
+
+/**
+ * Maps the producer phase without inventing one: a running agent is working, an idle one waits,
+ * and an unrecognized phase keeps its own name instead of being forced into either claim.
+ */
+export function sessionPhase(row: Pick<Session, 'status' | 'phase' | 'phaseStartedAtMs' | 'idleMs'>, now: number): SessionPhase {
+  if (terminalStatuses.has(row.status)) return { kind: 'status' };
+  const phase = row.phase?.trim() || null;
+  if (phase === 'idle') {
+    const sinceMs = row.phaseStartedAtMs;
+    const elapsed = sinceMs === null ? null : Math.max(0, now - sinceMs);
+    // The producer's own idle observation is a floor, so a clock skew never shortens the shown wait.
+    const waitMs = elapsed === null ? row.idleMs : row.idleMs === null ? elapsed : Math.max(elapsed, row.idleMs);
+    return { kind: 'waiting', sinceMs, waitMs };
+  }
+  if (phase !== null && workingPhases.has(phase)) return { kind: 'working' };
+  if (row.status !== 'running' && row.status !== 'starting') return { kind: 'status' };
+  // Older producers omit the phase entirely; the running status is still their own report.
+  return phase === null ? { kind: 'working' } : { kind: 'phase', phase };
+}
+
+/** Formats the waiting label as `Waiting · 12 min (since 14:05)` from reported values only. */
+export function waitingText(waitMs: number | null, sinceMs: number | null,
+  format: { label: (key: string) => string; duration: (milliseconds: number) => string; at: (milliseconds: number) => string }) {
+  const parts = [format.label('Waiting')];
+  if (waitMs !== null) parts.push(format.duration(waitMs));
+  const since = sinceMs === null ? '' : ' (' + format.label('since') + ' ' + format.at(sinceMs) + ')';
+  return parts.join(' · ') + since;
 }
 
 /** Selects a readable Pool label from its reported name or purpose preview. */

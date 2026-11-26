@@ -67,6 +67,14 @@ export interface RunAgent {
   model: string | null;
   /** Requested reasoning effort; null means the source did not report one. */
   effort: string | null;
+  /** Selected profile name; null means an older source did not report one. */
+  profile: string | null;
+  /** Producer preparation/execution phase, never inferred from status or silence. */
+  phase: string | null;
+  /** Start of the current phase in epoch seconds; null remains unknown. */
+  phaseStartedAt: number | null;
+  /** Observed idle seconds reported by the producer; null when it reports none. */
+  idle: number | null;
   /** Source elapsed seconds, absent remains unknown. */
   elapsed: number | null;
   /** Source silence seconds, never a stuck heuristic. */
@@ -159,7 +167,7 @@ export function product(value: unknown, kind: string): Record<string, unknown> {
 export function runAgent(value: unknown): RunAgent {
   const row = object(value);
   if (typeof row.agent_id !== 'string' || !row.agent_id || typeof row.status !== 'string') return invalid('run_agent');
-  return { id: row.agent_id, sequence: integer(row.sequence), status: row.status, name: text(row.name), summary: text(row.task_summary), workdir: text(row.workdir), model: text(row.model), effort: text(row.effort), elapsed: number(row.elapsed_seconds), silence: number(row.silence_seconds), observed: number(row.observed_at), progress: number(row.last_progress_at), finished: number(row.finished_at), answerAvailable: typeof row.answer_available === 'boolean' ? row.answer_available : null, answerSha: text(row.answer_sha256), raw: row };
+  return { id: row.agent_id, sequence: integer(row.sequence), status: row.status, name: text(row.name), summary: text(row.task_summary), workdir: text(row.workdir), model: text(row.model), effort: text(row.effort), profile: text(row.profile), phase: text(row.phase), phaseStartedAt: number(row.phase_started_at), idle: number(row.idle_seconds), elapsed: number(row.elapsed_seconds), silence: number(row.silence_seconds), observed: number(row.observed_at), progress: number(row.last_progress_at), finished: number(row.finished_at), answerAvailable: typeof row.answer_available === 'boolean' ? row.answer_available : null, answerSha: text(row.answer_sha256), raw: row };
 }
 /** Validates one Run inventory page, preserving source revision and observed time. */
 export function runPage(value: unknown): Page<RunAgent> {
