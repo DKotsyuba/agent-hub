@@ -4,6 +4,12 @@ All notable changes to Agent Hub are documented here. The format follows [Keep a
 
 ## [Unreleased]
 
+## [0.3.12] - 2026-11-26
+
+### Fixed
+
+- Quota cards no longer list spent reset credits (no resets left); the producer still reports them for history.
+
 ## [0.3.11] - 2026-11-26
 
 ### Changed
@@ -204,6 +210,7 @@ First public release: the terminal Hub for Linux x86-64 (standalone executable).
 
 - Archived Tasks and IDE sources are denied by the observer; the terminal has no Tasks, IDE or Run info tabs.
 
+[0.3.12]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.3.12
 [0.3.11]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.3.11
 [0.3.10]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.3.10
 [0.3.9]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.3.9

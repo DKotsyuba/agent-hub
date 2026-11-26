@@ -43,3 +43,13 @@ test('usable credits lead by expiry with undated credits after dated ones', () =
   });
   assert.equal(report?.credits[0]?.id, 'undated');
 });
+
+test('spent credits with no resets left are not listed', () => {
+  const row = { provider_kind: 'full', label: 'Reset', scope: 'all', usable_now: false, granted_at: 80, expires_at: 200 };
+  const summary = quotaResetCredits(account({ ...base, available_count: 1, credits: [
+    { ...row, id: 'spent', resets_left: 0 },
+    { ...row, id: 'left', resets_left: 1, usable_now: true },
+    { ...row, id: 'unknown-left', resets_left: null },
+  ] }).resetCredits);
+  assert.deepEqual(summary.credits.map(credit => credit.id), ['left', 'unknown-left']);
+});

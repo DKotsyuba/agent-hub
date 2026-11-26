@@ -142,7 +142,8 @@ function parseResetCredits(value: unknown): ResetCredits | undefined {
 /** Orders usable credits by expiry, then other credits, and exposes the first usable expiry in milliseconds. */
 export function quotaResetCredits(report: ResetCredits | undefined) {
   if (!report?.known) return { count: null, credits: [], soonestExpiryMs: null };
-  const credits = [...report.credits].sort((a, b) =>
+  // A credit with no resets left is spent; the producer keeps it for history, the card does not list it.
+  const credits = report.credits.filter(credit => credit.resetsLeft !== 0).sort((a, b) =>
     Number(b.usableNow === true) - Number(a.usableNow === true)
     || (a.expiresAtMs ?? Infinity) - (b.expiresAtMs ?? Infinity));
   const soonestExpiryMs = credits.find(credit => credit.usableNow === true)?.expiresAtMs ?? null;
