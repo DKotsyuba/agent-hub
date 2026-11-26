@@ -110,16 +110,7 @@ export function SessionDetails({ id, execution, tab, tabs, heading }: { id: stri
     <ReadState read={read}>{({ data, observations, capabilities }) => {
       const row = data.session;
       return tabs(['history', 'result', 'details'], <>
-        {tab === 'history' && <Transcript id={id} execution={execution}
-          evidence={[{ title: 'Details', topic: `session:${id}:detail`, items: observations }]} actions={<>
-            <CopyAction title="Copy retained history" load={async signal => {
-              const value = await readSessionText('sessionExport', id, { execution, mode: 'retained' }, signal);
-              return label('Retained history') + ' · ' + label(value.coverage?.state ?? 'Unknown') + '\n\n' + value.text;
-            }} />
-            {capabilities?.exactExport === 'supported' && execution && data.lineage?.storeFenced && data.lineage.pinState === 'active' && <CopyAction title="Copy exact execution" load={async signal =>
-              (await readSessionText('sessionExport', id, { execution, mode: 'exact' }, signal)).text!} />}
-            <InitialTaskProof id={id} execution={execution} capabilities={capabilities} />
-          </>} />}
+        {tab === 'history' && <Transcript id={id} execution={execution} />}
         {tab === 'result' && (capabilities?.verifiedResult === 'supported' ? <SessionText id={id} execution={execution} initial={false} evidence={[{ title: 'Details', topic: `session:${id}:detail`, items: observations }]} />
           : <p className="web-warning">{label('unsupported_capability')}</p>)}
         {tab === 'details' && <>
@@ -131,6 +122,12 @@ export function SessionDetails({ id, execution, tab, tabs, heading }: { id: stri
             ['History attribution', label(data.historyAttribution)], ['Answer attribution', label(data.answerAttribution)]]} />
           {data.lineage && <Expand title="Execution lineage"><Lineage value={data.lineage} /></Expand>}
           {(['executionUsage', 'cumulativeUsage', 'toolCounts'] as const).map(key => <Expand key={key} title={key}><Facts rows={data[key].map(item => [item.metric, item.count])} /></Expand>)}
+          <CopyAction title="Copy retained history" load={async signal => {
+            const value = await readSessionText('sessionExport', id, { execution, mode: 'retained' }, signal);
+            return label('Retained history') + ' · ' + label(value.coverage?.state ?? 'Unknown') + '\n\n' + value.text;
+          }} />
+          {capabilities?.exactExport === 'supported' && execution && data.lineage?.storeFenced && data.lineage.pinState === 'active' && <CopyAction title="Copy exact execution" load={async signal =>
+            (await readSessionText('sessionExport', id, { execution, mode: 'exact' }, signal)).text!} />}
           <InitialTaskProof id={id} execution={execution} capabilities={capabilities} />
         </>}
         {(tab === 'details' || tab === 'result' && capabilities?.verifiedResult !== 'supported') && <Sources items={observations} topic={`session:${id}:detail`} title="Details" />}
@@ -241,14 +238,14 @@ export function PoolDetails({ id, tab, tabs, heading, proposal, select }: {
       const extra = [...sections.slice(1), 'record'];
       const evidence: EvidenceScope[] = [{ title: 'Details', topic: `pool:${id}:detail`, items: observations }];
       return tabs(core, <>
-        {tab === 'discussion' && <Discussion id={id} bidirectional={capable} evidence={evidence}
-          actions={capable && <CopyAction title="Copy discussion" load={async signal => {
+        {tab === 'discussion' && <Discussion id={id} bidirectional={capable} />}
+        {tab === 'details' && <>
+          {capable && <CopyAction title="Copy discussion" load={async signal => {
             const value = await readPoolExport(id, signal);
             return [label('Retained history') + ' · ' + label(value.coverage?.state ?? 'Unknown'),
               ...value.rows.reduce((items, page) => mergeChat(items, page), []).map(item =>
                 [item.authorId, clock(item.atMs), item.complete && item.valid ? null : label('Partial message'), item.parts.join('')].filter(Boolean).join(' · '))].join('\n\n');
-          }} />} />}
-        {tab === 'details' && <>
+          }} />}
           <Text>{pool.purposePreview}</Text><Facts rows={[[ 'Leader', pool.leader], ['Revision', pool.revision],
             ['Proposal', proposalId], ['Record', pool.record === undefined ? label('Unreported') : pool.record?.id]]} />
           <PoolContentView id={id} field="purpose" proposal={null} />

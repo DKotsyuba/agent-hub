@@ -30,13 +30,13 @@ export function quotaAdviceKind(advice: string) {
 
 /** Sorts and deduplicates anchored transcript groups while retaining tools across partial pages. */
 export function mergeTranscript(previous: SessionHistory['entries'], incoming: SessionHistory['entries'], older = false) {
-  const entries = new Map(previous.map(entry => [entry.head.position, entry]));
+  const entries = new Map(previous.map(entry => [entry.head.id, entry]));
   for (const entry of incoming) {
-    const saved = entries.get(entry.head.position);
+    const saved = entries.get(entry.head.id);
     const head = saved?.head.complete && !entry.head.complete ? saved.head : entry.head;
     const combine = (left: typeof entry.calls, right: typeof entry.calls) =>
       [...new Map([...left, ...right].map(part => [part.position, part])).values()].sort(byPosition);
-    entries.set(entry.head.position, saved ? {
+    entries.set(entry.head.id, saved ? {
       head, calls: combine(saved.calls, entry.calls), results: combine(saved.results, entry.results),
       partialBefore: older ? entry.partialBefore : saved.partialBefore,
       partialAfter: older ? saved.partialAfter : entry.partialAfter,
