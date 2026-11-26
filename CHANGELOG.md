@@ -4,6 +4,11 @@ All notable changes to Agent Hub are documented here. The format follows [Keep a
 
 ## [Unreleased]
 
+## [0.3.5] - 2026-11-26
+
+### Changed
+
+- Session transcripts and pool discussions are one continuous, virtualized message feed: newest at the bottom, older history loads on scrolling up without jumping, live messages append with a "New messages ↓" button when reading above. The pager and history window dialog are removed; export moved to Details.
 ## [0.3.4] - 2026-11-26
 
 ### Added
@@ -157,6 +162,7 @@ First public release: the terminal Hub for Linux x86-64 (standalone executable).
 
 - Archived Tasks and IDE sources are denied by the observer; the terminal has no Tasks, IDE or Run info tabs.
 
+[0.3.5]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.3.5
 [0.3.4]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.3.4
 [0.3.3]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.3.3
 [0.3.2]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.3.2
