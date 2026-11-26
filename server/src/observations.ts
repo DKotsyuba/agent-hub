@@ -1,6 +1,6 @@
 /** Independent Quota, Bridge, Overview and Worktree projections. */
 import { worktreeDetail as decodeWorktreeDetail, type Coverage, type Observation, type Overview, type Quota, type Worktree, type WorktreeDetail } from '@agent-hub/domain';
-import { activeStatus, basename, bridgeData, heldRow, integer, longestWorktree, object, text, usable, type LiveWorktree } from '../../src/live/protocol.ts';
+import { activeStatus, basename, bridgeData, heldRow, integer, longestWorktree, object, pendingCount, scanDeliveriesNewestFirst, text, usable, type LiveWorktree } from '../../src/live/protocol.ts';
 import { quotaSnapshot, quotaStatus } from '../../terminal/src/quota.ts';
 import { projectQuotaSnapshot, quotaWindowForecast } from '../../packages/view-model/src/index.ts';
 import { repositoriesData, worktreeDetail, worktreeFacts, worktreePage } from '../../terminal/src/worktree.ts';
@@ -122,11 +122,33 @@ export async function incidents(ctx: ReadContext, query: Input<'incidents'>, pos
   return { data: { items }, page: { ...noPage, next }, observations: [result.observation], capabilities: { bridgeIncidents: 'supported' } };
 }
 
-/** Lists accepted-but-undelivered Bridge messages from the retained journal; age and threshold are a client concern. */
+/**
+ * Lists accepted-but-undelivered Bridge messages. The total comes from the observer overview `counts` (`pending`), so a new
+ * hold is counted whatever the history size; the rows come from a newest-first windowed scan of `bridge.deliveries`
+ * (`limit: 1` probe for `through_seq`, then `{ limit: 100, after_seq: upper - 100, through_seq: upper }` windows, five at most).
+ * Age and thresholds are a client concern. An overview an older Bridge cannot answer leaves `pending` absent.
+ */
 export async function held(ctx: ReadContext) {
-  const scan = await bridgeScan(ctx, 'bridge.deliveries', 0, null, 100);
-  const items = scan.items.flatMap(row => heldRow(row) ?? []);
-  return { data: { items, complete: scan.observation.coverage?.state === 'complete' }, observations: [scan.observation] };
+  let first: Observation | undefined, degraded = false;
+  const [overviewRead, scanned] = await Promise.allSettled([
+    ctx.read('bridge.overview'),
+    scanDeliveriesNewestFirst(async (after, through, limit) => {
+      const envelope = await ctx.read('bridge.deliveries', { limit, after_seq: after, ...(through === null ? {} : { through_seq: through }) });
+      const page = ctx.project(envelope, value => bridgeData(value, 'delivery_page'));
+      first ??= observed(envelope);
+      degraded ||= envelope.outcome !== 'ok';
+      return page;
+    }),
+  ]);
+  if (scanned.status === 'rejected') throw scanned.reason instanceof Error && scanned.reason.message === 'bridge_window' ? new HubError('invalid_projection') : scanned.reason;
+  const scan = scanned.value;
+  if (!scan || !first) throw new HubError('invalid_projection');
+  const complete = scan.reachedStart && !scan.partial && !degraded;
+  const observation: Observation = { ...first, coverage: coverage('retained', complete, 'snapshot'),
+    outcome: !complete && first.outcome === 'ok' ? 'partial' : first.outcome };
+  const pending = overviewRead.status === 'fulfilled' && usable(overviewRead.value) ? pendingCount(overviewRead.value.data) : null;
+  const items = scan.rows.flatMap(row => heldRow(row) ?? []);
+  return { data: { items, complete, ...(pending === null ? {} : { pending }), oldestScannedAtMs: scan.oldestScannedAtMs }, observations: [observation] };
 }
 
 /** Classifies one failed producer without dropping useful sibling data. */

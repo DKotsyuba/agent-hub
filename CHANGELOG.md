@@ -4,6 +4,12 @@ All notable changes to Agent Hub are documented here. The format follows [Keep a
 
 ## [Unreleased]
 
+## [0.3.3] - 2026-11-26
+
+### Fixed
+
+- Held-message alarm: the count now comes from the Bridge observer overview `counts` (unhanded, reserved, invoking, held, review), so a new hold is never missed after a long history, and the per-message list is read newest-first. The list says when it is partial. Messages undelivered for more than 7 days no longer keep the banner red; they appear as a muted «stale» line linking to incidents.
+
 ## [0.3.2] - 2026-11-25
 
 ### Fixed
@@ -145,6 +151,7 @@ First public release: the terminal Hub for Linux x86-64 (standalone executable).
 
 - Archived Tasks and IDE sources are denied by the observer; the terminal has no Tasks, IDE or Run info tabs.
 
+[0.3.3]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.3.3
 [0.3.2]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.3.2
 [0.3.1]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.3.1
 [0.3.0]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.3.0

@@ -19,7 +19,7 @@ import type { InventoryPage } from './pool-inventory.ts';
 import { parseRunStatus, runLineageLabel, runStatusRequest } from './run-status.ts';
 import { parsePoolRunProof } from './pool-run-proof.ts';
 import { heldShortSummary, heldSummary } from './held.ts';
-import { heldAlarm, type HeldAlarm } from '../../packages/view-model/src/index.ts';
+import { heldAlarm, type HeldAlarm, type HeldScope } from '../../packages/view-model/src/index.ts';
 import { agentWorkdir, projectRoot, sessionUsage } from './sessions.ts';
 import type { PoolSection } from './pool.ts';
 import type { Theme } from './preferences.ts';
@@ -27,7 +27,7 @@ import type { RunStatusEvidence, RunStatusRequest } from './run-status.ts';
 import type { PoolRunProofTarget } from './pool-run-proof.ts';
 import type { GroupedTranscript, TranscriptEntry } from './transcript.ts';
 import {
-  activeStatus, answerText, basename, bridgeData, collectPages, decimalCursor, failure, heldRow,
+  activeStatus, answerText, basename, bridgeData, collectPages, decimalCursor, failure, heldRow, pendingCount, scanDeliveriesNewestFirst,
   mergeBlocks, object, product, response, runAgent, runPage,
   supportsChunks, transcriptPage, usable,
 } from '../../src/live/protocol.ts';
@@ -1595,34 +1595,30 @@ export function mountHub(renderer: CliRenderer, client: ObservationClient, mode:
   }
   /** Held-message alarm inputs: accepted-but-undelivered rows from Hub, or from a bounded native Bridge scan. */
   let heldItems: ReturnType<typeof heldRow>[] = [], heldComplete = true, heldBusy = false;
-  /** Computes the alarm at paint time so the displayed wait keeps advancing; Overview reuses its own delivery scan. */
+  let heldScope: HeldScope = {};
+  /** Computes the alarm at paint time so the displayed wait keeps advancing. */
   function heldView(): HeldAlarm | null {
     if (mode === 'demo') return null;
-    const overview = !client.http && route === 'overview' && deliveries.value;
-    const rows = overview ? (deliveries.value!.deliveries as unknown[]).map(heldRow) : heldItems;
-    const complete = overview ? deliveries.value!.scan_partial !== true && deliveries.value!.next_after_seq === null : heldComplete;
-    return heldAlarm(rows.filter((row): row is NonNullable<typeof row> => row !== null), Date.now(), complete);
+    return heldAlarm(heldItems.filter((row): row is NonNullable<typeof row> => row !== null), Date.now(), heldComplete, undefined, heldScope);
   }
   /** Reads undelivered Bridge messages independently of the visible route; a failed read keeps the last result. */
   async function refreshHeld(): Promise<void> {
-    if (!alive || heldBusy || mode === 'demo' || (!client.http && route === 'overview')) return;
+    if (!alive || heldBusy || mode === 'demo') return;
     heldBusy = true;
     try {
       if (client.http) {
         const result = await client.http.get('held', { signal: httpLifetime.signal });
         heldItems = result.data.items; heldComplete = result.data.complete;
+        heldScope = { pending: result.data.pending, oldestScannedAtMs: result.data.oldestScannedAtMs };
       } else {
-        const rows: unknown[] = []; let after = 0, through: number | null = null, next: number | null = null;
-        for (let page = 0; page < 5; page++) {
-          const envelope = await read('bridge.deliveries', { limit: 100, after_seq: after, ...(through === null ? {} : { through_seq: through }) });
-          if (!alive || !usable(envelope)) return;
-          const data = bridgeData(envelope.data, 'delivery_page');
-          through = Number(data.through_seq); rows.push(...(data.deliveries as unknown[]));
-          next = data.next_after_seq as number | null;
-          if (next === null || next <= after || next >= through) break;
-          after = next;
-        }
-        heldItems = rows.map(heldRow); heldComplete = next === null;
+        // Overview counts are the source of truth for the total (an older Bridge without them leaves it null); rows are scanned newest-first.
+        const [overviewEnvelope, scan] = await Promise.all([read('bridge.overview', {}).catch(() => null), scanDeliveriesNewestFirst(async (after, through, limit) => {
+          const envelope = await read('bridge.deliveries', { limit, after_seq: after, ...(through === null ? {} : { through_seq: through }) });
+          return alive && usable(envelope) ? bridgeData(envelope.data, 'delivery_page') : null;
+        })]);
+        if (!alive || !scan) return;
+        heldItems = scan.rows.map(heldRow); heldComplete = scan.reachedStart && !scan.partial;
+        heldScope = { pending: overviewEnvelope && usable(overviewEnvelope) ? pendingCount(overviewEnvelope.data) : null, oldestScannedAtMs: scan.oldestScannedAtMs };
       }
     } catch { /* The previous alarm stays; the header does not claim a new state. */ }
     finally { heldBusy = false; if (alive) render(); }

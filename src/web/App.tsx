@@ -18,7 +18,7 @@ import type { Inventory } from './lists';
 import { Expand, href, Link, Navigation, relativeTime, useWebText } from './ui';
 import { useAppUpdate } from './pwa';
 import { HeldAlert, HeldContext } from './held';
-import { heldAlarm } from '../../packages/view-model/src/index';
+import { heldState } from '../../packages/view-model/src/index';
 
 /** Primary screens and their stable addresses. */
 const navigation = [
@@ -121,8 +121,13 @@ export default function App() {
   const health = useRead('health:' + refresh + ':' + (live.connection === 'connected'), signal => client.get('health', { signal }), undefined, 30_000);
   // Polled independently of the screen topic so the alarm shows on every page; a failed read keeps the last value.
   const heldRead = useRead('held:' + refresh, signal => client.get('held', { signal }), undefined, 20_000);
-  const alarm = useMemo(() => heldRead.value ? heldAlarm(heldRead.value.data.items, Math.max(now, heldRead.value.observations[0]?.observedAtMs ?? 0), heldRead.value.data.complete) : null,
-    [heldRead.value, now]);
+  const heldSummary = useMemo(() => {
+    const read = heldRead.value;
+    if (!read) return { alarm: null, stale: 0 };
+    const { pending, oldestScannedAtMs, items, complete } = read.data;
+    return heldState(items, Math.max(now, read.observations[0]?.observedAtMs ?? 0), complete, undefined, { pending, oldestScannedAtMs });
+  }, [heldRead.value, now]);
+  const alarm = heldSummary.alarm;
   const [serverRelease, setServerRelease] = useState<string>();
   useEffect(() => {
     if (health.value) setServerRelease(health.value.release);
@@ -368,7 +373,7 @@ export default function App() {
       </aside></TooltipProvider>
       <main id="web-main" className="web-main" tabIndex={-1}>
         {!immersive && header}
-        <HeldAlert alarm={alarm} />
+        <HeldAlert alarm={alarm} stale={heldSummary.stale} />
         {unreachable && <p className="web-warning web-offline" role="status">{label('Offline shell')}</p>}
         {appUpdate.error && <p className="web-warning" role="status">{label('Update failed')}</p>}
         <div ref={page} className="web-page" tabIndex={inventory ? undefined : 0}>
