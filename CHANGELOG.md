@@ -4,6 +4,8 @@ All notable changes to Agent Hub are documented here. The format follows [Keep a
 
 ## [Unreleased]
 
+## [0.3.17] - 2026-11-27
+
 ### Fixed
 
 - In the iOS Home Screen app the page now reaches the bottom screen edge instead of stopping one status-bar height short, so the footer sits at the bottom, and the header keeps a small gap below the status bar.
