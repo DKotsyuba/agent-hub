@@ -355,7 +355,7 @@ export default function App() {
   const sectionNav = (className: string) => <nav className={className} aria-label={label('Navigation')}>
     {navigation.map(([key, path, name, Icon]) => <RailHint key={key} label={label(name)}><Link href={path} data-focus-key={key} aria-label={label(name)}
       aria-current={key === kind || (key === 'overview' && kind === 'incidents') ? 'page' : undefined}>
-      <Icon size={18} aria-hidden="true" /><span>{label(name)}</span>
+      <Icon size={18} aria-hidden="true" /><span className="web-tab-full">{label(name)}</span><span className="web-tab-short" aria-hidden="true">{label('Tab ' + key.replace('-', ' '))}</span>
     </Link></RailHint>)}
   </nav>;
 

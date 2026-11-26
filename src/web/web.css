@@ -47,12 +47,6 @@ html {
   .web-shell { --web-safe-top: calc(env(safe-area-inset-top, 0px) + 8px); }
 }
 .web-standalone .web-shell { --web-safe-top: calc(env(safe-area-inset-top, 0px) + 8px); }
-/* iOS standalone can size the layout viewport (and inset: 0) to the screen minus the top inset,
-   leaving a bare strip at the bottom. vh still spans the whole screen there, so pin the root to it. */
-@media (display-mode: standalone) {
-  html, body, #root { bottom: auto; height: 100vh; }
-}
-html.web-standalone, html.web-standalone body, html.web-standalone #root { bottom: auto; height: 100vh; }
 .web-shell .skip-link:focus { top: calc(12px + var(--web-safe-top)); left: calc(16px + env(safe-area-inset-left, 0px)); }
 
 /* The main column keeps its header and footer fixed while the active pane scrolls. */
@@ -76,7 +70,7 @@ html.web-standalone, html.web-standalone body, html.web-standalone #root { botto
 .web-section-nav a:hover, .web-record:hover { background: var(--secondary); }
 .web-section-nav a[aria-current], .web-record[aria-current] { background: var(--accent); color: var(--primary); }
 .web-preferences { margin-top: auto; }
-.web-phone-version, .web-phone-actions, .web-phone-update, .web-phone-nav { display: none; }
+.web-phone-version, .web-phone-actions, .web-phone-update, .web-phone-nav, .web-tab-short { display: none; }
 .web-settings-fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: center; gap: 12px; }
 .web-settings-fields .choice-trigger { width: 100%; }
 .web-main { min-width: 0; width: 100%; max-width: 1680px; margin-inline: auto; display: flex; flex-direction: column;
@@ -401,11 +395,13 @@ html.web-standalone, html.web-standalone body, html.web-standalone #root { botto
   }
   .web-phone-nav a {
     justify-content: center; flex-direction: column; text-align: center;
-    gap: 3px; line-height: 1.15; min-height: 52px; padding: 4px 2px; font-size: .6875rem;
+    gap: 2px; line-height: 1.15; min-height: 49px; padding: 4px 0; font-size: .625rem;
     overflow-wrap: anywhere;
   }
   .web-phone-nav a:focus-visible { outline-offset: -2px; }
-  .web-phone-nav svg { width: 16px; height: 16px; flex: none; }
+  .web-phone-nav svg { width: 20px; height: 20px; flex: none; }
+  .web-phone-nav .web-tab-full { display: none; }
+  .web-phone-nav .web-tab-short { display: block; white-space: nowrap; }
   .web-source-strip .web-source-items { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; }
   .web-source-control { flex-direction: column; justify-content: center; align-items: flex-start; padding-inline: 4px; }
   .web-source-control .web-status { white-space: normal; }

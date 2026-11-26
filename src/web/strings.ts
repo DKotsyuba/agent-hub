@@ -1,5 +1,6 @@
 /** Russian translations for v1-specific chrome and normalized producer enum values. */
 export const translations: Record<string, string> = {
+  'Tab overview': 'Обзор', 'Tab sessions': 'Сессии', 'Tab pools': 'Пулы', 'Tab quota': 'Квоты', 'Tab worktree': 'Копии', 'Tab model speed': 'Скорость',
   'Held alarm': 'Недоставленные сообщения', 'Held title': 'Сообщения агентам не доставляются: {count} шт., самое старое ждёт {time}',
   'Held wait hours': '{hours} ч {minutes} мин', 'Held wait minutes': '{minutes} мин',
   'Held reason target_unavailable': 'получатель недоступен', 'Held reason socket_continuity': 'не подтверждена связь с процессом',
@@ -137,6 +138,7 @@ export const translations: Record<string, string> = {
 
 /** Human-readable v1 machine codes and English labels for normalized UI values. */
 export const english: Record<string, string> = {
+  'Tab overview': 'Overview', 'Tab sessions': 'Sessions', 'Tab pools': 'Pools', 'Tab quota': 'Quota', 'Tab worktree': 'Worktrees', 'Tab model speed': 'Speed',
   'Held alarm': 'Undelivered messages', 'Held title': 'Messages to agents are not being delivered: {count}, oldest waiting {time}',
   'Held wait hours': '{hours} h {minutes} min', 'Held wait minutes': '{minutes} min',
   'Held reason target_unavailable': 'recipient unavailable', 'Held reason socket_continuity': 'process connection not confirmed',
