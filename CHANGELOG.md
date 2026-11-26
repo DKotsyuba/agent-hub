@@ -4,6 +4,8 @@ All notable changes to Agent Hub are documented here. The format follows [Keep a
 
 ## [Unreleased]
 
+## [0.3.8] - 2026-11-26
+
 ### Added
 
 - Pool «Участники» rows now read like Sessions rows: the linked Run agent's live status leads each member («Выполняется» with a spinner or «Ожидает · 12 мин (с 14:05)»), followed by the role label with the seat profile, the model and runtime, the task, and a launch/finish footer with the run time. Clicking a member opens its session transcript (history tab); seat, admission, join state, Run ID and execution lineage are collapsed under «Подробнее». Members without a linked or readable Run keep a neutral state badge and stay unlinked.
@@ -184,6 +186,7 @@ First public release: the terminal Hub for Linux x86-64 (standalone executable).
 
 - Archived Tasks and IDE sources are denied by the observer; the terminal has no Tasks, IDE or Run info tabs.
 
+[0.3.8]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.3.8
 [0.3.7]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.3.7
 [0.3.6]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.3.6
 [0.3.5]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.3.5
