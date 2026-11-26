@@ -4,6 +4,10 @@ All notable changes to Agent Hub are documented here. The format follows [Keep a
 
 ## [Unreleased]
 
+### Changed
+
+- On phones, the web app moves section navigation to a bottom tab bar and shows version, connection, refresh, and settings in a compact header.
+
 ## [0.3.17] - 2026-11-27
 
 ### Fixed
