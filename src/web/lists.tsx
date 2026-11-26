@@ -90,7 +90,9 @@ export function InventoryList({ kind, query, id, now, update }: {
             title={sessionTitle(row) ?? label('Session detail')} hint={row.id} status={<SessionStatus row={row} now={now} />}>
             <span>{[row.model && modelTitle(row.model), row.workdir?.split('/').filter(Boolean).at(-1)].filter(Boolean).join(' · ')}</span>
             <span className="web-record-preview">{row.lastAction ?? (row.name ? row.summary : null)}</span>{row.failureKind && <span className="error-text">{row.failureKind}{row.failureText && ' · ' + row.failureText}</span>}
-            <span>{clock(row.finishedAtMs ?? row.progressAtMs ?? row.createdAtMs)}{row.elapsedMs != null && ' · ' + duration(row.elapsedMs)}</span>
+            <span>{row.finishedAtMs != null
+              ? [label('Finished at') + ' ' + clock(row.finishedAtMs), row.elapsedMs != null && label('took') + ' ' + duration(row.elapsedMs)].filter(Boolean).join(' · ')
+              : [label('Launched') + ' ' + clock(row.createdAtMs), row.createdAtMs != null && label('running for') + ' ' + duration(Math.max(0, now - row.createdAtMs))].filter(Boolean).join(' · ')}</span>
           </Row>;
           if ('purposePreview' in row) return <Row key={row.id} id={row.id} target={detailUrl(row.id)} selected={id === row.id} title={poolTitle(row) ?? label('Pool detail')} status={<StatusBadge state={poolBadge(row)} />}>
             <span>{row.kind && label(row.kind)}</span><span className="web-record-preview">{row.name && row.purposePreview}</span>

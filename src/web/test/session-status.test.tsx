@@ -10,8 +10,8 @@ Object.defineProperty(globalThis, 'location', { value: { origin: 'http://hub.tes
 const { SessionStatus } = await import('../ui');
 
 /** Renders one phase row inside the required locale provider and returns its markup. */
-function markup(row: Pick<Session, 'status' | 'phase' | 'phaseStartedAtMs' | 'idleMs'>, now: number) {
-  return renderToStaticMarkup(<LocaleProvider><SessionStatus row={row} now={now} /></LocaleProvider>);
+function markup(row: Pick<Session, 'status' | 'phase' | 'phaseStartedAtMs' | 'idleMs'> & { observedAtMs?: number | null }, now: number) {
+  return renderToStaticMarkup(<LocaleProvider><SessionStatus row={{ observedAtMs: null, ...row }} now={now} /></LocaleProvider>);
 }
 
 test('a waiting agent renders its duration and start clock without a spinner', () => {
@@ -23,9 +23,10 @@ test('a waiting agent renders its duration and start clock without a spinner', (
 });
 
 test('a working agent renders the spinner and the working label', () => {
-  const html = markup({ status: 'running', phase: 'running', phaseStartedAtMs: null, idleMs: null }, 0);
+  const now = Date.UTC(2026, 10, 26, 13, 17);
+  const html = markup({ status: 'running', phase: 'running', phaseStartedAtMs: now - 720_000, idleMs: null }, now);
   assert.match(html, /web-spin/);
-  assert.match(html, />[^<]*Выполняется</);
+  assert.match(html, />Выполняется · 12 мин \(с 14:05\)</);
   assert.match(html, /data-tone="active"/);
 });
 
