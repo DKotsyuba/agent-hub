@@ -4,6 +4,12 @@ All notable changes to Agent Hub are documented here. The format follows [Keep a
 
 ## [Unreleased]
 
+## [0.3.10] - 2026-11-26
+
+### Fixed
+
+- The fallback Run read for pool members is projected to the member display shape, so the response no longer drops it.
+
 ## [0.3.9] - 2026-11-26
 
 ### Fixed
@@ -192,6 +198,7 @@ First public release: the terminal Hub for Linux x86-64 (standalone executable).
 
 - Archived Tasks and IDE sources are denied by the observer; the terminal has no Tasks, IDE or Run info tabs.
 
+[0.3.10]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.3.10
 [0.3.9]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.3.9
 [0.3.8]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.3.8
 [0.3.7]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.3.7

@@ -169,7 +169,7 @@ async function linkedMember(ctx: ReadContext, value: Record<string, unknown>, id
   if (!binding || !sessionId) return base;
   base.session = { sessionId, execution: null, match: 'unverified' };
   // A bare or unproven binding can still contribute the Run row's own display fields.
-  const readRun = () => runSessionRow(ctx, sessionId);
+  const readRun = async () => { const row = await runSessionRow(ctx, sessionId); return row ? memberRun(row) : null; };
   if (!proofSupported || !binding.run_store_id || !binding.run_execution_ref || !binding.run_pin_id) {
     base.run = await readRun();
     return base;
