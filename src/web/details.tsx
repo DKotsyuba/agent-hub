@@ -148,7 +148,7 @@ export function Member({ item, caps, now }: { item: PoolMember; caps?: Capabilit
     <Row id={item.id} target={session ? sessionHref(session.sessionId, session.execution) : undefined} selected={false}
       title={title} hint={item.id} status={run ? <SessionStatus row={run} now={now} />
         : <StatusBadge state={item.state ?? item.seat?.admission ?? 'unknown'} />}>
-      <span>{[run?.model && modelTitle(run.model), item.runtime].filter(Boolean).join(' · ')}</span>
+      <span>{[run?.model && modelTitle(run.model), item.runtime !== 'unknown' && item.runtime].filter(Boolean).join(' · ')}</span>
       {item.task && <span className="web-record-preview" title={item.task}>{item.task}</span>}
       {run && <SessionFooter row={run} now={now} />}
     </Row>

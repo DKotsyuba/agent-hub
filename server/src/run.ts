@@ -65,8 +65,24 @@ export function sessionRow(agent: RunAgent): Session {
  * Reads one current Run row for display only. Unlinked IDs, unsupported reads and malformed
  * rows stay null; they never fail the caller's own projection.
  */
+/** One Run inventory read per request context, shared by every member row of a page. */
+const inventoryRows = new WeakMap<ReadContext, Promise<Map<string, Session>>>();
+
+/** Reads the active Run inventory once per request and indexes its rows by agent id. */
+function activeRows(ctx: ReadContext): Promise<Map<string, Session>> {
+  let rows = inventoryRows.get(ctx);
+  if (!rows) {
+    rows = runInventory(ctx, true).then(result => new Map(result.rows.map(row => [row.id, row] as const)), () => new Map());
+    inventoryRows.set(ctx, rows);
+  }
+  return rows;
+}
+
+/** Returns one Run agent's display row: the active inventory first, then the per-agent integration read. */
 export async function runSessionRow(ctx: ReadContext, id: string): Promise<Session | null> {
   if (!validRunAgentId(id)) return null;
+  const listed = (await activeRows(ctx)).get(id);
+  if (listed) return listed;
   const envelope = await ctx.read('run.agent_integration', { agent_id: id });
   if (envelope.outcome !== 'ok' && envelope.outcome !== 'partial') return null;
   try {
