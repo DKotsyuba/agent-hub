@@ -100,10 +100,19 @@ function optionalResetCredits(value: unknown): ResetCredits | undefined {
   try { return resetCredits(value); } catch { return undefined; }
 }
 
+/** Paid provider credits (Codex) usable after the plan window; `balance` is an exact decimal string. */
+const creditBalance = object({ hasCredits: bool, unlimited: bool, balance: nullable(text) });
+
+/** Treats unreadable credit metadata as unknown without losing account windows. */
+function optionalCreditBalance(value: unknown) {
+  if (value === undefined) return undefined;
+  try { return creditBalance(value); } catch { return undefined; }
+}
+
 /** Account projection with advice and technical detail. */
 const quotaAccount = object({
   account: text, models: array(quotaModel), windows: array(quotaWindow), latches: array(quotaLatch), advice: array(text),
-  resetCredits: optionalResetCredits,
+  resetCredits: optionalResetCredits, creditBalance: optionalCreditBalance,
 });
 
 /** Quota's validated collection results and coverage. */
