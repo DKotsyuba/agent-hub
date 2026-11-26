@@ -61,6 +61,25 @@ export function sessionRow(agent: RunAgent): Session {
   });
 }
 
+/**
+ * Reads one current Run row for display only. Unlinked IDs, unsupported reads and malformed
+ * rows stay null; they never fail the caller's own projection.
+ */
+export async function runSessionRow(ctx: ReadContext, id: string): Promise<Session | null> {
+  if (!validRunAgentId(id)) return null;
+  const envelope = await ctx.read('run.agent_integration', { agent_id: id });
+  if (envelope.outcome !== 'ok' && envelope.outcome !== 'partial') return null;
+  try {
+    return ctx.project(envelope, value => {
+      const data = object(value);
+      if (data.schema_version !== 1) throw new HubError('invalid_projection');
+      return sessionRow(runAgent(data.agent));
+    });
+  } catch {
+    return null;
+  }
+}
+
 /** Filters normalized rows and fences continuation to the scanned Run revision. */
 export async function sessions(ctx: ReadContext, query: Input<'sessions'>, position: Position | null) {
   const result = await runInventory(ctx, query.status === 'active');

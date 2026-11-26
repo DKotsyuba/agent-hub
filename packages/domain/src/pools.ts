@@ -1,6 +1,6 @@
 /** Pool inventory, membership, discussion, completion and recorded agreement data. */
 import { coverage, decimal, opaque, resourceId, sha256 } from './common.ts';
-import { lineageEvidence, sessionLink, textChunk } from './sessions.ts';
+import { lineageEvidence, runStatus, sessionLink, textChunk } from './sessions.ts';
 import { type Decoded, array, bool, count, nullable, object, oneOf, optional, tagged, text } from './schema.ts';
 
 /** A completion or agreement record is selectable only when Pool reports its reference. */
@@ -52,11 +52,23 @@ const seat = object({
   id: resourceId, profile: text, admission: oneOf('pending', 'admitted', 'refused', 'unknown'), joined: bool,
 });
 
-/** A roster entry and any available Run identity evidence. */
+/**
+ * The linked Run execution's own display row: lifecycle, current phase, reported idleness,
+ * model and clocks. It is omitted by older servers and null when the member is unlinked or
+ * the Run row is unavailable, so the same check cannot invent a live state.
+ */
+const memberRun = object({
+  status: runStatus, phase: nullable(text), phaseStartedAtMs: nullable(count), idleMs: nullable(count),
+  observedAtMs: nullable(count), model: nullable(text), createdAtMs: nullable(count),
+  elapsedMs: nullable(count), finishedAtMs: nullable(count),
+});
+
+/** A roster entry and any available Run identity and live-row evidence. */
 export const member = object({
   id: resourceId, name: nullable(text), role: nullable(text), task: nullable(text),
   state: nullable(text), runtime: nullable(text),
-  seat: nullable(seat), session: nullable(sessionLink), lineage: nullable(lineageEvidence),
+  seat: nullable(seat), session: nullable(sessionLink), run: optional(nullable(memberRun)),
+  lineage: nullable(lineageEvidence),
 });
 
 /** A member or chat seat. */

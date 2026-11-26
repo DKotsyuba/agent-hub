@@ -384,7 +384,7 @@ export default function App() {
           </section>
           {id && <section ref={detail} tabIndex={immersive ? undefined : 0} className="web-detail-pane" aria-label={label('Details')} key={kind + ':' + id + ':' + query.get('execution')}>
             {inventory === 'sessions' ? <SessionDetails id={id} execution={query.get('execution')} tab={tab} tabs={tabs} heading={compactHeader} now={Math.max(now, lastRead ?? 0)} />
-              : inventory === 'pools' ? <PoolDetails id={id} tab={tab} tabs={tabs} heading={compactHeader} proposal={query.get('proposal')} select={proposal => update({ proposal }, true)} />
+              : inventory === 'pools' ? <PoolDetails id={id} tab={tab} tabs={tabs} heading={compactHeader} proposal={query.get('proposal')} select={proposal => update({ proposal }, true)} now={Math.max(now, lastRead ?? 0)} />
               : <WorktreeDetails id={id} />}
           </section>}
         </div> : <>

@@ -4,6 +4,11 @@ All notable changes to Agent Hub are documented here. The format follows [Keep a
 
 ## [Unreleased]
 
+### Added
+
+- Pool «Участники» rows now read like Sessions rows: the linked Run agent's live status leads each member («Выполняется» with a spinner or «Ожидает · 12 мин (с 14:05)»), followed by the role label with the seat profile, the model and runtime, the task, and a launch/finish footer with the run time. Clicking a member opens its session transcript (history tab); seat, admission, join state, Run ID and execution lineage are collapsed under «Подробнее». Members without a linked or readable Run keep a neutral state badge and stay unlinked.
+- Pool members carry the linked Run's display row (`status`, `phase`, `phase_started_at`, `idle_seconds`, model and clocks) from the verified Run proof view or a bounded Run read; the field is optional, so older payloads still decode and unlinked members report it as null.
+
 ## [0.3.7] - 2026-11-26
 
 ### Fixed

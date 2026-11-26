@@ -7,8 +7,9 @@ import { Choice } from '../components/hub-primitives';
 import { client, errorCode, LiveContext, usePagedRead, useRead } from './data';
 import { readPoolContent, readPoolExport, readPoolRecord, readSessionText } from './content';
 import { Discussion, Transcript } from './history';
-import { mergeChat, modelTitle, poolTitle, sessionTitle } from './model';
-import { CoverageLine, EmptyRows, Expand, Facts, Link, ReadState, sessionHref, SessionStatus, Sources, StatusBadge, Text, type EvidenceScope, useWebText } from './ui';
+import { memberTitle, mergeChat, modelTitle, poolTitle, sessionTitle } from './model';
+import { Row } from './lists';
+import { CoverageLine, EmptyRows, Expand, Facts, Link, ReadState, sessionHref, SessionFooter, SessionStatus, Sources, StatusBadge, Text, type EvidenceScope, useWebText } from './ui';
 
 /** Clipboard output is only released after the complete read validates; Escape aborts the operation. */
 function CopyAction({ title, load }: { title: string; load: (signal: AbortSignal) => Promise<string> }) {
@@ -138,20 +139,32 @@ export function SessionDetails({ id, execution, tab, tabs, heading, now }: {
     }}</ReadState></>;
 }
 
-/** Member identity, seat admission and bound Run evidence are independent facts. */
-function Member({ item, caps }: { item: PoolMember; caps?: Capabilities }) {
+/** A member row leads with what the linked Run agent is doing, then its role, task and times. */
+export function Member({ item, caps, now }: { item: PoolMember; caps?: Capabilities; now: number }) {
   const { label } = useWebText();
-  return <article className="web-subcard"><h3>{item.name ?? item.id}</h3>
-    <Facts rows={[[ 'Role', item.role], ['State', item.state], ['Runtime', item.runtime], ['Task', item.task],
-      ['Seat', item.seat?.id], ['Profile', item.seat?.profile], ['Admission', item.seat && label(item.seat.admission)], ['Joined', item.seat?.joined]]} />
-    {item.session && (item.seat || caps?.runBindings === 'supported') && <Link className="web-link" href={sessionHref(item.session.sessionId, item.session.execution)}>{item.session.sessionId} · {label(item.session.match)}</Link>}
-    {item.lineage && caps?.runProofs === 'supported' && <Expand title="Execution lineage"><Lineage value={item.lineage} /></Expand>}
+  const session = item.session, run = item.run ?? null;
+  const title = memberTitle(item) ?? item.id;
+  return <article className="web-member">
+    <Row id={item.id} target={session ? sessionHref(session.sessionId, session.execution) : undefined} selected={false}
+      title={title} hint={item.id} status={run ? <SessionStatus row={run} now={now} />
+        : <StatusBadge state={item.state ?? item.seat?.admission ?? 'unknown'} />}>
+      <span>{[run?.model && modelTitle(run.model), item.runtime].filter(Boolean).join(' · ')}</span>
+      {item.task && <span className="web-record-preview" title={item.task}>{item.task}</span>}
+      {run && <SessionFooter row={run} now={now} />}
+    </Row>
+    <details className="web-expand">
+      <summary>{label('More details')}</summary>
+      <Facts rows={[[ 'Role', item.role], ['State', item.state], ['Runtime', item.runtime], ['Seat', item.seat?.id],
+        ['Profile', item.seat?.profile], ['Admission', item.seat && label(item.seat.admission)], ['Joined', item.seat?.joined],
+        ['Run agent', session?.sessionId], ['Match', session && label(session.match)]]} />
+      {item.lineage && caps?.runProofs === 'supported' && <Expand title="Execution lineage"><Lineage value={item.lineage} /></Expand>}
+    </details>
   </article>;
 }
 
 /** Each section paginates its own revision and optional proposal selection. */
-function PoolSectionView({ id, section, capabilities, proposal, select, evidence }: {
-  id: string; section: PoolSection; capabilities?: Capabilities; proposal: string | null; select: (id: string) => void; evidence: EvidenceScope[];
+function PoolSectionView({ id, section, capabilities, proposal, select, evidence, now }: {
+  id: string; section: PoolSection; capabilities?: Capabilities; proposal: string | null; select: (id: string) => void; evidence: EvidenceScope[]; now: number;
 }) {
   const { label, clock } = useWebText();
   const [cursor, setCursor] = useState<string | null>(null);
@@ -161,7 +174,7 @@ function PoolSectionView({ id, section, capabilities, proposal, select, evidence
     {cursor && <Button variant="ghost" onClick={() => setCursor(null)}>{label('Beginning')}</Button>}
     <ReadState read={read}>{({ data, observations, page, capabilities: own }) => <>
     <EmptyRows count={data.items.length} observations={observations} />
-    {data.section === 'members' ? data.items.map(item => <Member key={item.id} item={item} caps={own ?? capabilities} />)
+    {data.section === 'members' ? <div className="web-records">{data.items.map(item => <Member key={item.id} item={item} caps={own ?? capabilities} now={now} />)}</div>
       : data.items.map(item => <article className="web-subcard" key={item.id}>
         <h3>{('title' in item ? item.title : null) ?? item.id}</h3>
         {'voters' in item ? <>
@@ -195,7 +208,7 @@ function PoolContentView({ id, field, proposal }: { id: string; field: 'purpose'
 }
 
 /** Distinguishes Pool-recorded agreement from completion with verified content fields. */
-function RecordView({ id, record, evidence }: { id: string; record: NonNullable<Pool['record']>; evidence: EvidenceScope[] }) {
+function RecordView({ id, record, evidence, now }: { id: string; record: NonNullable<Pool['record']>; evidence: EvidenceScope[]; now: number }) {
   const { label, clock } = useWebText();
   const read = useRead(id + ':' + record.id, signal => readPoolRecord(id, record, signal), `pool:${id}:records`);
   return <ReadState read={read}>{value => <section className="web-subcard">
@@ -210,7 +223,7 @@ function RecordView({ id, record, evidence }: { id: string; record: NonNullable<
         ['Ballot count', value.data.header.ballotCount], ['Absent fields', value.data.header.absentFields.map(label).join(', ')], ['Completed', clock(value.data.completedAtMs)]]} />
       {value.fields.map(([field, text, digest]) => <Expand key={field} title={field}><Text>{text}</Text><Facts rows={[[ 'SHA-256', digest]]} /></Expand>)}
       <Text>{value.data.notice}</Text>
-      <Expand title="Members">{value.roster.map(item => <Member key={item.id} item={item} />)}</Expand>
+      <Expand title="Members">{value.roster.map(item => <Member key={item.id} item={item} now={now} />)}</Expand>
       <Expand title="Votes">{value.ballots.map(item => <Facts key={item.id} rows={[[ 'Member', item.memberId], ['Vote', item.choice], ['Checks met', item.checksMet], ['Validity', item.validity]]} />)}</Expand>
       <Expand title="Execution lineage">{value.facts.map((item, i) => <Lineage key={i} value={item} />)}</Expand>
     </>}
@@ -224,8 +237,8 @@ function RecordView({ id, record, evidence }: { id: string; record: NonNullable<
 }
 
 /** Pool metadata stays above section tabs and retains proposal and record provenance. */
-export function PoolDetails({ id, tab, tabs, heading, proposal, select }: {
-  id: string; tab: string; tabs: DetailTabs; heading: DetailHeading; proposal: string | null; select: (id: string | null) => void;
+export function PoolDetails({ id, tab, tabs, heading, proposal, select, now }: {
+  id: string; tab: string; tabs: DetailTabs; heading: DetailHeading; proposal: string | null; select: (id: string | null) => void; now: number;
 }) {
   const { label, clock } = useWebText();
   const read = useRead(id, signal => client.get('pool', { params: { id }, signal }), `pool:${id}:detail`);
@@ -254,12 +267,12 @@ export function PoolDetails({ id, tab, tabs, heading, proposal, select }: {
           <PoolContentView id={id} field="purpose" proposal={null} />
           {(proposal ?? proposalId) && <PoolContentView id={id} field="snapshot" proposal={proposal ?? proposalId} />}
         </>}
-        {tab === 'record' && (record ? <RecordView id={id} record={record} evidence={evidence} /> : <p>{label(pool.record === undefined ? 'Unreported' : pool.record ? 'unsupported_capability' : 'No records')}</p>)}
+        {tab === 'record' && (record ? <RecordView id={id} record={record} evidence={evidence} now={now} /> : <p>{label(pool.record === undefined ? 'Unreported' : pool.record ? 'unsupported_capability' : 'No records')}</p>)}
         {sections.includes(tab) && <>
           {proposal && tab !== 'members' && tab !== 'deliveries' && <Choice label={label('Proposal')} value={proposal}
             options={[[proposal, proposal], ['all', label('All proposals')]]} onChange={value => { if (value === 'all') select(null); }} />}
           {tab === 'proposals' && (proposal ?? proposalId) && <PoolContentView id={id} field="snapshot" proposal={proposal ?? proposalId} />}
-          <PoolSectionView key={tab + ':' + proposal} id={id} section={tab as PoolSection} capabilities={capabilities} evidence={evidence} proposal={tab === 'proposals' ? null : proposal} select={select} />
+          <PoolSectionView key={tab + ':' + proposal} id={id} section={tab as PoolSection} capabilities={capabilities} evidence={evidence} proposal={tab === 'proposals' ? null : proposal} select={select} now={now} />
         </>}
         {tab === 'details' && <CoverageLine value={coverage} />}
         {(tab === 'details' || tab === 'record' && !record) && <Sources items={observations} topic={`pool:${id}:detail`} title="Details" />}

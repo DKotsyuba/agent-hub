@@ -1533,14 +1533,14 @@
         "members": [
           {
             "id": "m-seat-00",
-            "name": "implement",
+            "name": "Исследователь",
             "role": "implement",
-            "task": "Write the change",
+            "task": "Исследователь: проверь общий план и вопросы",
             "state": "active",
-            "runtime": "unknown",
+            "runtime": "synthetic-run",
             "seat": {
               "id": "m-seat-00",
-              "profile": "implement",
+              "profile": "лидер",
               "admission": "admitted",
               "joined": true
             },
@@ -1549,23 +1549,49 @@
               "execution": null,
               "match": "unverified"
             },
-            "lineage": null
+            "lineage": null,
+            "run": {
+              "status": "running",
+              "phase": "running",
+              "phaseStartedAtMs": 1794010380000,
+              "idleMs": null,
+              "observedAtMs": 1794011099000,
+              "model": "model-alpha",
+              "createdAtMs": 1794010380000,
+              "elapsedMs": 720000,
+              "finishedAtMs": null
+            }
           },
           {
             "id": "m-seat-01",
-            "name": "review",
+            "name": "Ревьюер",
             "role": "review",
-            "task": "Review the change",
-            "state": "pending",
-            "runtime": "unknown",
+            "task": "Ревьюер: проверь изменение и тесты",
+            "state": "active",
+            "runtime": "synthetic-run",
             "seat": {
               "id": "m-seat-01",
-              "profile": "review",
-              "admission": "pending",
-              "joined": false
+              "profile": "reviewer",
+              "admission": "admitted",
+              "joined": true
             },
-            "session": null,
-            "lineage": null
+            "session": {
+              "sessionId": "demo-index",
+              "execution": null,
+              "match": "unverified"
+            },
+            "lineage": null,
+            "run": {
+              "status": "running",
+              "phase": "idle",
+              "phaseStartedAtMs": 1794011040000,
+              "idleMs": 1500000,
+              "observedAtMs": 1794011100000,
+              "model": "model-beta",
+              "createdAtMs": 1794009300000,
+              "elapsedMs": 1800000,
+              "finishedAtMs": null
+            }
           }
         ],
         "proposals": [

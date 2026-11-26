@@ -1,5 +1,5 @@
 /** Standalone Pool projections with revision, watermark, and record fences. */
-import { matchesPoolState, type Capabilities, type Pool, type PoolMember } from '@agent-hub/domain';
+import { matchesPoolState, type Capabilities, type Pool, type PoolMember, type Session } from '@agent-hub/domain';
 import { integer, object, product, text } from '../../src/live/protocol.ts';
 import { groupPoolEvents, poolContentPage, poolFormerBinding, poolInventory, poolSection as checkSection, poolWindow, type PoolSection } from '../../terminal/src/pool.ts';
 import { poolFacts, poolSeat } from '../../terminal/src/pool-chat.ts';
@@ -10,7 +10,7 @@ import { parseRunStatus, runStatusRequest, type RunStatusEvidence } from '../../
 import { digest, type Position } from './cursor.ts';
 import { HubError } from './errors.ts';
 import { coverage, decimalValue, field, ms, noPage, observed, optionalObject, records, type Input, type ReadContext } from './projection.ts';
-import { registerBinding } from './run.ts';
+import { registerBinding, runSessionRow, sessionRow } from './run.ts';
 
 /** Validates the product identity and exposes tri-state feature gates. */
 async function identity(ctx: ReadContext) {
@@ -121,7 +121,17 @@ function member(raw: Record<string, unknown>): PoolMember {
   return {
     id: String(raw.member_id), name: text(raw.name), role: text(raw.role), task: text(raw.task), state: text(raw.state), runtime: text(raw.runtime),
     seat: seat ? { id: seat.seatId, profile: seat.profile, admission: seat.admission, joined: seat.joined } : null,
-    session: seat?.runAgentId ? { sessionId: seat.runAgentId, execution: null, match: 'unverified' } : null, lineage: null,
+    session: seat?.runAgentId ? { sessionId: seat.runAgentId, execution: null, match: 'unverified' } : null,
+    run: null, lineage: null,
+  };
+}
+
+/** Narrows the Run row to the live display fields a Pool member carries. */
+function memberRun(row: Session): NonNullable<PoolMember['run']> {
+  return {
+    status: row.status, phase: row.phase, phaseStartedAtMs: row.phaseStartedAtMs, idleMs: row.idleMs,
+    observedAtMs: row.observedAtMs, model: row.model, createdAtMs: row.createdAtMs, elapsedMs: row.elapsedMs,
+    finishedAtMs: row.finishedAtMs,
   };
 }
 
@@ -158,15 +168,27 @@ async function linkedMember(ctx: ReadContext, value: Record<string, unknown>, id
   const sessionId = text(binding?.run_id);
   if (!binding || !sessionId) return base;
   base.session = { sessionId, execution: null, match: 'unverified' };
-  if (!proofSupported || !binding.run_store_id || !binding.run_execution_ref || !binding.run_pin_id) return base;
+  // A bare or unproven binding can still contribute the Run row's own display fields.
+  const readRun = () => runSessionRow(ctx, sessionId);
+  if (!proofSupported || !binding.run_store_id || !binding.run_execution_ref || !binding.run_pin_id) {
+    base.run = await readRun();
+    return base;
+  }
   const native = await ctx.read('pool.run_proof', { pool_id: id, member_id: base.id, expected_revision: revision, section: 'run_proof' });
-  if (native.outcome !== 'ok') return base;
+  if (native.outcome !== 'ok') {
+    base.run = await readRun();
+    return base;
+  }
   const proof = ctx.project(native, value => parsePoolRunProof(value, { poolId: id, memberId: base.id, revision, binding }));
-  if (proof.state !== 'observed') return base;
+  if (proof.state !== 'observed') {
+    base.run = await readRun();
+    return base;
+  }
   const e = proof.evidence;
   const execution = e.match === 'verified' && e.canonicalAgentId === sessionId
     ? registerBinding(ctx, runStatusRequest(binding)) : null;
   base.session = { sessionId, execution, match: e.match };
+  base.run = e.view ? memberRun(sessionRow(e.view.agent)) : await readRun();
   base.lineage = lineage(e, base.session, proof.observedAtMs);
   return base;
 }

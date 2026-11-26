@@ -103,6 +103,14 @@ export function SessionStatus({ row, now }: {
   return <Badge variant="outline" className="web-status web-status-phase" data-tone="neutral">{label(phase.phase)}</Badge>;
 }
 
+/** Session-style lifecycle footer: launch and run time, or finish time and duration. */
+export function SessionFooter({ row, now }: { row: Pick<Session, 'createdAtMs' | 'finishedAtMs' | 'elapsedMs'>; now: number }) {
+  const { label, clock, duration } = useWebText();
+  return <span>{row.finishedAtMs != null
+    ? [label('Finished at') + ' ' + clock(row.finishedAtMs), row.elapsedMs != null && label('took') + ' ' + duration(row.elapsedMs)].filter(Boolean).join(' · ')
+    : [label('Launched') + ' ' + clock(row.createdAtMs), row.createdAtMs != null && label('running for') + ' ' + duration(Math.max(0, now - row.createdAtMs))].filter(Boolean).join(' · ')}</span>;
+}
+
 /** Chooses one source badge from its independent resource observations. */
 function sourceState(group: Observation[]) {
   const unavailable = group.find(item => !['ok', 'partial'].includes(item.outcome));
