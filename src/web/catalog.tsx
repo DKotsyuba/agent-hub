@@ -223,6 +223,12 @@ function creditLabel(text: string, label: (key: string) => string) {
   return text;
 }
 
+/** Rounds an exact decimal credit balance to two places with grouping for display. */
+function creditAmount(balance: string) {
+  const value = Number(balance);
+  return Number.isFinite(value) ? value.toLocaleString(document.documentElement.lang || 'ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : balance;
+}
+
 /** Shows usable resets grouped by name, scope and expiry; hidden when the inventory is unknown. */
 function QuotaResetCredits({ account, title, now }: { account: QuotaAccount; title: string; now: number }) {
   const { label, n } = useWebText();
@@ -244,7 +250,7 @@ function QuotaResetCredits({ account, title, now }: { account: QuotaAccount; tit
   }
   const working = redeem.state.phase === 'working';
   return <div className="min-w-0 text-sm">
-    {paid && <p className={paid.hasCredits ? undefined : 'web-muted'}>{label('Paid credits')}: {paid.unlimited ? label('unlimited credits') : paid.balance ?? (paid.hasCredits ? label('available') : '0')}</p>}
+    {paid && <p className={paid.hasCredits ? undefined : 'web-muted'}>{label('Paid credits')}: {paid.unlimited ? label('unlimited credits') : (paid.balance !== null ? creditAmount(paid.balance) : paid.hasCredits ? label('available') : '0')}</p>}
     {count !== null && <p className={count ? undefined : 'web-muted'}>{label('Banked resets')}: {n(count)}</p>}
     {groups.size > 0 && <ul className="mt-1 space-y-1.5">
       {[...groups.entries()].map(([key, group]) => <li key={key} className="flex min-w-0 items-start justify-between gap-2">
