@@ -4,6 +4,12 @@ All notable changes to Agent Hub are documented here. The format follows [Keep a
 
 ## [Unreleased]
 
+## [0.3.4] - 2026-11-26
+
+### Added
+
+- Held-message alarm can be hidden with a close button. The dismissal is remembered in the browser for one hour and ends early when more messages are held than when it was given.
+
 ## [0.3.3] - 2026-11-26
 
 ### Fixed
@@ -151,6 +157,7 @@ First public release: the terminal Hub for Linux x86-64 (standalone executable).
 
 - Archived Tasks and IDE sources are denied by the observer; the terminal has no Tasks, IDE or Run info tabs.
 
+[0.3.4]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.3.4
 [0.3.3]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.3.3
 [0.3.2]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.3.2
 [0.3.1]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.3.1
