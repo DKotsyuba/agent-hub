@@ -4,6 +4,8 @@ All notable changes to Agent Hub are documented here. The format follows [Keep a
 
 ## [Unreleased]
 
+## [0.3.21] - 2026-11-27
+
 ### Added
 
 - Waiting sessions and Pool members show a warning badge with the number and oldest timestamp of messages still held by Bridge when Agent Pool reports seat custody.
@@ -262,6 +264,7 @@ First public release: the terminal Hub for Linux x86-64 (standalone executable).
 
 - Archived Tasks and IDE sources are denied by the observer; the terminal has no Tasks, IDE or Run info tabs.
 
+[0.3.21]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.3.21
 [0.3.20]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.3.20
 [0.3.19]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.3.19
 [0.3.18]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.3.18
