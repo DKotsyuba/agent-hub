@@ -1,5 +1,5 @@
 /** Agent Stats v1 aggregate data, shared by the server, fixtures and browser. */
-import { array, count, matching, nullable, number, object, oneOf, optional, type Decoded } from './schema.ts';
+import { array, bool, count, matching, nullable, number, object, oneOf, optional, type Decoded } from './schema.ts';
 
 /** Rolling windows accepted by Agent Stats. */
 export const speedWindow = oneOf('24h', '7d', '30d');
@@ -17,7 +17,8 @@ const distribution = object({
 });
 
 /** Total calls and independent distributions in tokens per second and milliseconds. */
-const metrics = object({ count, speed_tokens_per_second: distribution, ttft_ms: distribution });
+/** speed_estimated marks paired (Codex) durations; older Stats omit it. */
+const metrics = object({ count, speed_tokens_per_second: distribution, ttft_ms: distribution, speed_estimated: optional(bool) });
 
 /** Grouped summary. An unknown effort is explicitly null when requested. */
 export const modelStats = object({

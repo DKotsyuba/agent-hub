@@ -4,6 +4,16 @@ All notable changes to Agent Hub are documented here. The format follows [Keep a
 
 ## [Unreleased]
 
+## [0.3.22] - 2026-11-27
+
+### Changed
+
+- Model speed shows the median with the p10–p90 range; min–max moves to a tooltip because single samples dominate it. Estimated (Codex) speeds are marked with ≈.
+
+### Fixed
+
+- Release builds use this checkout's own workspace packages, so the held-message badge decodes Pool seat fields.
+
 ## [0.3.21] - 2026-11-27
 
 ### Added
@@ -264,6 +274,7 @@ First public release: the terminal Hub for Linux x86-64 (standalone executable).
 
 - Archived Tasks and IDE sources are denied by the observer; the terminal has no Tasks, IDE or Run info tabs.
 
+[0.3.22]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.3.22
 [0.3.21]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.3.21
 [0.3.20]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.3.20
 [0.3.19]: https://github.com/DKotsyuba/agent-hub/releases/tag/v0.3.19
