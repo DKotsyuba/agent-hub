@@ -9,13 +9,13 @@ import { client, useRead } from './data';
 import { ReadState, useWebText } from './ui';
 
 /** Renders the median and central 80% against a shared scale for the column. */
-function Range({ value, scale, format }: { value: SpeedDistribution; scale: number; format: (value: number | null) => string }) {
+function Range({ value, scale, format, estimated }: { value: SpeedDistribution; scale: number; format: (value: number | null) => string; estimated?: boolean }) {
   const { median, p10, p90 } = value;
   return <div className="speed-range">
-    <strong>{format(median)}</strong>
+    <strong title={estimated ? 'estimated from paired request and completion times' : undefined}>{estimated ? '≈' : ''}{format(median)}</strong>
     {p10 !== null && p90 !== null && <>
       <span className="speed-track" aria-hidden="true"><span style={{ left: p10 / scale * 100 + '%', width: (p90 - p10) / scale * 100 + '%' }} /></span>
-      <small>p10–p90 · {format(p10)}–{format(p90)}</small>
+      <small title={value.min !== null && value.max !== null ? `min–max ${format(value.min)}–${format(value.max)}` : undefined}>p10–p90 · {format(p10)}–{format(p90)}</small>
     </>}
   </div>;
 }
@@ -100,7 +100,6 @@ export function ModelSpeedTable({ data }: { data: ModelStats }) {
         <TableHead role="columnheader" scope="col">{label('Provider')}</TableHead>
         <TableHead role="columnheader" scope="col">{label('Calls')}</TableHead>
         <TableHead role="columnheader" scope="col" aria-sort="descending">{label('Speed, tok/s')}</TableHead>
-        <TableHead role="columnheader" scope="col">{label('Min–max')}</TableHead>
         <TableHead role="columnheader" scope="col">{label('TTFT, ms')}</TableHead>
       </TableRow></TableHeader>
       <TableBody role="rowgroup">{rows.map(({ key, metrics }) => {
@@ -113,12 +112,10 @@ export function ModelSpeedTable({ data }: { data: ModelStats }) {
             {data.group_by === 'model+effort' && <MetricCell label={label('Effort')}>{key.effort ?? '—'}</MetricCell>}
             <MetricCell label={label('Provider')}>{key.provider ? <Badge variant="outline">{key.provider}</Badge> : '—'}</MetricCell>
             <MetricCell label={label('Calls')}>{format(metrics.count)}</MetricCell>
-            <MetricCell label={label('Speed, tok/s')}><Range value={metrics.speed_tokens_per_second} scale={speedScale} format={format} /></MetricCell>
-            <MetricCell label={label('Min–max')}>{metrics.speed_tokens_per_second.min === null && metrics.speed_tokens_per_second.max === null
-              ? '—' : format(metrics.speed_tokens_per_second.min) + '–' + format(metrics.speed_tokens_per_second.max)}</MetricCell>
+            <MetricCell label={label('Speed, tok/s')}><Range value={metrics.speed_tokens_per_second} scale={speedScale} format={format} estimated={metrics.speed_estimated === true} /></MetricCell>
             <MetricCell label={label('TTFT, ms')}><Range value={metrics.ttft_ms} scale={ttftScale} format={format} /></MetricCell>
           </TableRow>
-          {expanded && <TableRow role="row" className="speed-trend-row"><TableCell role="cell" colSpan={data.group_by === 'model+effort' ? 7 : 6}>
+          {expanded && <TableRow role="row" className="speed-trend-row"><TableCell role="cell" colSpan={data.group_by === 'model+effort' ? 6 : 5}>
             <div id={trendId} className="speed-trend"><Trend model={key.model} window={data.window} /></div>
           </TableCell></TableRow>}
         </Fragment>;
