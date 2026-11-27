@@ -143,10 +143,12 @@ export function SessionDetails({ id, execution, tab, tabs, heading, now }: {
 export function Member({ item, now }: { item: PoolMember; caps?: Capabilities; now: number }) {
   const { label } = useWebText();
   // A member with a readable Run agent is shown exactly like its row in Sessions.
-  if (item.run) return <SessionCard row={item.run} now={now} />;
+  if (item.run) return <SessionCard row={item.run} now={now} heldMessages={item.run.id === item.session?.sessionId ? item.heldMessages : undefined} />;
   const session = item.session;
+  const state = item.state ?? item.seat?.admission ?? 'unknown';
   return <Row id={item.id} target={session ? sessionHref(session.sessionId, session.execution) : undefined} selected={false}
-    title={memberTitle(item) ?? item.id} hint={session?.sessionId ?? item.id} status={<StatusBadge state={item.state ?? item.seat?.admission ?? 'unknown'} />}>
+    title={memberTitle(item) ?? item.id} hint={session?.sessionId ?? item.id} status={<StatusBadge state={state} />}
+    heldMessages={state === 'pending' ? item.heldMessages : undefined}>
     {item.task && <span className="web-record-preview" title={item.task}>{item.task}</span>}
     {!session && <span className="web-muted">{label('No linked session')}</span>}
   </Row>;

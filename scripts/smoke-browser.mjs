@@ -15,7 +15,7 @@ try {
       await browser.execute(value => localStorage.setItem('agent-hub-theme', value), theme);
       await browser.refresh();
       await browser.$(fixture).waitForDisplayed();
-      await browser.waitUntil(() => browser.$('.web-connection .online').isExisting());
+      await browser.waitUntil(() => browser.$$('.web-connection .online').length.then(count => count > 0));
       assert.equal(await browser.execute(() => document.documentElement.classList.contains('dark')), theme === 'dark');
       assert.ok(await browser.execute(() => document.documentElement.scrollWidth <= window.innerWidth + 1));
       await browser.execute(selector => document.querySelector(selector).focus(), fixture);

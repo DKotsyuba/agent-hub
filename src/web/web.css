@@ -44,9 +44,9 @@ html {
 }
 /* A Safari tab already has browser chrome above its content. */
 @media (display-mode: standalone) {
-  .web-shell { --web-safe-top: env(safe-area-inset-top, 0px); }
+  .web-shell { --web-safe-top: calc(env(safe-area-inset-top, 0px) + 8px); }
 }
-.web-standalone .web-shell { --web-safe-top: env(safe-area-inset-top, 0px); }
+.web-standalone .web-shell { --web-safe-top: calc(env(safe-area-inset-top, 0px) + 8px); }
 .web-shell .skip-link:focus { top: calc(12px + var(--web-safe-top)); left: calc(16px + env(safe-area-inset-left, 0px)); }
 
 /* The main column keeps its header and footer fixed while the active pane scrolls. */
@@ -66,10 +66,11 @@ html {
 .web-brand { display: flex; align-items: center; gap: 12px; padding: 5px 6px; font-size: 1.17rem; }
 .web-brand > span { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 9px; color: var(--primary-foreground); background: var(--primary); }
 .web-rail nav { display: flex; flex-direction: column; gap: 5px; }
-.web-rail nav a { display: flex; gap: 10px; align-items: center; min-height: 42px; padding: 8px 11px; border-radius: 7px; color: var(--muted); }
-.web-rail nav a:hover, .web-record:hover { background: var(--secondary); }
-.web-rail nav a[aria-current], .web-record[aria-current] { background: var(--accent); color: var(--primary); }
+.web-section-nav a { display: flex; gap: 10px; align-items: center; min-height: 42px; padding: 8px 11px; border-radius: 7px; color: var(--muted); }
+.web-section-nav a:hover, .web-record:hover { background: var(--secondary); }
+.web-section-nav a[aria-current], .web-record[aria-current] { background: var(--accent); color: var(--primary); }
 .web-preferences { margin-top: auto; }
+.web-phone-version, .web-phone-actions, .web-phone-update, .web-phone-nav, .web-tab-short { display: none; }
 .web-settings-fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: center; gap: 12px; }
 .web-settings-fields .choice-trigger { width: 100%; }
 .web-main { min-width: 0; width: 100%; max-width: 1680px; margin-inline: auto; display: flex; flex-direction: column;
@@ -223,6 +224,8 @@ html {
 .web-status-phase svg { flex: none; }
 .web-record-copy { display: grid; gap: 2px; color: var(--muted); margin-top: 4px; font-size: .875rem; }
 .web-record-preview { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+.web-held-badge { white-space: normal; max-width: 100%; }
+.web-held-tooltip { max-width: min(24rem, calc(100vw - 24px)); overflow-wrap: anywhere; }
 .web-record-copy > span:empty { display: none; }
 .web-loaded { margin-block: 8px; }
 .web-projects { margin-bottom: 12px; }
@@ -365,13 +368,42 @@ html {
 }
 @media (max-width: 650px) {
   .web-cards, .web-overview { grid-template-columns: minmax(0, 1fr); }
-  .web-main { padding-block-start: 16px; }
+  .web-shell:not(:has(.web-has-detail)) { grid-template-rows: auto minmax(0, 1fr) auto; }
+  .web-shell:not(:has(.web-has-detail)) .web-main { padding-block: 12px 8px; }
   .web-heading { gap: 8px; margin-bottom: 12px; }
-  .web-rail nav { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); }
-  .web-rail nav a { justify-content: center; flex-direction: column; text-align: center; gap: 3px; line-height: 1.15; min-height: 52px; padding-inline: 2px; font-size: .75rem; }
-  .web-rail nav svg { width: 16px; height: 16px; }
-  .web-settings-trigger { min-height: 44px; min-width: 44px; }
+  .web-heading:not(.web-heading-detail) { margin-bottom: 0; }
+  .web-heading:not(.web-heading-detail) .web-title-line { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); }
+  .web-heading:not(.web-heading-detail) .web-header-controls, .web-footer, .web-rail nav { display: none; }
+  .web-rail { padding: 2px 8px; }
+  .web-brand { gap: 8px; font-size: 1rem; min-height: 44px; }
+  .web-brand > span { flex: none; width: 32px; height: 32px; }
+  .web-phone-version { display: block; font-size: .6875rem; font-weight: normal; color: var(--muted); }
+  .web-preferences, .web-phone-actions { display: flex; align-items: center; }
+  .web-phone-actions .web-connection > span:last-child,
+  .web-detail-header .web-connection > span:last-child,
+  .web-heading-detail .web-connection > span:last-child {
+    position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%);
+  }
+  .web-rail :is(.web-settings-trigger, .web-phone-actions button) { min-height: 44px; min-width: 44px; }
   .web-settings-trigger span { display: none; }
+  .web-phone-update { display: flex; padding-block-start: 4px; }
+  .web-phone-nav {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(44px, 1fr));
+    overflow-x: auto;
+    border-top: 1px solid var(--border);
+    background: var(--rail);
+    padding: 3px 4px calc(3px + var(--web-safe-bottom, env(safe-area-inset-bottom, 0px)));
+  }
+  .web-phone-nav a {
+    justify-content: center; flex-direction: column; text-align: center;
+    gap: 2px; line-height: 1.15; min-height: 49px; padding: 4px 0; font-size: .625rem;
+    overflow-wrap: anywhere;
+  }
+  .web-phone-nav a:focus-visible { outline-offset: -2px; }
+  .web-phone-nav svg { width: 20px; height: 20px; flex: none; }
+  .web-phone-nav .web-tab-full { display: none; }
+  .web-phone-nav .web-tab-short { display: block; white-space: nowrap; }
   .web-source-strip .web-source-items { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; }
   .web-source-control { flex-direction: column; justify-content: center; align-items: flex-start; padding-inline: 4px; }
   .web-source-control .web-status { white-space: normal; }
@@ -394,7 +426,7 @@ html {
   .web-message { padding-inline: 12px; }
   body:has(.web-shell) [role=listbox] [role=option] { min-height: 44px; }
   .web-quota-advice { margin-block: 6px; }
-  .web-heading:has(.web-update) .web-header-controls { width: 100%; justify-content: flex-end; }
+  .web-heading-detail:has(.web-update) .web-header-controls { width: 100%; justify-content: flex-end; }
   .web-facts { grid-template-columns: repeat(auto-fit, minmax(min(100%, 125px), 1fr)); }
 }
 

@@ -11,6 +11,9 @@ export const sessionLink = object({
   match: oneOf('verified', 'unverified', 'missing', 'mismatch', 'unknown'),
 });
 
+/** An observed positive Bridge custody backlog for one Pool seat, with its oldest custody clock. */
+export const sessionHeldMessages = object({ count, oldestAtMs: count });
+
 /**
  * A list row for a current or retained execution. Clocks are epoch milliseconds.
  * `phase` is the producer's own preparation/execution phase, shown as reported; `idleMs` is its
@@ -23,6 +26,7 @@ export const session = object({
   createdAtMs: nullable(count), finishedAtMs: nullable(count), observedAtMs: nullable(count),
   progressAtMs: nullable(count), elapsedMs: nullable(count), silenceMs: nullable(count), lastAction: nullable(text),
   phase: nullable(text), phaseStartedAtMs: nullable(count), idleMs: nullable(count),
+  heldMessages: optional(sessionHeldMessages),
   failureKind: nullable(text), failureText: nullable(text), answerAvailable: nullable(bool),
 });
 

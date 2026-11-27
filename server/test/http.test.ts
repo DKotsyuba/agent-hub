@@ -1026,3 +1026,51 @@ test('pool lifecycle is filtered before paging while raw closure filters remain 
     await http.close();
   }
 });
+
+test('Pool custody reaches the matching waiting session and Pool member through both HTTP routes', async () => {
+  const native = await producer();
+  const seat = { ...chat.seats[0], held_message_count: 3, oldest_held_message_at_ms: now - 600_000 };
+  const expected = { count: 3, oldestAtMs: now - 600_000 };
+  let supported = true;
+  const http = handler({
+    ...native,
+    async read(resource, params, signal) {
+      if (resource === 'pool.identity') return envelope(resource, { schema_version: 1, kind: 'identity', data: {
+        capabilities: ['observer_socket_v1', 'inventory_snapshot_v1', ...(supported ? ['seat_held_messages_v1'] : [])],
+      } });
+      if (resource === 'pool.inventory_snapshot') {
+        assert.equal(supported, true);
+        assert.equal(params?.filter, 'not_closed');
+        return envelope(resource, { schema_version: 1, kind: 'inventory_snapshot', data: {
+          source: { store_id: 's', read_epoch: 'e', revision: '1' },
+          totals: { total: '1', closed: '0', unknown: '0', open: '1', completed: '0' },
+          coverage: 'fixture', pools: [{ pool: { ...poolView.pool, purpose: 'review', kind: 'chat' }, roster: [seat], leader_id: 'leader' }],
+          returned: 1, has_more: false, next_cursor: null, observed_at_unix_ms: now,
+        } });
+      }
+      if (resource === 'pool.get' && params?.section === 'members') return envelope(resource, {
+        schema_version: 1, kind: 'pool_detail', data: {
+          section: 'members', source_timestamp: null, cursor: '1', has_more: false, returned: 1, decisions: [],
+          view: { ...poolView, members: [seat], section: 'members', next_after: 1 },
+        },
+      });
+      const result = await native.read(resource, params, signal);
+      if (resource !== 'run.agents') return result;
+      return envelope(resource, { ...object(result.data), items: (object(result.data).items as unknown[]).map(value => {
+        const row = object(value);
+        return row.agent_id === seat.run_agent_id ? { ...row, phase: 'idle' } : row;
+      }) });
+    },
+  });
+  try {
+    const sessions = await get(http, 'sessions', '/sessions');
+    assert.deepEqual(sessions.data.items.filter(row => row.heldMessages).map(row => [row.id, row.heldMessages]), [[seat.run_agent_id, expected]]);
+    const members = await get(http, 'poolSection', '/pools/demo-pool/sections/members');
+    assert.equal(members.data.section, 'members');
+    assert.deepEqual(members.data.items[0].heldMessages, expected);
+    supported = false;
+    assert.ok((await get(http, 'sessions', '/sessions')).data.items.every(row => row.heldMessages === undefined));
+  } finally {
+    await http.close();
+  }
+});

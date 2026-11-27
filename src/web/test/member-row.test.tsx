@@ -3,11 +3,13 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { PoolMember } from '@agent-hub/domain';
+import { TooltipProvider } from '../../components/ui/tooltip';
 import { LocaleProvider } from '../../i18n';
 
 // The shared web client binds a same-origin base URL at module load; the renderer needs no network.
 Object.defineProperty(globalThis, 'location', { value: { origin: 'http://hub.test' }, configurable: true });
 const { Member } = await import('../details');
+const { SessionCard } = await import('../lists');
 
 /** A linked member whose Run row is currently working. */
 const working: PoolMember = {
@@ -26,7 +28,7 @@ const working: PoolMember = {
 
 /** Renders one member row inside the required locale provider and returns its markup. */
 function markup(item: PoolMember, now: number) {
-  return renderToStaticMarkup(<LocaleProvider><Member item={item} now={now} /></LocaleProvider>);
+  return renderToStaticMarkup(<LocaleProvider><TooltipProvider><Member item={item} now={now} /></TooltipProvider></LocaleProvider>);
 }
 
 test('a working member renders exactly its Sessions row: status, title, model and folder, footer and transcript link', () => {
@@ -51,4 +53,17 @@ test('a member without a Run row keeps a neutral state badge and is not a link',
   assert.match(html, />Ожидает</);
   assert.match(html, /Сессия не привязана/);
   assert.doesNotMatch(html, /<a /);
+});
+
+test('waiting rows share the warning badge while active rows and old source rows omit it', () => {
+  const now = Date.UTC(2026, 10, 27, 10, 0);
+  const heldMessages = { count: 3, oldestAtMs: Date.UTC(2026, 10, 27, 9, 38) };
+  const run = { ...working.run!, phase: 'idle' };
+  const expected = /data-tone="warning">недоставлено: 3 с 10:38/;
+  assert.match(markup({ ...working, run, heldMessages }, now), expected);
+  assert.doesNotMatch(markup({ ...working, run }, now), /недоставлено/);
+  assert.doesNotMatch(markup({ ...working, heldMessages }, now), /недоставлено/);
+  assert.match(renderToStaticMarkup(<LocaleProvider><TooltipProvider>
+    <SessionCard row={{ ...run, heldMessages }} now={now} />
+  </TooltipProvider></LocaleProvider>), expected);
 });

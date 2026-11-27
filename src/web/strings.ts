@@ -1,5 +1,6 @@
 /** Russian translations for v1-specific chrome and normalized producer enum values. */
 export const translations: Record<string, string> = {
+  'Tab overview': 'Обзор', 'Tab sessions': 'Сессии', 'Tab pools': 'Пулы', 'Tab quota': 'Квоты', 'Tab worktrees': 'Worktree', 'Tab model speed': 'Скорость',
   'Held alarm': 'Недоставленные сообщения', 'Held title': 'Сообщения агентам не доставляются: {count} шт., самое старое ждёт {time}',
   'Held wait hours': '{hours} ч {minutes} мин', 'Held wait minutes': '{minutes} мин',
   'Held reason target_unavailable': 'получатель недоступен', 'Held reason socket_continuity': 'не подтверждена связь с процессом',
@@ -22,6 +23,8 @@ export const translations: Record<string, string> = {
   'Reset credit generic': 'Сброс', 'Reset credit full': 'Полный сброс',
   'Credit scope all': '5 ч + неделя', 'Credit scope five hours': '5 ч', 'Credit scope week': 'неделя', 'Credit scope model': 'модель {model}',
   'Redeem reset': 'Сбросить', 'Redeem title': 'Сбросить лимит?', 'Redeem refills': 'Восстанавливает', 'Redeem expiry': 'Срок',
+  'Held messages badge': 'недоставлено: {count} с {time}',
+  'Held messages detail': 'Сообщений для этого участника на удержании в Bridge: {count}. Самое раннее удерживается с {time}.',
   'Redeem warning': 'Действие необратимо: сброс будет потрачен.', 'Redeem applying': 'Применяется…', 'Redeem done': 'Сброс применён',
   'credit_not_usable': 'сброс сейчас недоступен', 'redeem_in_progress': 'по этой учётке уже идёт сброс', 'redeem_not_configured': 'сброс для этой учётки не настроен', 'inventory_unknown': 'список сбросов ещё не получен', 'inventory_stale': 'ждём обновления квоты после прошлого сброса', 'owner_rate_limited': 'слишком часто: подождите 2 минуты', 'already_used': 'этот сброс уже использован', 'not_limited': 'лимит сейчас не исчерпан', 'cooldown': 'сброс пока на паузе', 'ineligible': 'учётка не подходит для сброса', 'auth_rejected': 'провайдер отклонил вход', 'executor_unavailable': 'служба сброса не запустилась', 'claim_lost': 'запрос потерялся до отправки, сброс не потрачен', 'quota_unavailable': 'Quota недоступна',
   'Redeem failed': 'Сброс не применён', 'Redeem unknown': 'Результат неизвестен. Сначала проверьте квоту: новая попытка может потратить ещё один сброс',
@@ -137,6 +140,7 @@ export const translations: Record<string, string> = {
 
 /** Human-readable v1 machine codes and English labels for normalized UI values. */
 export const english: Record<string, string> = {
+  'Tab overview': 'Overview', 'Tab sessions': 'Sessions', 'Tab pools': 'Pools', 'Tab quota': 'Quota', 'Tab worktrees': 'Worktree', 'Tab model speed': 'Speed',
   'Held alarm': 'Undelivered messages', 'Held title': 'Messages to agents are not being delivered: {count}, oldest waiting {time}',
   'Held wait hours': '{hours} h {minutes} min', 'Held wait minutes': '{minutes} min',
   'Held reason target_unavailable': 'recipient unavailable', 'Held reason socket_continuity': 'process connection not confirmed',
@@ -165,6 +169,8 @@ export const english: Record<string, string> = {
   invalid_request: 'Invalid request', not_found: 'Record not found', stale_boundary: 'Page boundary expired',
   unsupported_capability: 'Capability is not supported', saturated: 'Source is busy', invalid_projection: 'Invalid response',
   'Redeem reset': 'Reset', 'Redeem title': 'Reset the limit?', 'Redeem refills': 'Refills', 'Redeem expiry': 'Expiry',
+  'Held messages badge': 'undelivered: {count} since {time}',
+  'Held messages detail': 'Messages held by Bridge for this seat: {count}. Oldest held since {time}.',
   'Redeem warning': 'This cannot be undone: the reset will be spent.', 'Redeem applying': 'Applying…', 'Redeem done': 'Reset applied',
   'credit_not_usable': 'the reset is not usable now', 'redeem_in_progress': 'a reset is already running for this account', 'redeem_not_configured': 'resets are not configured for this account', 'inventory_unknown': 'the reset list is not known yet', 'inventory_stale': 'waiting for a quota refresh after the previous reset', 'owner_rate_limited': 'too frequent: wait 2 minutes', 'already_used': 'this reset was already used', 'not_limited': 'the limit is not exhausted now', 'cooldown': 'resets are cooling down', 'ineligible': 'the account is not eligible', 'auth_rejected': 'the provider rejected the login', 'executor_unavailable': 'the reset service did not start', 'claim_lost': 'the request was lost before sending; nothing spent', 'quota_unavailable': 'Quota is unavailable',
   'Redeem failed': 'Reset not applied', 'Redeem unknown': 'Outcome unknown. Check the quota first: a new attempt may spend another reset',

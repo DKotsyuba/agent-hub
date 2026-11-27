@@ -302,14 +302,21 @@ export default function App() {
       setSidebar(!expanded);
       try { localStorage.setItem('agent-hub-sidebar', expanded ? 'collapsed' : 'expanded'); } catch { /* Keep the in-memory choice. */ }
     }}><PanelLeft size={18} /></Button>;
+  const updated = label('Updated') + ' ' + (lastRead ? relativeTime(lastRead, Math.max(now, lastRead), tag) : '—');
+  const updateButton = updateAvailable && <Button className="web-update" size="sm" disabled={appUpdate.updating} onClick={() => void appUpdate.activate()}
+    aria-label={label(appUpdate.updating ? 'Updating app' : 'Update app')} title={label(appUpdate.updating ? 'Updating app' : 'Update app')}>
+    <Download size={16} aria-hidden="true" /><span>{label(appUpdate.updating ? 'Updating app' : 'Update app')}</span>
+  </Button>;
+  const connectionStatus = <span className="web-connection" title={label(connection)}>
+    <span className={connection === 'connected' ? 'online' : ''} aria-hidden="true" /><span>{label(connection)}</span>
+  </span>;
+  /** Builds the refresh action with an optional title for the phone header. */
+  const refreshButton = (title = label('Refresh data')) => <Button variant="ghost" size="icon" onClick={() => setRefresh(value => value + 1)}
+    aria-label={label('Refresh data')} title={title}><RefreshCw size={16} /></Button>;
   const headerControls = <div className="web-controls web-header-controls">
-    {updateAvailable && <Button className="web-update" size="sm" disabled={appUpdate.updating} onClick={() => void appUpdate.activate()}
-      aria-label={label(appUpdate.updating ? 'Updating app' : 'Update app')} title={label(appUpdate.updating ? 'Updating app' : 'Update app')}>
-      <Download size={16} aria-hidden="true" /><span>{label(appUpdate.updating ? 'Updating app' : 'Update app')}</span>
-    </Button>}
-    <span className="web-connection" title={label(connection)}><span className={connection === 'connected' ? 'online' : ''} /><span>{label(connection)}</span></span>
-    <Button variant="ghost" size="icon" onClick={() => setRefresh(value => value + 1)}
-      aria-label={label('Refresh data')} title={label('Refresh data')}><RefreshCw size={16} /></Button>
+    {updateButton}
+    {connectionStatus}
+    {refreshButton()}
   </div>;
   const fixtureBadge = health.value?.mode === 'fixture' && <span className="web-fixture">{label('Fixture data')}</span>;
 
@@ -344,18 +351,24 @@ export default function App() {
     {headerControls}
   </div>;
 
+  /** Renders the same navigation links in the rail and phone tab bar. */
+  const sectionNav = (className: string) => <nav className={className} aria-label={label('Navigation')}>
+    {navigation.map(([key, path, name, Icon]) => <RailHint key={key} label={label(name)}><Link href={path} data-focus-key={key} aria-label={label(name)}
+      aria-current={key === kind || (key === 'overview' && kind === 'incidents') ? 'page' : undefined}>
+      <Icon size={18} aria-hidden="true" /><span className="web-tab-full">{label(name)}</span><span className="web-tab-short" aria-hidden="true">{label('Tab ' + key.replace('-', ' '))}</span>
+    </Link></RailHint>)}
+  </nav>;
+
   return <Navigation.Provider value={go}><HeldContext.Provider value={alarm}><LiveContext.Provider value={{ ...live, refresh, unreachable, reportRead, requestRefresh: () => setRefresh(value => value + 1) }}>
-    <div className="web-shell" data-sidebar={expanded ? 'expanded' : 'collapsed'} data-immersive={immersive || undefined}>
+    <TooltipProvider delayDuration={250}><div className="web-shell" data-sidebar={expanded ? 'expanded' : 'collapsed'} data-immersive={immersive || undefined}>
       <a className="skip-link" href="#web-main">{label('Skip to content')}</a>
-      <TooltipProvider delayDuration={250}><aside className="web-rail" id="web-sidebar">
-        <RailHint label="Agent Hub"><Link className="web-brand" href="/" aria-label="Agent Hub" data-focus-key="brand"><span><Activity size={20} /></span><strong>Agent Hub</strong></Link></RailHint>
-        <nav aria-label={label('Navigation')}>
-          {navigation.map(([key, path, name, Icon]) => <RailHint key={key} label={label(name)}><Link href={path} data-focus-key={key} aria-label={label(name)}
-            aria-current={key === kind || (key === 'overview' && kind === 'incidents') ? 'page' : undefined}>
-            <Icon size={18} aria-hidden="true" /><span>{label(name)}</span>
-          </Link></RailHint>)}
-        </nav>
+      <aside className="web-rail" id="web-sidebar">
+        <RailHint label="Agent Hub"><Link className="web-brand" href="/" aria-label="Agent Hub" data-focus-key="brand"><span><Activity size={20} aria-hidden="true" /></span><strong>Agent Hub
+          <small className="web-phone-version">Hub {webVersion} · {label('Server version')} {serverRelease ?? '—'}</small>
+        </strong></Link></RailHint>
+        {sectionNav('web-section-nav')}
         <div className="web-preferences">
+          <div className="web-phone-actions">{connectionStatus}{refreshButton(label('Refresh data') + ' · ' + updated)}</div>
           <Dialog open={settings} onOpenChange={setSettings}>
             <RailHint label={label('Settings')}><DialogTrigger asChild><Button className="web-settings-trigger" variant="ghost" aria-label={label('Settings')}>
               <Settings size={18} aria-hidden="true" /><span>{label('Settings')}</span>
@@ -376,9 +389,10 @@ export default function App() {
             </DialogContent>
           </Dialog>
         </div>
-      </aside></TooltipProvider>
+      </aside>
       <main id="web-main" className="web-main" tabIndex={-1}>
         {!immersive && header}
+        {!id && updateAvailable && <div className="web-phone-update">{updateButton}</div>}
         <HeldAlert alarm={alarm} stale={heldSummary.stale} />
         {unreachable && <p className="web-warning web-offline" role="status">{label('Offline shell')}</p>}
         {appUpdate.error && <p className="web-warning" role="status">{label('Update failed')}</p>}
@@ -405,11 +419,11 @@ export default function App() {
           <span>Hub {webVersion}</span>
           <span>{label('Server version')} {serverRelease ?? '—'}</span>
           <span>{label(connection)}</span>
-          <span title={lastRead ? clock(lastRead) : undefined}>{label('Updated')} {lastRead ?
-            relativeTime(lastRead, Math.max(now, lastRead), tag) : '—'}</span>
+          <span title={lastRead ? clock(lastRead) : undefined}>{updated}</span>
         </footer>}
       </main>
-    </div>
+      {!id && sectionNav('web-section-nav web-phone-nav')}
+    </div></TooltipProvider>
   </LiveContext.Provider></HeldContext.Provider></Navigation.Provider>;
 }
 
