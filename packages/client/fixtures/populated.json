@@ -152,9 +152,10 @@
           "elapsedMs": 192000,
           "silenceMs": 7000,
           "lastAction": "Read history",
-          "phase": "running",
-          "phaseStartedAtMs": 1794010619000,
-          "idleMs": null,
+          "phase": "idle",
+          "phaseStartedAtMs": 1794011040000,
+          "idleMs": 1500000,
+          "heldMessages": { "count": 3, "oldestAtMs": 1794009600000 },
           "failureKind": null,
           "failureText": null,
           "answerAvailable": false
@@ -1598,6 +1599,7 @@
               "match": "unverified"
             },
             "lineage": null,
+            "heldMessages": { "count": 3, "oldestAtMs": 1794009600000 },
             "run": {
               "id": "demo-index",
               "execution": null,

@@ -1,6 +1,6 @@
 /** Pool inventory, membership, discussion, completion and recorded agreement data. */
 import { coverage, decimal, opaque, resourceId, sha256 } from './common.ts';
-import { lineageEvidence, runStatus, session, sessionLink, textChunk } from './sessions.ts';
+import { lineageEvidence, runStatus, session, sessionHeldMessages, sessionLink, textChunk } from './sessions.ts';
 import { type Decoded, array, bool, count, nullable, object, oneOf, optional, tagged, text } from './schema.ts';
 
 /** A completion or agreement record is selectable only when Pool reports its reference. */
@@ -65,6 +65,7 @@ export const member = object({
   id: resourceId, name: nullable(text), role: nullable(text), task: nullable(text),
   state: nullable(text), runtime: nullable(text),
   seat: nullable(seat), session: nullable(sessionLink), run: optional(nullable(memberRun)),
+  heldMessages: optional(sessionHeldMessages),
   lineage: nullable(lineageEvidence),
 });
 

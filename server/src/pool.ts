@@ -8,6 +8,7 @@ import { agreementRecord, completionContent, completionIdFromEvents, completionP
 import { parsePoolRunProof } from '../../terminal/src/pool-run-proof.ts';
 import { parseRunStatus, runStatusRequest, type RunStatusEvidence } from '../../terminal/src/run-status.ts';
 import { digest, type Position } from './cursor.ts';
+import { poolHeldMessages } from './pool-held.ts';
 import { HubError } from './errors.ts';
 import { coverage, decimalValue, field, ms, noPage, observed, optionalObject, records, type Input, type ReadContext } from './projection.ts';
 import { registerBinding, runSessionRow, sessionRow } from './run.ts';
@@ -122,6 +123,7 @@ function member(raw: Record<string, unknown>): PoolMember {
     id: String(raw.member_id), name: text(raw.name), role: text(raw.role), task: text(raw.task), state: text(raw.state), runtime: text(raw.runtime),
     seat: seat ? { id: seat.seatId, profile: seat.profile, admission: seat.admission, joined: seat.joined } : null,
     session: seat?.runAgentId ? { sessionId: seat.runAgentId, execution: null, match: 'unverified' } : null,
+    heldMessages: seat ? poolHeldMessages(raw) : undefined,
     run: null, lineage: null,
   };
 }
@@ -167,6 +169,7 @@ async function linkedMember(ctx: ReadContext, value: Record<string, unknown>, id
     if (base.session) base.run = await runSessionRow(ctx, base.session.sessionId);
     return base;
   }
+  if (base.session?.sessionId !== sessionId) delete base.heldMessages;
   base.session = { sessionId, execution: null, match: 'unverified' };
   // A bare or unproven binding can still contribute the Run row's own display fields.
   const readRun = async () => { const row = await runSessionRow(ctx, sessionId); return row ? memberRun(row) : null; };

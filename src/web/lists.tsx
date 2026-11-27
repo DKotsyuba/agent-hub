@@ -2,10 +2,12 @@
 import { useState } from 'react';
 import type { ReactNode } from 'react';
 import { Button } from '../components/ui/button';
+import { Badge } from '../components/ui/badge';
+import { Tooltip, TooltipContent, TooltipTrigger } from '../components/ui/tooltip';
 import { Input } from '../components/ui/input';
 import { Choice } from '../components/hub-primitives';
 import { client, usePagedRead } from './data';
-import { modelTitle, poolBadge, poolTitle, sessionTitle, worktreeMeasurements } from './model';
+import { modelTitle, poolBadge, poolTitle, sessionPhase, sessionTitle, worktreeMeasurements } from './model';
 import { branchLabel, formatBytes } from '../../packages/view-model/src/index';
 import { Next, period, Period } from './catalog';
 import { EmptyRows, Expand, href, Link, ReadState, SessionFooter, SessionStatus, sessionHref, Sources, StatusBadge, useWebText } from './ui';
@@ -23,17 +25,32 @@ function filters(kind: Inventory, query: URLSearchParams) {
   return { project, cursor };
 }
 
-/** A row keeps its accessible name and focus identity stable on background refresh; status leads the name. */
-export function Row({ id, target, selected, title, hint, status, children }: {
-  id: string; target?: string; selected: boolean; title: string; hint?: string; status?: ReactNode; children?: ReactNode;
+/** A stable record link or static row with an optional custody warning and focus tooltip. */
+export function Row({ id, target, selected, title, hint, status, heldMessages, children }: {
+  id: string; target?: string; selected: boolean; title: string; hint?: string; status?: ReactNode; heldMessages?: Session['heldMessages']; children?: ReactNode;
 }) {
+  const { label, locale, n, at } = useWebText();
+  const oldest = heldMessages && new Date(heldMessages.oldestAtMs);
+  const iso = oldest && Number.isFinite(oldest.getTime()) ? oldest.toISOString() : null;
+  const count = iso && heldMessages && heldMessages.count > 0 ? n(heldMessages.count) : null;
+  const detail = iso && count && label('Held messages detail').replace('{count}', count).replace('{time}', iso);
   const content = <>
     <div className="web-record-heading">{status && <span className="web-record-status">{status}</span>}<strong title={hint ?? title}>{title}</strong></div>
-    <div className="web-record-copy">{children}</div>
+    <div className="web-record-copy">
+      {iso && count && heldMessages && <Badge variant="outline" className="web-status web-held-badge" data-tone="warning">
+        {label('Held messages badge').replace('{count}', count).replace('{time}',
+          locale === 'ru' ? at(heldMessages.oldestAtMs) : iso.slice(11, 16) + 'Z')}
+      </Badge>}
+      {children}
+    </div>
   </>;
-  return target
+  const record = target
     ? <Link href={target} data-focus-key={id} aria-current={selected ? 'page' : undefined} className="web-record">{content}</Link>
-    : <div className="web-record" data-focus-key={id}>{content}</div>;
+    : <div className="web-record" data-focus-key={id} tabIndex={detail ? 0 : undefined}>{content}</div>;
+  return <Tooltip>
+    <TooltipTrigger asChild>{record}</TooltipTrigger>
+    {detail && <TooltipContent className="web-held-tooltip">{detail}</TooltipContent>}
+  </Tooltip>;
 }
 
 /** List pane shows fetched counts as loaded counts, with independent source coverage. */
@@ -114,10 +131,11 @@ export function inventoryHref(kind: Inventory, query: URLSearchParams) {
 }
 
 /** One session row exactly as the Sessions list shows it; pool members reuse it for their Run agent. */
-export function SessionCard({ row, now, selected = false, target }: { row: Session; now: number; selected?: boolean; target?: string }) {
+export function SessionCard({ row, now, selected = false, target, heldMessages = row.heldMessages }: { row: Session; now: number; selected?: boolean; target?: string; heldMessages?: Session['heldMessages'] }) {
   const { label } = useWebText();
   return <Row id={row.id + ':' + row.execution} target={target ?? sessionHref(row.id, row.execution)} selected={selected}
-    title={sessionTitle(row) ?? label('Session detail')} hint={row.id} status={<SessionStatus row={row} now={now} />}>
+    title={sessionTitle(row) ?? label('Session detail')} hint={row.id} status={<SessionStatus row={row} now={now} />}
+    heldMessages={sessionPhase(row, now).kind === 'waiting' ? heldMessages : undefined}>
     <span>{[row.model && modelTitle(row.model), row.workdir?.split('/').filter(Boolean).at(-1)].filter(Boolean).join(' · ')}</span>
     <span className="web-record-preview">{row.lastAction ?? (row.name ? row.summary : null)}</span>{row.failureKind && <span className="error-text">{row.failureKind}{row.failureText && ' · ' + row.failureText}</span>}
     <SessionFooter row={row} now={now} />

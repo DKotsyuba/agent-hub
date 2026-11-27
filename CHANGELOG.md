@@ -4,6 +4,10 @@ All notable changes to Agent Hub are documented here. The format follows [Keep a
 
 ## [Unreleased]
 
+### Added
+
+- Waiting sessions and Pool members show a warning badge with the number and oldest timestamp of messages still held by Bridge when Agent Pool reports seat custody.
+
 ## [0.3.20] - 2026-11-27
 
 ### Fixed

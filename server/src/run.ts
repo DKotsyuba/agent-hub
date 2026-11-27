@@ -6,6 +6,7 @@ import { agentWorkdir, projectRoot } from '../../terminal/src/sessions.ts';
 import { initialTaskCapability, readInitialTask } from '../../terminal/src/initial-task.ts';
 import { exportExactHistory } from '../../terminal/src/export-exact.ts';
 import { parseRunStatus, runStatusRequest, validRunAgentId, type RunStatusRequest } from '../../terminal/src/run-status.ts';
+import { withPoolHeldMessages } from './pool-held.ts';
 import { HubError } from './errors.ts';
 import type { NativeResponse } from './observer.ts';
 import { digest, type Position } from './cursor.ts';
@@ -107,7 +108,7 @@ export async function sessions(ctx: ReadContext, query: Input<'sessions'>, posit
       && (!query.q || [row.id, row.name, row.summary, row.model, row.workdir].some(value => value?.toLowerCase().includes(query.q.toLowerCase())));
   });
   const page = ctx.cursors.slice(query, position, items, digest([result.inventory.revision, items.map(row => row.id)]), query.limit);
-  return { data: { items: page.items }, page: page.page, observations: [result.observation] };
+  return { data: { items: await withPoolHeldMessages(ctx, page.items) }, page: page.page, observations: [result.observation] };
 }
 
 /** Finds the latest agent row, recovering by ID when Run cannot project a whole inventory page. */
